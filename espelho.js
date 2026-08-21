@@ -33,8 +33,14 @@ TELAS.espelho = function () {
   const filtro = TELAS._fEspelho || { q: '', quadra: '', status: '' };
   TELAS._fEspelho = filtro;
 
-  const disp = ls.filter((l) => l.status === 'Disponível').length;
+  const disponiveis = ls.filter((l) => l.status === 'Disponível');
+  const disp = disponiveis.length;
+  const estoqueRS = disponiveis.reduce((s, l) => s + (Number(l.preco) || 0), 0);
   const vend = ls.filter((l) => l.status === 'Vendido').length;
+  // MESMA régua da tela Vendas (contratos de pé) — duas telas com números
+  // diferentes para "vendido" é briga em reunião.
+  const vgvVendido = lista('venda').filter((v) => v.situacao !== 'distratada')
+    .reduce((s, v) => s + CARNE.resumo(v, cfgReajuste(), []).total, 0);
   const atrasos = lotesComAtraso();
 
   const filtrados = ls.filter((l) =>
@@ -75,9 +81,10 @@ TELAS.espelho = function () {
     '</div>' +
     '<div class="paineis">' +
       '<div class="painel"><div class="rot">Lotes</div><div class="num">' + ls.length + '</div></div>' +
-      '<div class="painel"><div class="rot">Disponíveis</div><div class="num pos">' + disp + '</div></div>' +
+      '<div class="painel"><div class="rot">Disponíveis</div><div class="num pos">' + disp + '</div>' +
+        '<div class="sub">' + fmt.brl(estoqueRS) + ' em tabela para vender</div></div>' +
       '<div class="painel"><div class="rot">Vendidos</div><div class="num">' + vend + '</div>' +
-        '<div class="sub">' + Math.round(vend / ls.length * 100) + '% do total</div></div>' +
+        '<div class="sub">' + Math.round(vend / ls.length * 100) + '% · VGV ' + fmt.brl(vgvVendido) + '</div></div>' +
       (ehCorretorPerfil() ? '' :
       '<div class="painel"><div class="rot">Com atraso</div><div class="num' + (atrasos.size ? ' neg' : '') + '">' + atrasos.size + '</div></div>') +
     '</div>' +
