@@ -24,6 +24,7 @@ function fichaPessoaCorpo(p, ehCorretor) {
         campo('Bairro', entrada('bairro', p.bairro || '')) +
         campo('Cidade', entrada('cidade', p.cidade || 'Montes Claros')) +
         campo('UF', entrada('uf', p.uf || 'MG', { max: 2 })) +
+        campo('CEP', entrada('cep', p.cep || '', { inputmode: 'numeric' })) +
       '</div>') +
   campo('Observações', areaTexto('obs', p.obs || ''));
 }
@@ -33,6 +34,13 @@ function abrirFichaPessoa(col, id) {
   const p = id ? (achar(col, id) || {}) : {};
   const vendas = id ? lista('venda').filter((v) => (ehCorretor ? v.corretorId : v.clienteId) === id) : [];
   // Na ficha do CLIENTE, cada venda mostra o corretor que vendeu.
+  const comp = !ehCorretor && id ? completudeCliente(p) : null;
+  const blocoComp = comp
+    ? '<div class="campo"><label>Cadastro ' + comp.pct + '% completo</label>' +
+      (comp.faltam.length
+        ? '<div class="nota">falta preencher: <b>' + comp.faltam.join(', ') + '</b></div>'
+        : '<div class="nota" style="color:var(--verde)">✓ tudo preenchido</div>') + '</div>'
+    : '';
   const extras = vendas.length
     ? '<div class="campo"><label>Vendas</label>' + vendas.map((v) =>
         '<div class="nota" style="padding:2px 0">• <a href="#/venda/' + esc(v.id) + '" onclick="fecharModal()">' +
@@ -42,7 +50,7 @@ function abrirFichaPessoa(col, id) {
     : '';
   abrirModal({
     titulo: (id ? '' : 'Novo ') + (ehCorretor ? 'corretor' : 'cliente') + (p.nome ? ' — ' + p.nome : ''),
-    corpo: fichaPessoaCorpo(p, ehCorretor) + extras,
+    corpo: (blocoComp || '') + fichaPessoaCorpo(p, ehCorretor) + extras,
     largo: true,
     acoes: [
       { texto: 'Voltar', aoClicar: () => fecharModal() },
@@ -78,6 +86,29 @@ function abrirFichaPessoa(col, id) {
   });
 }
 
+/* ── Completude do cadastro do cliente ──────────────────────────────────────
+   A % aparece NA LISTA (verde aos 100%) e a ficha diz o que falta — cobrar
+   cadastro completo só funciona quando dá para VER quem está devendo o quê. */
+const CAMPOS_CADASTRO = [
+  ['nome', 'nome'], ['cpf', 'CPF'], ['_tel', 'telefone'], ['email', 'e-mail'],
+  ['endereco', 'endereço'], ['bairro', 'bairro'], ['cidade', 'cidade'], ['uf', 'UF'], ['cep', 'CEP'],
+];
+function completudeCliente(c) {
+  const faltam = [];
+  for (const [campo2, rotulo] of CAMPOS_CADASTRO) {
+    const tem = campo2 === '_tel' ? (c.whatsapp || c.celular) : c[campo2];
+    if (!String(tem || '').trim()) faltam.push(rotulo);
+  }
+  const pct = Math.round((CAMPOS_CADASTRO.length - faltam.length) / CAMPOS_CADASTRO.length * 100);
+  return { pct, faltam };
+}
+const seloPct = (pct) => {
+  const cor = pct === 100 ? 'background:#e3f2e4;color:#1b5e20'
+    : pct >= 60 ? 'background:#fff8e1;color:#b26a00' : 'background:#ffebee;color:#c62828';
+  return '<span class="etiqueta" style="' + cor + ';min-width:44px;text-align:center">' +
+    (pct === 100 ? '✓ 100%' : pct + '%') + '</span>';
+};
+
 /* ── Tela: clientes por letra ──────────────────────────────────────────────── */
 TELAS.clientes = function () {
   const app = document.getElementById('app');
@@ -89,7 +120,9 @@ TELAS.clientes = function () {
   const linhaCliente = (p) => {
     const suas = vendas.filter((v) => v.clienteId === p.id);
     const corretores2 = [...new Set(suas.map((v) => v.corretorNome).filter(Boolean))];
+    const comp = completudeCliente(p);
     return '<div class="lin cli-lin" data-id="' + esc(p.id) + '">' +
+      seloPct(comp.pct) +
       '<div class="cresce"><b>' + esc(p.nome || '?') + '</b>' +
       '<span class="sub">' + (p.cpf ? fmt.doc(p.cpf) + ' · ' : '') +
         ((p.whatsapp || p.celular) ? fmt.telefone(p.whatsapp || p.celular) + ' · ' : '') +
@@ -122,7 +155,15 @@ TELAS.clientes = function () {
       '<div style="margin-top:10px">' + porLetra[letra].map(linhaCliente).join('') + '</div></details>').join('');
   }
 
+  const completos = todos.filter((p) => completudeCliente(p).pct === 100).length;
   app.innerHTML =
+    '<div class="paineis">' +
+      '<div class="painel"><div class="rot">Clientes</div><div class="num">' + todos.length + '</div></div>' +
+      '<div class="painel"><div class="rot">Cadastro 100%</div><div class="num' + (completos === todos.length ? ' pos' : '') + '">' + completos + '</div>' +
+        '<div class="sub">' + (todos.length ? Math.round(completos / todos.length * 100) : 0) + '% da carteira</div></div>' +
+      '<div class="painel"><div class="rot">Incompletos</div><div class="num' + (todos.length - completos ? ' neg' : ' pos') + '">' + (todos.length - completos) + '</div>' +
+        '<div class="sub">a % de cada um está na lista</div></div>' +
+    '</div>' +
     '<div class="filtros">' +
       '<input type="search" id="cad-q" placeholder="nome ou CPF…" value="' + esc(filtro.q) + '">' +
       '<button class="btn primario" id="cad-novo">+ cliente</button>' +
