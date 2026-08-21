@@ -45,10 +45,10 @@ function previstoEtapasNoMes(m) {
   return soma;
 }
 
-const situacaoEtapa = (e) => {
+const situacaoEtapa = (e, pago) => {
   if (e.situacao === 'concluida') return 'concluida';
   if (e.fim && e.fim < hojeISO()) return 'atrasada';
-  if (e.inicio && e.inicio <= hojeISO()) return 'andamento';
+  if ((e.inicio && e.inicio <= hojeISO()) || (pago || 0) > 0) return 'andamento';
   return 'prevista';
 };
 
@@ -83,7 +83,7 @@ TELAS.cronograma = function () {
       (saidasSoltas ? '<span class="nota">' + saidasSoltas + ' despesa(s) ainda sem etapa — vincule dentro de cada etapa</span>' : '') +
     '</div>' +
     (ets.map((e) => {
-      const sit = situacaoEtapa(e);
+      const sit = situacaoEtapa(e, pago[e.id]);
       const prev = Number(e.valorPrevisto) || 0;
       const pg = pago[e.id] || 0;
       const falta = Math.max(0, prev - pg);
@@ -95,11 +95,15 @@ TELAS.cronograma = function () {
         '<summary style="cursor:pointer;display:flex;align-items:center;gap:10px;flex-wrap:wrap">' +
           '<span style="flex:1;min-width:180px"><b>' + esc(e.nome || '—') + '</b>' +
           '<span class="sub" style="display:block;font-size:12.5px;color:var(--tinta-fraca)">' +
-            fmt.data(e.inicio) + ' → ' + fmt.data(e.fim) +
-            ' · previsto ' + fmt.brl(prev) + ' · pago ' + fmt.brl(pg) + ' (' + pct + '%)' +
-            (falta > 0.01 ? ' · falta ' + fmt.brl(falta) : '') + '</span>' +
-          '<span style="display:block;background:var(--verde-palido);border-radius:6px;height:10px;overflow:hidden;margin-top:5px;max-width:420px">' +
-            '<span style="display:block;width:' + pct + '%;height:100%;background:' + (sit === 'atrasada' ? 'var(--ruim)' : 'var(--verde)') + '"></span></span>' +
+            (e.inicio || e.fim ? fmt.data(e.inicio) + ' → ' + fmt.data(e.fim) + ' · ' : '') +
+            (prev > 0
+              ? 'previsto ' + fmt.brl(prev) + ' · pago ' + fmt.brl(pg) + ' (' + pct + '%)' +
+                (falta > 0.01 ? ' · falta ' + fmt.brl(falta) : '')
+              : 'gasto até aqui: ' + fmt.brl(pg) + ' (sem meta de custo — defina o previsto quando quiser)') + '</span>' +
+          (prev > 0
+            ? '<span style="display:block;background:var(--verde-palido);border-radius:6px;height:10px;overflow:hidden;margin-top:5px;max-width:420px">' +
+              '<span style="display:block;width:' + pct + '%;height:100%;background:' + (sit === 'atrasada' ? 'var(--ruim)' : 'var(--verde)') + '"></span></span>'
+            : '') +
           '</span>' +
           etiqueta(sit) +
         '</summary>' +
@@ -124,7 +128,7 @@ TELAS.cronograma = function () {
 
   document.getElementById('et-nova').onclick = () => abrirEtapa(null);
   document.getElementById('et-pdf').onclick = () => {
-    PDF.cronograma(ets.map((e) => ({ e, sit: situacaoEtapa(e), pago: pago[e.id] || 0 })),
+    PDF.cronograma(ets.map((e) => ({ e, sit: situacaoEtapa(e, pago[e.id]), pago: pago[e.id] || 0 })),
       { previstoTotal, pagoTotal }, S.cfg || {});
     toast('Cronograma em PDF gerado');
   };
@@ -166,7 +170,7 @@ function abrirEtapa(id) {
   const corpo =
     campo('Nome da etapa', entrada('nome', e.nome || '', { placeholder: 'ex.: rede de energia da quadra 3' })) +
     '<div class="colunas-3">' +
-      campo('Valor previsto (R$)', entrada('valorPrevisto', e.valorPrevisto != null ? e.valorPrevisto : '', { inputmode: 'decimal' })) +
+      campo('Valor previsto (R$)', entrada('valorPrevisto', e.valorPrevisto ? e.valorPrevisto : '', { inputmode: 'decimal' }), 'opcional — vazio = só somar o gasto') +
       campo('Início', entrada('inicio', e.inicio || '', { tipo: 'date' })) +
       campo('Término', entrada('fim', e.fim || '', { tipo: 'date' })) +
     '</div>' +
@@ -193,7 +197,6 @@ function abrirEtapa(id) {
         const v = lerCampos(fundo);
         const valor = numeroBR(v.valorPrevisto);
         if (!v.nome || !v.nome.trim()) { toast('Dê um nome à etapa', 'ruim'); return; }
-        if (!(valor > 0)) { toast('Diga o valor previsto', 'ruim'); return; }
         if (v.inicio && v.fim && v.fim < v.inicio) { toast('O término vem antes do início', 'ruim'); return; }
         salvar('etapa', {
           id: id || undefined,
@@ -219,13 +222,14 @@ function abrirVincularDespesas(etapaId) {
   if (!soltas.length) { toast('Não há despesa paga sem etapa'); return; }
   const corpo =
     '<p class="nota">Marque as despesas que são desta etapa — elas somam no "pago" dela.</p>' +
+    '<input type="search" id="vc-busca" placeholder="filtrar por descrição, categoria…" style="width:100%;border:1px solid var(--borda);border-radius:9px;padding:8px 11px;margin-bottom:8px">' +
     '<div style="max-height:46vh;overflow-y:auto">' +
-    soltas.map((c) => '<label class="lin" style="cursor:pointer;padding:8px 10px">' +
+    soltas.map((c) => '<label class="lin vc-lin" data-txt="' + esc(((c.descricao || '') + ' ' + (c.categoria || '') + ' ' + (c.obs || '')).toLowerCase()) + '" style="cursor:pointer;padding:8px 10px">' +
       '<input type="checkbox" class="vc-check" data-id="' + esc(c.id) + '" style="width:18px;height:18px;flex-shrink:0">' +
       '<div class="cresce"><b>' + esc(c.descricao || '—') + '</b>' +
       '<span class="sub">' + fmt.data(c.data) + ' · ' + esc(c.categoria || '') + '</span></div>' +
       '<span class="dinheiro">' + fmt.brl(c.valor) + '</span></label>').join('') + '</div>';
-  abrirModal({
+  const fundoV = abrirModal({
     titulo: '🔗 Vincular a "' + e.nome + '"',
     corpo, largo: true,
     acoes: [
@@ -242,5 +246,12 @@ function abrirVincularDespesas(etapaId) {
         TELAS.cronograma();
       } },
     ],
+  });
+  const busca = fundoV.querySelector('#vc-busca');
+  busca.addEventListener('input', () => {
+    const q = busca.value.toLowerCase();
+    fundoV.querySelectorAll('.vc-lin').forEach((l2) => {
+      l2.style.display = !q || l2.dataset.txt.includes(q) ? '' : 'none';
+    });
   });
 }
