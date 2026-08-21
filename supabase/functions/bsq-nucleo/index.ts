@@ -489,6 +489,16 @@ Deno.serve(async (req) => {
         return json({ ok: true });
       }
 
+      // A saúde da rotina diária: quando rodou, o que fez, e os últimos dias
+      // que EXISTEM na tabela de backup — a prova é a tabela, não o job.
+      case "saude": {
+        const { data: st } = await db.from("bsq_meta").select("valor, atualizado_em")
+          .eq("chave", "manutencao_status").maybeSingle();
+        const { data: dias } = await db.from("bsq_backup").select("dia, em")
+          .order("dia", { ascending: false }).limit(5);
+        return json({ ok: true, rotina: (st && st.valor) || null, backups: dias || [] });
+      }
+
       // ── Log e backup ───────────────────────────────────────────────────────
       case "log":
         return json({ ok: true, linhas: await lerLog(body.limite || 200) });

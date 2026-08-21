@@ -230,7 +230,29 @@ TELAS.config = function () {
       '<button class="btn" id="cf-backup">⬇ Baixar backup</button>' +
       '<button class="btn" id="cf-log">📜 Últimas ações</button>' +
       '<button class="btn perigo" id="cf-lixeira">Esvaziar a lixeira</button>' +
-    '</div><p class="nota" style="margin-top:8px">O backup diário roda sozinho às 3h (pg_cron). Este botão é a cópia manual.</p></div>';
+    '</div><div class="nota" id="cf-saude" style="margin-top:8px">conferindo o backup automático…</div></div>';
+
+  // O backup que ninguém confere é fé, não backup: a tela pergunta ao
+  // servidor qual foi o ÚLTIMO DIA GRAVADO na tabela — e grita se atrasou.
+  (async () => {
+    const el = document.getElementById('cf-saude');
+    try {
+      const r = await api('saude');
+      const ult = (r.backups && r.backups[0]) || null;
+      if (!ult) { el.innerHTML = '⚠ <b>Nenhum backup na tabela ainda.</b>'; el.style.color = 'var(--ruim)'; return; }
+      const hoje = hojeISO();
+      const ontem = CARNE.venc(hoje, 0) && new Date(Date.now() - 86400000).toISOString().slice(0, 10);
+      const atrasado = ult.dia < ontem;
+      el.innerHTML = (atrasado
+        ? '🔴 <b>Backup atrasado!</b> O último é de ' + fmt.data(ult.dia) + ' — a rotina das 03:10 não está entregando. Avise quem cuida do sistema.'
+        : '🟢 Backup automático em dia: último em <b>' + fmt.data(ult.dia) + '</b>' +
+          (r.rotina && r.rotina.registros ? ' com <b>' + r.rotina.registros + ' registros</b>' : '') +
+          ' · roda sozinho todo dia às 03:10 e guarda 60 dias.');
+      if (atrasado) el.style.color = 'var(--ruim)';
+    } catch (e) {
+      el.textContent = '⚠ Não consegui conferir o backup agora: ' + (e.message || 'sem resposta');
+    }
+  })();
 
   document.getElementById('cf-salvar').onclick = async () => {
     const v = lerCampos(app);

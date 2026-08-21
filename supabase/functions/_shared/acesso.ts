@@ -37,7 +37,7 @@ export const PERFIS: Record<string, {
 };
 
 export const ACOES_DIRECAO = ["salvarCfg", "trocarSenha", "esvaziarLixeira", "reiniciarNumeracao",
-  "restaurar", "restaurarItem", "salvarUsuario", "apagarUsuario", "log", "backup", "importar"];
+  "restaurar", "restaurarItem", "salvarUsuario", "apagarUsuario", "log", "backup", "importar", "saude"];
 
 // Apagar mexe em dinheiro (estorno de recebimento, venda). Corretor não apaga
 // nada; escritório apaga (vai para a lixeira, com log — a direção restaura).
