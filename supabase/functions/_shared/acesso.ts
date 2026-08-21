@@ -32,7 +32,7 @@ export const PERFIS: Record<string, {
     txt: "Corretor",
     tudo: false,
     escreve: ["prop"],
-    le: ["lote", "prop", "corretor"],
+    le: ["lote", "prop", "corretor", "foto"],
   },
 };
 

@@ -20,6 +20,9 @@ export const COLECOES: Record<string, { pre: string; nome: string }> = {
   cx:       { pre: "",   nome: "Lançamento de caixa" },
   // Documento com arquivo: contrato assinado, distrato, comprovante.
   doc:      { pre: "",   nome: "Documento" },
+  // Foto da apresentação do empreendimento (toda a equipe vê — é material
+  // de venda; só direção/escritório sobem e apagam).
+  foto:     { pre: "",   nome: "Foto da apresentação" },
 };
 
 export const NOMES_COLECOES = Object.keys(COLECOES);

@@ -28,6 +28,7 @@ async function podeBaixar(eu: any, arquivoId: string): Promise<boolean> {
   const registros = await lerTudo(null, NOMES_COLECOES);
   for (const o of registros) {
     if (!arquivosDoRegistro(o).includes(arquivoId)) continue;
+    if (o._col === "foto") return true;               // apresentação: material de venda
     return o._col === "prop" && o.dono === eu.id;
   }
   // Arquivo órfão: ninguém abre por aqui (direção/escritório já saíram acima).

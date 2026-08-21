@@ -94,13 +94,31 @@ const PDF = (() => {
     doc.text('Plano de pagamento', 14, y);
     y += 8;
     doc.setFont('helvetica', 'normal'); doc.setFontSize(11);
-    const linhas = [
-      ['Entrada', brl(p.entrada)],
-      [(p.qtdeParcelas || 0) + ' parcelas mensais', brl(p.valorParcela) + (p.tipoParcela === 'Reajustada'
-        ? '  (reajuste de ' + (((cfg.reajuste || {}).pct) || 6) + '% a cada ' + (((cfg.reajuste || {}).aCada) || 12) + ' parcelas)'
-        : '  (valor fixo até o fim)')],
-      ['Total do plano', brl(p.valor)],
-    ];
+    // O plano REDUZIDO para o cliente: na parcela reajustada, os degraus dos
+    // primeiros anos (1–12, 13–24…) em vez de uma linha vaga — é o que o
+    // comprador quer saber: "quanto pago em cada fase".
+    const linhas = [['Entrada', brl(p.entrada)]];
+    const nParc = p.qtdeParcelas || 0;
+    if (nParc > 0) {
+      if (p.tipoParcela === 'Reajustada') {
+        const pct = ((cfg.reajuste || {}).pct) || 6;
+        const aCada = ((cfg.reajuste || {}).aCada) || 12;
+        const degraus = Math.ceil(nParc / aCada);
+        const mostrar = Math.min(degraus, 4);
+        for (let d = 0; d < mostrar; d++) {
+          const ini = d * aCada + 1;
+          const fim = Math.min(nParc, (d + 1) * aCada);
+          linhas.push(['Parcelas ' + ini + ' a ' + fim, brl(p.valorParcela * Math.pow(1 + pct / 100, d)) + ' /mês']);
+        }
+        if (degraus > mostrar) {
+          linhas.push(['… e segue +' + pct + '% a cada ' + aCada + ' parcelas',
+            'última (' + nParc + 'ª): ' + brl(p.valorParcela * Math.pow(1 + pct / 100, degraus - 1))]);
+        }
+      } else {
+        linhas.push([nParc + ' parcelas mensais fixas', brl(p.valorParcela) + ' /mês']);
+      }
+    }
+    linhas.push(['Total do plano', brl(p.valor)]);
     for (const [a, b] of linhas) {
       doc.setTextColor(...CINZA); doc.text(a, 14, y);
       doc.setTextColor(30, 43, 33); doc.setFont('helvetica', 'bold');

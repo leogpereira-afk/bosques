@@ -42,12 +42,17 @@ TELAS.espelho = function () {
     (!filtro.status || l.status === filtro.status) &&
     (!filtro.q || (l.lote + '').includes(filtro.q) || nomeLote(l).toLowerCase().includes(filtro.q.toLowerCase())));
 
+  // Cada quadra é uma gaveta: recolhe o que não interessa hoje. Nascem
+  // abertas; o que você fechar fica lembrado enquanto a tela vive.
+  TELAS._quadrasFechadas = TELAS._quadrasFechadas || new Set();
   const blocos = quadras
     .filter((q) => filtrados.some((l) => l.quadra === q))
     .map((q) => {
       const doQ = filtrados.filter((l) => l.quadra === q);
-      return '<div class="quadra-bloco"><h3>Quadra ' + q + ' <span class="nota">· ' +
-        doQ.filter((l) => l.status === 'Disponível').length + ' disponíveis de ' + doQ.length + '</span></h3>' +
+      return '<details class="quadra-bloco" data-quadra="' + q + '"' +
+        (TELAS._quadrasFechadas.has(String(q)) ? '' : ' open') + '>' +
+        '<summary style="cursor:pointer"><h3 style="display:inline-block;margin:0 0 8px">Quadra ' + q + ' <span class="nota">· ' +
+        doQ.filter((l) => l.status === 'Disponível').length + ' disponíveis de ' + doQ.length + '</span></h3></summary>' +
         '<div class="grade-lotes">' + doQ.map((l) => {
           const cls = l.status === 'Vendido' ? 'vendido' : l.status === 'Reservado' ? 'reservado' : 'disp';
           return '<div class="lote-q ' + cls + (atrasos.has(l.id) ? ' atraso' : '') + '" data-id="' + esc(l.id) + '">' +
@@ -57,7 +62,7 @@ TELAS.espelho = function () {
               ? '<span class="preco">' + fmt.brl(l.preco).replace(',00', '') + '</span>'
               : '<span class="m2">' + esc(l.status) + '</span>') +
             '</div>';
-        }).join('') + '</div></div>';
+        }).join('') + '</div></details>';
     }).join('');
 
   app.innerHTML =
@@ -101,6 +106,12 @@ TELAS.espelho = function () {
   document.querySelectorAll('.lote-q').forEach((el) => {
     el.onclick = () => { location.hash = '#/lote/' + el.dataset.id; };
   });
+  document.querySelectorAll('details[data-quadra]').forEach((d) => {
+    d.addEventListener('toggle', () => {
+      if (d.open) TELAS._quadrasFechadas.delete(d.dataset.quadra);
+      else TELAS._quadrasFechadas.add(d.dataset.quadra);
+    });
+  });
 };
 
 /* ── Tela: ficha do lote (com simulador) ───────────────────────────────────── */
@@ -130,9 +141,10 @@ TELAS.lote = function (id) {
 
   let simulador = '';
   if (l.status === 'Disponível') {
-    const total = (Number(sim.entrada) || 0) + (Number(sim.qtde) || 0) * (Number(sim.valorParcela) || 0);
+    const total = totalDoPlano(sim, reaj);
+    const corretores = lista('corretor').filter((c) => c.ativo !== false);
     simulador =
-      '<div class="cartao"><h2>Simulador <span class="nota">— monte o plano e mande a proposta</span></h2>' +
+      '<div class="cartao"><h2>Simulador <span class="nota">— monte o plano, baixe o PDF ou mande o link</span></h2>' +
       '<div class="colunas-3">' +
         campo('Tipo de parcela', seletor('tipo', sim.tipo, [{ v: 'Fixa', t: 'Fixa (mesmo valor)' }, { v: 'Reajustada', t: 'Reajustada +' + reaj.pct + '%/' + reaj.aCada + 'p' }])) +
         campo('Entrada (R$)', entrada('entrada', sim.entrada, { inputmode: 'decimal' })) +
@@ -140,13 +152,37 @@ TELAS.lote = function (id) {
       '</div>' +
       '<div class="colunas">' +
         campo('Valor da parcela (R$)', entrada('valorParcela', sim.valorParcela, { inputmode: 'decimal' }), 'sugerido pela tabela do lote — pode ajustar') +
-        '<div class="campo"><label>Total do plano</label><div style="font-size:21px;font-weight:800;padding:7px 0" id="sim-total">' + fmt.brl(total) + '</div></div>' +
+        '<div class="campo"><label>Total do plano</label><div style="font-size:21px;font-weight:800;padding:7px 0" id="sim-total">' + fmt.brl(total) + '</div>' +
+          (sim.tipo === 'Reajustada' ? '<div class="dica">já somando os degraus de +' + reaj.pct + '%</div>' : '') + '</div>' +
+      '</div>' +
+      '<div class="colunas' + (ehCorretorPerfil() ? '' : '-3') + '">' +
+        campo('Nome do cliente', entrada('nome', sim.nome || '', { placeholder: 'quem vai receber a proposta' })) +
+        campo('WhatsApp dele', entrada('telefone', sim.telefone || '', { inputmode: 'tel', placeholder: '(38) 9…' })) +
+        (ehCorretorPerfil() ? '' :
+          campo('Corretor', seletor('corretorId', sim.corretorId || '', corretores.map((c) => ({ v: c.id, t: c.nome })), 'sem corretor (a casa)'))) +
       '</div>' +
       '<div class="acoes-linha">' +
-        '<button class="btn primario" id="bt-proposta">📄 Enviar proposta</button>' +
+        '<button class="btn primario" id="bt-pdf-prop">📄 Baixar PDF da proposta</button>' +
+        '<button class="btn" id="bt-proposta">📱 Enviar por link (WhatsApp)</button>' +
         (ehCorretorPerfil() ? '' : '<button class="btn" id="bt-venda">✅ Registrar venda</button>') +
       '</div></div>';
   }
+
+  // ── CRM do lote: toda proposta que já saiu daqui, com quem e como foi ──
+  const propsDoLote = lista('prop').filter((x) => x.loteId === id)
+    .sort((a, b) => String(b.enviadaEm || b.criadoEm || '').localeCompare(a.enviadaEm || a.criadoEm || ''));
+  const crm = propsDoLote.length
+    ? '<div class="cartao"><h2>CRM do lote <span class="nota">— ' + propsDoLote.length + ' proposta(s) já saíram daqui</span></h2>' +
+      propsDoLote.map((x) => {
+        const interesse = (x.eventos || []).some((e) => e.tipo === 'interesse');
+        return '<div class="lin prop-crm" data-id="' + esc(x.id) + '">' +
+          '<div class="cresce"><b>' + esc((x.cliente && x.cliente.nome) || '?') + '</b>' +
+          '<span class="sub">' + esc(x.codigo || '') + ' · ' + fmt.brl(x.valor) + ' · por ' + esc(x.donoNome || '—') +
+            ' · ' + fmt.quando(x.enviadaEm || x.criadoEm) + ' · 👁 ' + (x.views || 0) +
+            (interesse ? ' · ✅ interesse' : '') + '</span></div>' +
+          etiqueta(x.situacao || 'enviada') + '</div>';
+      }).join('') + '</div>'
+    : '';
 
   const admLote = ehCorretorPerfil() ? '' :
     '<div class="acoes-linha" style="margin-bottom:14px">' +
@@ -154,7 +190,7 @@ TELAS.lote = function (id) {
       (l.status === 'Disponível' ? '<button class="btn mini perigo" id="bt-apagar-lote">Excluir lote</button>' : '') +
     '</div>';
 
-  app.innerHTML = '<a class="nota" href="#/espelho">← espelho</a>' + cabec + admLote + simulador;
+  app.innerHTML = '<a class="nota" href="#/espelho">← espelho</a>' + cabec + admLote + simulador + crm;
 
   const bEd = document.getElementById('bt-editar-lote');
   if (bEd) bEd.onclick = () => abrirCadastroLote(id);
@@ -173,23 +209,44 @@ TELAS.lote = function (id) {
     }
   };
 
+  app.querySelectorAll('.prop-crm').forEach((el) => {
+    el.onclick = () => abrirFichaProposta(el.dataset.id);
+  });
+
   if (l.status !== 'Disponível') return;
   const raiz = app;
   raiz.querySelectorAll('[data-campo]').forEach((el) => {
     el.addEventListener('input', () => {
       const v = lerCampos(raiz);
       const tipoAntes = sim.tipo;
-      Object.assign(sim, { tipo: v.tipo, entrada: numeroBR(v.entrada), qtde: Math.round(numeroBR(v.qtde)), valorParcela: numeroBR(v.valorParcela) });
+      Object.assign(sim, {
+        tipo: v.tipo, entrada: numeroBR(v.entrada), qtde: Math.round(numeroBR(v.qtde)),
+        valorParcela: numeroBR(v.valorParcela),
+        nome: String(v.nome || ''), telefone: String(v.telefone || ''),
+        corretorId: v.corretorId != null ? v.corretorId : sim.corretorId,
+      });
       if (v.tipo !== tipoAntes) { sim.valorParcela = parcelaDoTipo(); TELAS.lote(id); return; }
-      const total = sim.entrada + sim.qtde * sim.valorParcela;
-      document.getElementById('sim-total').textContent = fmt.brl(total);
+      document.getElementById('sim-total').textContent = fmt.brl(totalDoPlano(sim, reaj));
     });
   });
+  const btPdf = document.getElementById('bt-pdf-prop');
+  if (btPdf) btPdf.onclick = () => baixarPdfProposta(l, sim);
   const btP = document.getElementById('bt-proposta');
-  if (btP) btP.onclick = () => abrirProposta(l, { ...sim });
+  if (btP) btP.onclick = () => enviarLinkProposta(l, sim, btP);
   const btV = document.getElementById('bt-venda');
   if (btV) btV.onclick = () => abrirNovaVenda(l, { ...sim });
 };
+
+// Total honesto: a parcela Reajustada sobe em degraus — multiplicar reto
+// subestimaria o plano (e o PDF sairia prometendo menos do que o carnê cobra).
+function totalDoPlano(sim, reaj) {
+  const qtde = Math.max(0, Math.round(Number(sim.qtde) || 0));
+  let soma = Number(sim.entrada) || 0;
+  for (let n = 1; n <= qtde; n++) {
+    soma += CARNE.valorParcelaN({ valorParcela: sim.valorParcela, tipoParcela: sim.tipo }, n, reaj);
+  }
+  return Math.round(soma * 100) / 100;
+}
 
 /* ── Cadastro do lote (incluir / editar) ───────────────────────────────────── */
 // A régua da tabela veio da planilha e é LINEAR no preço (conferida lote a
@@ -265,64 +322,67 @@ function abrirCadastroLote(id) {
   }
 }
 
-/* ── Proposta: gera o PDF, sobe, grava e entrega o link do WhatsApp ────────── */
-function abrirProposta(l, sim) {
-  const corretores = lista('corretor').filter((c) => c.ativo !== false);
-  const souCorretor = ehCorretorPerfil();
-  const corpo =
-    '<div class="colunas">' +
-      campo('Nome do interessado', entrada('nome', '', { placeholder: 'quem vai receber' })) +
-      campo('WhatsApp dele', entrada('telefone', '', { inputmode: 'tel', placeholder: '(38) 9…' })) +
-    '</div>' +
-    (souCorretor ? '' :
-      campo('Corretor', seletor('corretorId', '', corretores.map((c) => ({ v: c.id, t: c.nome })), 'sem corretor (a casa)'))) +
-    '<p class="nota">Plano: entrada de <b>' + fmt.brl(sim.entrada) + '</b> + ' + sim.qtde + '× de <b>' +
-      fmt.brl(sim.valorParcela) + '</b> (' + sim.tipo.toLowerCase() + ') — total ' + fmt.brl(sim.entrada + sim.qtde * sim.valorParcela) + '</p>';
+/* ── Proposta: duas saídas, um CRM ──────────────────────────────────────────
+   BAIXAR PDF — sai na hora, offline se preciso, para imprimir ou mandar você
+   mesmo. ENVIAR POR LINK — grava no servidor e entrega o link do WhatsApp que
+   registra abertura e interesse. As DUAS ficam no CRM do lote: proposta que
+   só vive no papel não responde "quantas saíram e o que deu". */
 
-  abrirModal({
-    titulo: 'Proposta — ' + nomeLote(l),
-    corpo,
-    acoes: [
-      { texto: 'Voltar', aoClicar: () => fecharModal() },
-      { texto: 'Gerar e pegar o link', classe: 'primario', aoClicar: async (fundo) => {
-        const v = lerCampos(fundo);
-        if (!v.nome || !v.nome.trim()) { toast('Diga o nome do interessado', 'ruim'); return; }
-        const cor = souCorretor ? null : corretores.find((c) => c.id === v.corretorId);
-        const prop = {
-          loteId: l.id, quadra: l.quadra, lote: l.lote, areaM2: l.areaM2,
-          valor: sim.entrada + sim.qtde * sim.valorParcela,
-          entrada: sim.entrada, qtdeParcelas: sim.qtde, valorParcela: sim.valorParcela, tipoParcela: sim.tipo,
-          cliente: { nome: v.nome.trim().slice(0, 80), telefone: String(v.telefone || '').slice(0, 30) },
-          corretorNome: souCorretor ? (S.quem || '') : (cor ? cor.nome : ''),
-          corretorId: souCorretor ? '' : (cor ? cor.id : ''),
-          corretorTel: cor ? (cor.whatsapp || cor.celular || '') : '',
-          validadeDias: (S.cfg && S.cfg.validadeProposta) || 7,
-          enviadaEm: new Date().toISOString(),
-          situacao: 'enviada',
-        };
-        const btn = fundo.querySelector('footer .primario');
-        btn.disabled = true; btn.textContent = 'gerando…';
-        try {
-          // 1. grava a proposta (o servidor numera e sorteia o token do link)
-          const salva = salvar('prop', prop);
-          await subirFila();
-          const doServidor = achar('prop', salva.id);
-          if (!doServidor || !doServidor.tokenPublico) throw new Error('sem internet agora — a proposta precisa do servidor para gerar o link');
-          // 2. PDF com o número já carimbado
-          const pdfBlob = PDF.proposta(doServidor, l, S.cfg || {});
-          const arq = await enviarArquivo(new File([pdfBlob], 'proposta.pdf', { type: 'application/pdf' }));
-          // 3. liga o PDF à proposta
-          salvar('prop', { id: salva.id, arquivoId: arq.id });
-          await subirFila();
-          fecharSilencioso(fundo);
-          mostrarLinkProposta(achar('prop', salva.id));
-        } catch (e) {
-          toast(e.message || 'Não consegui gerar a proposta', 'ruim');
-          btn.disabled = false; btn.textContent = 'Gerar e pegar o link';
-        }
-      } },
-    ],
-  });
+function montarPropDoSim(l, sim) {
+  if (!sim.nome || !sim.nome.trim()) { toast('Diga o nome do cliente', 'ruim'); return null; }
+  const reaj = cfgReajuste();
+  const souCorretor = ehCorretorPerfil();
+  const cor = souCorretor ? null : lista('corretor').find((c) => c.id === sim.corretorId);
+  return {
+    loteId: l.id, quadra: l.quadra, lote: l.lote, areaM2: l.areaM2,
+    valor: totalDoPlano(sim, reaj),
+    entrada: Number(sim.entrada) || 0,
+    qtdeParcelas: Math.max(0, Math.round(Number(sim.qtde) || 0)),
+    valorParcela: Number(sim.valorParcela) || 0,
+    tipoParcela: sim.tipo === 'Reajustada' ? 'Reajustada' : 'Fixa',
+    cliente: { nome: sim.nome.trim().slice(0, 80), telefone: String(sim.telefone || '').slice(0, 30) },
+    corretorNome: souCorretor ? (S.quem || '') : (cor ? cor.nome : ''),
+    corretorId: souCorretor ? '' : (cor ? cor.id : ''),
+    corretorTel: cor ? (cor.whatsapp || cor.celular || '') : '',
+    validadeDias: (S.cfg && S.cfg.validadeProposta) || 7,
+    enviadaEm: new Date().toISOString(),
+    situacao: 'enviada',
+  };
+}
+
+function baixarPdfProposta(l, sim) {
+  const prop = montarPropDoSim(l, sim);
+  if (!prop) return;
+  const salva = salvar('prop', { ...prop, canal: 'pdf' });   // entra no CRM
+  const blob = PDF.proposta(achar('prop', salva.id) || salva, l, S.cfg || {});
+  salvarNoAparelho(blob, 'Proposta-Bosques-Q' + l.quadra + 'L' + l.lote + '-' +
+    prop.cliente.nome.split(' ')[0] + '.pdf');
+  toast('PDF baixado e proposta registrada no CRM');
+  TELAS.lote(l.id);
+}
+
+async function enviarLinkProposta(l, sim, btn) {
+  const prop = montarPropDoSim(l, sim);
+  if (!prop) return;
+  if (btn) { btn.disabled = true; btn.textContent = 'gerando…'; }
+  try {
+    // 1. grava (o servidor numera e sorteia o token do link)
+    const salva = salvar('prop', { ...prop, canal: 'link' });
+    await subirFila();
+    const doServidor = achar('prop', salva.id);
+    if (!doServidor || !doServidor.tokenPublico) throw new Error('sem internet agora — o link precisa do servidor (o PDF avulso funciona offline)');
+    // 2. PDF com o número carimbado, anexado ao link
+    const pdfBlob = PDF.proposta(doServidor, l, S.cfg || {});
+    const arq = await enviarArquivo(new File([pdfBlob], 'proposta.pdf', { type: 'application/pdf' }));
+    salvar('prop', { id: salva.id, arquivoId: arq.id });
+    await subirFila();
+    mostrarLinkProposta(achar('prop', salva.id));
+    TELAS.lote(l.id);
+  } catch (e) {
+    toast(e.message || 'Não consegui gerar o link', 'ruim');
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = '📱 Enviar por link (WhatsApp)'; }
+  }
 }
 
 function mostrarLinkProposta(p) {

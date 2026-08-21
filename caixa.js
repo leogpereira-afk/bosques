@@ -305,13 +305,21 @@ TELAS.caixa = function () {
    É aqui que "MENSALIDADE VITOR · Outros" vira "Funcionários": a importação
    classificou por palavra-chave e quem conhece o dinheiro corrige a categoria.
    Recebimento de venda NÃO passa por aqui (estorna na ficha da venda). */
-function abrirEdicaoLancamento(id) {
+function abrirEdicaoLancamento(id, aoTerminar) {
   const c = achar('cx', id);
   if (!c) return;
+  const depois = aoTerminar || TELAS.caixa;
   const cats = c.tipo === 'saida'
     ? ((S.cfg && S.cfg.categoriasDespesa) || ['Outros'])
     : ((S.cfg && S.cfg.categoriasReceita) || ['Outros']);
   const listaCats = cats.includes(c.categoria) || !c.categoria ? cats : [c.categoria].concat(cats);
+  // O fio do lançamento: quem criou e cada edição, com o que mudou. Dinheiro
+  // editado sem trilha vira discussão sem resposta.
+  const trilha =
+    '<div class="campo"><label>Histórico</label>' +
+    '<div class="nota">• criado ' + fmt.dataHora(c.criadoEm) + ' por ' + esc(c.criadoPor || '—') + '</div>' +
+    (c.historico || []).map((h) => '<div class="nota">• ' + fmt.dataHora(h.em) + ' por ' + esc(h.por || '—') + ' — ' + esc(h.o_que || '') + '</div>').join('') +
+    '</div>';
   const corpo =
     campo('Descrição', entrada('descricao', c.descricao || '')) +
     '<div class="colunas-3">' +
@@ -320,7 +328,7 @@ function abrirEdicaoLancamento(id) {
       campo('Forma', seletor('forma', c.forma || 'PIX', (S.cfg && S.cfg.formasPg) || ['PIX'])) +
     '</div>' +
     campo('Categoria', seletor('categoria', c.categoria || 'Outros', listaCats), 'é o que separa o DRE — estrutura, funcionário, comissão…') +
-    campo('Observação', entrada('obs', c.obs || ''));
+    campo('Observação', entrada('obs', c.obs || '')) + trilha;
   abrirModal({
     titulo: (c.tipo === 'saida' ? 'Saída' : 'Receita') + ' — editar',
     corpo,
@@ -335,7 +343,7 @@ function abrirEdicaoLancamento(id) {
             if (i >= 0) arr[i] = { ...arr[i], apagadoEm: new Date().toISOString() };
             gravarCache();
             fecharSilencioso(fundo);
-            TELAS.caixa();
+            depois();
           } catch (err) { toast(err.message || 'Não consegui apagar agora', 'ruim'); }
         }
       } },
@@ -343,19 +351,31 @@ function abrirEdicaoLancamento(id) {
         const v = lerCampos(fundo);
         const valor = numeroBR(v.valor);
         if (!(valor > 0)) { toast('Valor inválido', 'ruim'); return; }
+        const desc = String(v.descricao || '').trim().slice(0, 200);
+        // o QUE mudou fica escrito — é a trilha que responde "quem mexeu nisso"
+        const mud = [];
+        if (Math.abs(valor - (Number(c.valor) || 0)) > 0.004) mud.push('valor ' + fmt.brl(c.valor) + ' → ' + fmt.brl(valor));
+        if ((v.data || '') !== (c.data || '')) mud.push('data ' + (c.data || '—') + ' → ' + (v.data || '—'));
+        if ((v.categoria || '') !== (c.categoria || '')) mud.push('categoria ' + (c.categoria || '—') + ' → ' + v.categoria);
+        if ((v.forma || '') !== (c.forma || '')) mud.push('forma ' + (c.forma || '—') + ' → ' + v.forma);
+        if (desc !== (c.descricao || '')) mud.push('descrição alterada');
+        if ((String(v.obs || '')) !== (c.obs || '')) mud.push('observação alterada');
+        if (!mud.length) { fecharSilencioso(fundo); return; }
         salvar('cx', {
           id: c.id, valor, data: v.data, forma: v.forma, categoria: v.categoria,
-          descricao: String(v.descricao || '').trim().slice(0, 200), obs: String(v.obs || '').slice(0, 300),
+          descricao: desc, obs: String(v.obs || '').slice(0, 300),
+          historico: historiar(c, 'Editou: ' + mud.join('; ')),
         });
         fecharSilencioso(fundo);
         toast('Lançamento atualizado');
-        TELAS.caixa();
+        depois();
       } },
     ],
   });
 }
 
-function abrirLancamento(tipo) {
+function abrirLancamento(tipo, aoTerminar) {
+  const depois = aoTerminar || TELAS.caixa;
   const cats = tipo === 'saida'
     ? ((S.cfg && S.cfg.categoriasDespesa) || ['Outros'])
     : ((S.cfg && S.cfg.categoriasReceita) || ['Outros']);
@@ -384,8 +404,104 @@ function abrirLancamento(tipo) {
         });
         fecharSilencioso(fundo);
         toast('Lançado');
-        TELAS.caixa();
+        depois();
       } },
     ],
   });
 }
+
+/* ── Tela: lançamentos (ao lado do Caixa) ───────────────────────────────────
+   A lista COMPLETA e detalhada: todo dinheiro que entrou e saiu, com filtros,
+   edição (só os avulsos — recebimento de venda se mexe na ficha da venda) e a
+   trilha de quem fez. */
+TELAS.lancamentos = function () {
+  const app = document.getElementById('app');
+  const meses = mesesComMovimento();
+  const f = TELAS._fLanc || { q: '', tipo: '', cat: '', mes: mesDe(hojeISO()) };
+  TELAS._fLanc = f;
+
+  // combina recebimentos de venda + lançamentos avulsos
+  const tudo = [];
+  for (const r of lista('rec')) {
+    const v = achar('venda', r.vendaId);
+    tudo.push({
+      col: 'rec', id: r.id, data: r.data || '', entrada: true,
+      valor: Number(r.valor) || 0, forma: r.forma || '',
+      categoria: 'Recebimento de venda',
+      descricao: (v ? 'Q' + v.quadra + '-L' + v.lote + ' · ' + (v.clienteNome || '') : 'Venda') +
+        (r.tipo === 'entrada' ? ' (entrada)' : r.parcelaN ? ' (parc. ' + r.parcelaN + ')' : ''),
+      codigo: r.codigo || '', criadoPor: r.criadoPor || '—', criadoEm: r.criadoEm,
+      atualizadoPor: r.atualizadoPor, vendaId: r.vendaId, obs: r.obs || '',
+      nHist: 0,
+    });
+  }
+  for (const c of cxVivos()) {
+    tudo.push({
+      col: 'cx', id: c.id, data: c.data || '', entrada: c.tipo === 'entrada',
+      valor: Number(c.valor) || 0, forma: c.forma || '',
+      categoria: c.categoria || 'Outros', descricao: c.descricao || '—',
+      codigo: '', criadoPor: c.criadoPor || '—', criadoEm: c.criadoEm,
+      atualizadoPor: c.atualizadoPor, obs: c.obs || '',
+      nHist: (c.historico || []).length,
+    });
+  }
+
+  const cats = [...new Set(tudo.map((x) => x.categoria))].sort();
+  const filtrados = tudo.filter((x) => {
+    if (f.mes && f.mes !== 'todos' && mesDe(x.data) !== f.mes) return false;
+    if (f.mes === 'sem-data' && x.data) return false;
+    if (f.tipo === 'entrada' && !x.entrada) return false;
+    if (f.tipo === 'saida' && x.entrada) return false;
+    if (f.cat && x.categoria !== f.cat) return false;
+    if (f.q && !((x.descricao + ' ' + x.obs + ' ' + x.forma + ' ' + x.criadoPor + ' ' + x.codigo).toLowerCase().includes(f.q.toLowerCase()))) return false;
+    return true;
+  }).sort((a, b) => String(b.data).localeCompare(a.data));
+
+  const somaE = filtrados.filter((x) => x.entrada).reduce((s, x) => s + x.valor, 0);
+  const somaS = filtrados.filter((x) => !x.entrada).reduce((s, x) => s + x.valor, 0);
+
+  app.innerHTML =
+    '<div class="paineis">' +
+      '<div class="painel"><div class="rot">Lançamentos no recorte</div><div class="num">' + filtrados.length + '</div></div>' +
+      '<div class="painel"><div class="rot">Entradas</div><div class="num pos">' + fmt.brl(somaE) + '</div></div>' +
+      '<div class="painel"><div class="rot">Saídas</div><div class="num neg">' + fmt.brl(somaS) + '</div></div>' +
+      '<div class="painel"><div class="rot">Diferença</div><div class="num ' + (somaE - somaS >= 0 ? 'pos' : 'neg') + '">' + fmt.brl(somaE - somaS) + '</div></div>' +
+    '</div>' +
+    '<div class="filtros">' +
+      '<input type="search" id="ln-q" placeholder="descrição, quem fez, forma…" value="' + esc(f.q) + '">' +
+      '<select id="ln-mes"><option value="todos"' + (f.mes === 'todos' ? ' selected' : '') + '>Todos os meses</option>' +
+        '<option value="sem-data"' + (f.mes === 'sem-data' ? ' selected' : '') + '>Sem data</option>' +
+        meses.slice().reverse().map((m) => '<option value="' + m + '"' + (f.mes === m ? ' selected' : '') + '>' + nomeMes(m) + '</option>').join('') + '</select>' +
+      '<select id="ln-tipo"><option value="">Entradas e saídas</option>' +
+        '<option value="entrada"' + (f.tipo === 'entrada' ? ' selected' : '') + '>Só entradas</option>' +
+        '<option value="saida"' + (f.tipo === 'saida' ? ' selected' : '') + '>Só saídas</option></select>' +
+      '<select id="ln-cat"><option value="">Todas as categorias</option>' +
+        cats.map((c) => '<option' + (f.cat === c ? ' selected' : '') + '>' + esc(c) + '</option>').join('') + '</select>' +
+      '<button class="btn primario" id="ln-desp">− Despesa</button>' +
+      '<button class="btn" id="ln-rece">+ Receita</button>' +
+    '</div>' +
+    (filtrados.map((x) =>
+      '<div class="lin" data-col="' + x.col + '" data-id="' + esc(x.id) + '" ' + (x.col === 'rec' ? 'data-venda="' + esc(x.vendaId) + '"' : '') + '>' +
+      '<div class="cresce"><b>' + esc(x.descricao) + (x.codigo ? ' <span class="nota">' + esc(x.codigo) + '</span>' : '') + '</b>' +
+      '<span class="sub">' + (x.data ? fmt.data(x.data) : '⚠ SEM DATA') + ' · ' + esc(x.categoria) +
+        (x.forma ? ' · ' + esc(x.forma) : '') +
+        ' · por ' + esc(x.criadoPor) +
+        (x.nHist ? ' · ✏️ ' + x.nHist + ' edição(ões)' : '') +
+        (x.obs ? ' · ' + esc(x.obs) : '') + '</span></div>' +
+      '<span class="dinheiro" style="color:' + (x.entrada ? 'var(--verde)' : 'var(--ruim)') + '">' +
+        (x.entrada ? '+' : '−') + fmt.brl(x.valor) + '</span>' +
+      '</div>').join('') || vazio('🧾', 'Nada nesse recorte'));
+
+  document.getElementById('ln-q').oninput = (e) => { f.q = e.target.value; TELAS.lancamentos(); };
+  document.getElementById('ln-mes').onchange = (e) => { f.mes = e.target.value; TELAS.lancamentos(); };
+  document.getElementById('ln-tipo').onchange = (e) => { f.tipo = e.target.value; TELAS.lancamentos(); };
+  document.getElementById('ln-cat').onchange = (e) => { f.cat = e.target.value; TELAS.lancamentos(); };
+  document.getElementById('ln-desp').onclick = () => abrirLancamento('saida', TELAS.lancamentos);
+  document.getElementById('ln-rece').onclick = () => abrirLancamento('entrada', TELAS.lancamentos);
+  app.querySelectorAll('.lin[data-col]').forEach((el) => {
+    el.onclick = () => {
+      if (el.dataset.col === 'cx') abrirEdicaoLancamento(el.dataset.id, TELAS.lancamentos);
+      else location.hash = '#/venda/' + el.dataset.venda;
+    };
+  });
+};
