@@ -11,7 +11,7 @@ const ROTAS = {
   venda:      { titulo: 'Venda',         ic: '📋', oculta: true },
   propostas:  { titulo: 'Propostas',     ic: '📨' },
   caixa:      { titulo: 'Caixa',         ic: '💰' },
-  comissoes:  { titulo: 'Comissões',     ic: '🤝' },
+  comissoes:  { titulo: 'Comissões',     ic: '🤝', oculta: true }, // vive dentro de Corretores
   clientes:   { titulo: 'Clientes',      ic: '👥' },
   corretores: { titulo: 'Corretores',    ic: '🧑‍💼' },
   config:     { titulo: 'Configurações', ic: '⚙️' },
@@ -21,8 +21,8 @@ const ROTAS = {
 // oferecer o que a pessoa não pode abrir.
 function rotasDoPerfil() {
   if (S.perfil === 'corretor') return ['espelho', 'propostas'];
-  if (S.perfil === 'escritorio') return ['home', 'espelho', 'vendas', 'propostas', 'caixa', 'comissoes', 'clientes', 'corretores'];
-  return ['home', 'espelho', 'vendas', 'propostas', 'caixa', 'comissoes', 'clientes', 'corretores', 'config'];
+  if (S.perfil === 'escritorio') return ['home', 'espelho', 'vendas', 'propostas', 'caixa', 'clientes', 'corretores'];
+  return ['home', 'espelho', 'vendas', 'propostas', 'caixa', 'clientes', 'corretores', 'config'];
 }
 
 function rotaAtual() {
@@ -89,7 +89,7 @@ function render() {
   const { nome, id } = rotaAtual();
   renderLateral();
   renderTopo();
-  const rotas = rotasDoPerfil().concat(['lote', 'venda']);
+  const rotas = rotasDoPerfil().concat(['lote', 'venda', 'comissoes']);
   const tela = rotas.includes(nome) && TELAS[nome] ? TELAS[nome] : null;
   if (tela) tela(id);
   else location.hash = '#/' + rotasDoPerfil()[0];

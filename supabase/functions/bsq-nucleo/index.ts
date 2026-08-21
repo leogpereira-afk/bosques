@@ -43,8 +43,9 @@ const CFG_PADRAO = {
   // (aniversário do contrato). REGRA ASSUMIDA — confirmar com a direção.
   reajuste: { pct: 6, aCada: 12 },
   formasPg: ["PIX", "Dinheiro", "Transferência", "Boleto", "Cartão de Débito", "Cartão de Crédito", "Cheque"],
-  categoriasDespesa: ["Obra / infraestrutura", "Comissão", "Marketing", "Administrativo",
-    "Impostos e taxas", "Contabilidade", "Telefone / internet", "Tarifas bancárias", "Outros"],
+  categoriasDespesa: ["Obra / infraestrutura", "Funcionários", "Comissão", "Marketing",
+    "Administrativo", "Impostos e taxas", "Contabilidade", "Telefone / internet",
+    "Tarifas bancárias", "Distrato / devolução", "Outros"],
   categoriasReceita: ["Aluguel", "Antecipação", "Sócios", "Outros"],
   // Dias de validade padrão de uma proposta enviada.
   validadeProposta: 7,

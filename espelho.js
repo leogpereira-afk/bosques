@@ -61,6 +61,13 @@ TELAS.espelho = function () {
     }).join('');
 
   app.innerHTML =
+    '<div class="cartao" style="background:var(--verde-escuro);border-color:var(--verde-escuro);padding:10px 16px;display:flex;align-items:center;justify-content:space-between;gap:12px">' +
+      '<img src="icons/logo-full.png" alt="Portal dos Bosques" style="height:58px;max-width:52%;object-fit:contain">' +
+      '<div style="display:flex;gap:8px">' +
+        (ehCorretorPerfil() ? '' : '<button class="btn mini" id="esp-novo-lote" style="background:rgba(255,255,255,.14);border-color:transparent;color:#eaf3ec">+ Lote</button>') +
+        '<button class="btn mini" id="esp-pdf" style="background:var(--verde-claro);border-color:var(--verde-claro);color:#123018">📄 PDF do espelho</button>' +
+      '</div>' +
+    '</div>' +
     '<div class="paineis">' +
       '<div class="painel"><div class="rot">Lotes</div><div class="num">' + ls.length + '</div></div>' +
       '<div class="painel"><div class="rot">Disponíveis</div><div class="num pos">' + disp + '</div></div>' +
@@ -82,6 +89,12 @@ TELAS.espelho = function () {
       (ehCorretorPerfil() ? '' : '<span><i style="background:#c62828;border-color:#c62828"></i> ! = parcela em atraso</span>') + '</div>' +
     (blocos || vazio('🔍', 'Nada com esse filtro'));
 
+  document.getElementById('esp-pdf').onclick = () => {
+    PDF.espelho(ls, atrasos, S.cfg || {});
+    toast('Espelho em PDF gerado — ' + ls.length + ' lotes');
+  };
+  const bNovo = document.getElementById('esp-novo-lote');
+  if (bNovo) bNovo.onclick = () => abrirCadastroLote(null);
   document.getElementById('esp-q').oninput = (e) => { filtro.q = e.target.value; TELAS.espelho(); };
   document.getElementById('esp-quadra').onchange = (e) => { filtro.quadra = e.target.value; TELAS.espelho(); };
   document.getElementById('esp-status').onchange = (e) => { filtro.status = e.target.value; TELAS.espelho(); };
@@ -135,7 +148,30 @@ TELAS.lote = function (id) {
       '</div></div>';
   }
 
-  app.innerHTML = '<a class="nota" href="#/espelho">← espelho</a>' + cabec + simulador;
+  const admLote = ehCorretorPerfil() ? '' :
+    '<div class="acoes-linha" style="margin-bottom:14px">' +
+      '<button class="btn mini" id="bt-editar-lote">✏️ Editar lote</button>' +
+      (l.status === 'Disponível' ? '<button class="btn mini perigo" id="bt-apagar-lote">Excluir lote</button>' : '') +
+    '</div>';
+
+  app.innerHTML = '<a class="nota" href="#/espelho">← espelho</a>' + cabec + admLote + simulador;
+
+  const bEd = document.getElementById('bt-editar-lote');
+  if (bEd) bEd.onclick = () => abrirCadastroLote(id);
+  const bAp = document.getElementById('bt-apagar-lote');
+  if (bAp) bAp.onclick = async () => {
+    if (await confirmar('Excluir o lote ' + nomeLote(l) + '? Ele vai para a lixeira (a direção restaura se precisar).', { perigo: true, ok: 'Excluir' })) {
+      try {
+        await api('apagar', { colecao: 'lote', id: l.id });
+        const arr = S.reg.lote || [];
+        const i = arr.findIndex((x) => x.id === l.id);
+        if (i >= 0) arr[i] = { ...arr[i], apagadoEm: new Date().toISOString() };
+        gravarCache();
+        toast('Lote excluído');
+        location.hash = '#/espelho';
+      } catch (e) { toast(e.message || 'Não consegui excluir agora', 'ruim'); }
+    }
+  };
 
   if (l.status !== 'Disponível') return;
   const raiz = app;
@@ -154,6 +190,80 @@ TELAS.lote = function (id) {
   const btV = document.getElementById('bt-venda');
   if (btV) btV.onclick = () => abrirNovaVenda(l, { ...sim });
 };
+
+/* ── Cadastro do lote (incluir / editar) ───────────────────────────────────── */
+// A régua da tabela veio da planilha e é LINEAR no preço (conferida lote a
+// lote): parcela = preço × fator. Digitou o preço, as 4 parcelas se sugerem —
+// e continuam editáveis, porque tabela é política, não lei.
+const RAZAO_PARC = { parcFixa: 0.0109063, parcFixaDesc: 0.0087251, parcReaj: 0.0084063, parcReajDesc: 0.0067250 };
+
+function abrirCadastroLote(id) {
+  const l = id ? (achar('lote', id) || {}) : {};
+  const corpo =
+    '<div class="colunas-3">' +
+      campo('Quadra', entrada('quadra', l.quadra != null ? l.quadra : '', { inputmode: 'numeric' })) +
+      campo('Nº do lote', entrada('lote', l.lote != null ? l.lote : '', { inputmode: 'numeric' })) +
+      campo('Área (m²)', entrada('areaM2', l.areaM2 != null ? l.areaM2 : '', { inputmode: 'decimal' })) +
+    '</div>' +
+    campo('Preço de tabela (R$)', entrada('preco', l.preco != null ? l.preco : '', { inputmode: 'decimal' }), 'ao digitar, as 4 parcelas se sugerem pela régua da tabela') +
+    '<div class="colunas">' +
+      campo('Parcela fixa (R$)', entrada('parcFixa', l.parcFixa != null ? l.parcFixa : '', { inputmode: 'decimal' })) +
+      campo('Fixa com desconto (R$)', entrada('parcFixaDesc', l.parcFixaDesc != null ? l.parcFixaDesc : '', { inputmode: 'decimal' })) +
+    '</div><div class="colunas">' +
+      campo('Parcela reajustada (R$)', entrada('parcReaj', l.parcReaj != null ? l.parcReaj : '', { inputmode: 'decimal' })) +
+      campo('Reajustada com desconto (R$)', entrada('parcReajDesc', l.parcReajDesc != null ? l.parcReajDesc : '', { inputmode: 'decimal' })) +
+    '</div>' +
+    campo('Rua / observação', entrada('rua', l.rua || ''));
+
+  const fundo = abrirModal({
+    titulo: id ? 'Editar ' + nomeLote(l) : 'Novo lote',
+    corpo, largo: true,
+    acoes: [
+      { texto: 'Voltar', aoClicar: () => fecharModal() },
+      { texto: 'Salvar', classe: 'primario', aoClicar: (f2) => {
+        const v = lerCampos(f2);
+        const quadra = Math.round(numeroBR(v.quadra));
+        const nLote = Math.round(numeroBR(v.lote));
+        const preco = numeroBR(v.preco);
+        if (!(quadra > 0) || !(nLote > 0)) { toast('Diga quadra e número do lote', 'ruim'); return; }
+        if (!(preco > 0)) { toast('Diga o preço', 'ruim'); return; }
+        const idNovoLote = 'q' + quadra + '-l' + nLote;
+        if (!id && achar('lote', idNovoLote)) { toast('O lote Q' + quadra + '-L' + nLote + ' já existe', 'ruim'); return; }
+        if (id && idNovoLote !== id && achar('lote', idNovoLote)) { toast('Já existe outro lote Q' + quadra + '-L' + nLote, 'ruim'); return; }
+        salvar('lote', {
+          // mudar quadra/nº de um lote existente NÃO troca o id (as vendas
+          // apontam para ele); só o rótulo muda.
+          id: id || idNovoLote,
+          cod: l.cod || (Math.max(0, ...lotes().map((x) => Number(x.cod) || 0)) + 1),
+          quadra, lote: nLote,
+          areaM2: numeroBR(v.areaM2), preco,
+          parcFixa: numeroBR(v.parcFixa), parcFixaDesc: numeroBR(v.parcFixaDesc),
+          parcReaj: numeroBR(v.parcReaj), parcReajDesc: numeroBR(v.parcReajDesc),
+          rua: String(v.rua || '').slice(0, 120),
+        });
+        fecharSilencioso(f2);
+        toast(id ? 'Lote atualizado' : 'Lote Q' + quadra + '-L' + nLote + ' criado');
+        location.hash = '#/lote/' + (id || idNovoLote);
+        TELAS.espelho._forcar = true;
+      } },
+    ],
+  });
+  // preço digitado → sugere as 4 parcelas (só preenche campo que está vazio
+  // ou que ainda segue a régua — o que foi mexido à mão fica quieto)
+  const campoPreco = fundo.querySelector('[data-campo="preco"]');
+  campoPreco.addEventListener('input', () => {
+    const preco = numeroBR(campoPreco.value);
+    if (!(preco > 0)) return;
+    for (const [nome, razao] of Object.entries(RAZAO_PARC)) {
+      const el = fundo.querySelector('[data-campo="' + nome + '"]');
+      if (el && !el.dataset.mexido) el.value = (preco * razao).toFixed(2);
+    }
+  });
+  for (const nome of Object.keys(RAZAO_PARC)) {
+    const el = fundo.querySelector('[data-campo="' + nome + '"]');
+    if (el) el.addEventListener('keydown', () => { el.dataset.mexido = '1'; });
+  }
+}
 
 /* ── Proposta: gera o PDF, sobe, grava e entrega o link do WhatsApp ────────── */
 function abrirProposta(l, sim) {

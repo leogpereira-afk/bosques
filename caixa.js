@@ -49,6 +49,59 @@ function totaisDoMes(mes) {
   return { entradas, saidas, resultado: entradas - saidas };
 }
 
+// Acumulado do empreendimento desde o início (inclui o que está sem data —
+// dinheiro sem data existe do mesmo jeito; o aviso da tela cobra a data).
+function totaisAcumulados() {
+  let entradas = 0, saidas = 0;
+  for (const r of lista('rec')) entradas += Number(r.valor) || 0;
+  for (const c of cxVivos()) {
+    if (c.tipo === 'entrada') entradas += Number(c.valor) || 0;
+    else saidas += Number(c.valor) || 0;
+  }
+  return { entradas, saidas, resultado: entradas - saidas };
+}
+
+/* ── DRE do empreendimento ──────────────────────────────────────────────────
+   Três colunas: o mês escolhido, o ano dele e desde o início. As despesas
+   abertas POR CATEGORIA — é a resposta de "para onde o dinheiro está indo".
+   Sem data entra só no "desde o início". */
+function dreDados(mesSel) {
+  const ano = mesSel.slice(0, 4);
+  const balde = () => ({ recVendas: 0, outras: {}, desp: {} });
+  const b = { mes: balde(), ano: balde(), total: balde() };
+  const baldesDe = (data) => {
+    const out = [b.total];
+    if (data) {
+      if (mesDe(data) === mesSel) out.push(b.mes);
+      if (String(data).startsWith(ano)) out.push(b.ano);
+    }
+    return out;
+  };
+  for (const r of lista('rec')) {
+    for (const alvo of baldesDe(r.data)) alvo.recVendas += Number(r.valor) || 0;
+  }
+  for (const c of cxVivos()) {
+    const cat = c.categoria || 'Outros';
+    for (const alvo of baldesDe(c.data)) {
+      const caixa2 = c.tipo === 'entrada' ? alvo.outras : alvo.desp;
+      caixa2[cat] = (caixa2[cat] || 0) + (Number(c.valor) || 0);
+    }
+  }
+  for (const k of ['mes', 'ano', 'total']) {
+    const x = b[k];
+    x.somaOutras = Object.values(x.outras).reduce((s, v) => s + v, 0);
+    x.receita = x.recVendas + x.somaOutras;
+    x.somaDesp = Object.values(x.desp).reduce((s, v) => s + v, 0);
+    x.resultado = x.receita - x.somaDesp;
+  }
+  // Rubricas na ordem do que mais pesa no acumulado.
+  b.catsDesp = Object.keys(b.total.desp).sort((a, c) => b.total.desp[c] - b.total.desp[a]);
+  b.catsOutras = Object.keys(b.total.outras).sort((a, c) => b.total.outras[c] - b.total.outras[a]);
+  b.mesSel = mesSel;
+  b.anoRotulo = ano;   // NÃO sobrescrever b.ano — é o balde do ano!
+  return b;
+}
+
 // Meses com movimento (para os chips e a tabela anual).
 function mesesComMovimento() {
   const set = new Set();
@@ -100,6 +153,96 @@ TELAS.caixa = function () {
         '<button class="btn mini cx-datar" data-id="' + esc(c.id) + '">datar</button></div>').join('') + '</div>'
     : '';
 
+  const ac = totaisAcumulados();
+  const dre = dreDados(mes);
+
+  // ── Previsibilidade: o que os contratos vivos AINDA vão trazer, mês a mês.
+  // Custo estimado = média das saídas dos últimos 3 meses com movimento (é
+  // estimativa de referência, não promessa — e o papel diz isso).
+  const hoje = hojeISO();
+  const mesAtual = mesDe(hoje);
+  const porMesPrev = {};
+  let vencidoAberto = 0, aReceberTotal = 0, parcelasAbertas = 0;
+  for (const v of vendasVivas()) {
+    const r = CARNE.resumo(v, cfgReajuste(), recsDaVenda(v.id));
+    for (const l of r.carne) {
+      const falta = Math.round((l.valor - Math.min(l.pago, l.valor)) * 100) / 100;
+      if (falta <= 0.004) continue;
+      aReceberTotal += falta; parcelasAbertas++;
+      if (l.venc && l.venc < hoje) { vencidoAberto += falta; continue; }
+      const m = mesDe(l.venc);
+      if (/^\d{4}-\d{2}$/.test(m)) porMesPrev[m] = (porMesPrev[m] || 0) + falta;
+    }
+  }
+  const mesesFechados = meses.filter((m) => m < mesAtual).slice(-3);
+  const custoMedio = mesesFechados.length
+    ? mesesFechados.reduce((s, m) => s + totaisDoMes(m).saidas, 0) / mesesFechados.length : 0;
+  const mesesPrev = Object.keys(porMesPrev).sort().filter((m) => m >= mesAtual).slice(0, 12);
+  const blocoPrevisao =
+    '<div class="cartao"><h2>Previsibilidade <span class="nota">— o que os contratos vivos ainda vão trazer</span></h2>' +
+    '<div class="paineis" style="margin:0 0 10px">' +
+      '<div class="painel"><div class="rot">A receber dos contratos</div><div class="num pos">' + fmt.brl(aReceberTotal) + '</div>' +
+        '<div class="sub">' + parcelasAbertas + ' parcela(s) em aberto</div></div>' +
+      '<div class="painel"><div class="rot">Já vencido (cobrar)</div><div class="num' + (vencidoAberto ? ' neg' : '') + '">' + fmt.brl(vencidoAberto) + '</div></div>' +
+      '<div class="painel"><div class="rot">Custo típico por mês</div><div class="num">' + fmt.brl(custoMedio) + '</div>' +
+        '<div class="sub">média dos últimos ' + mesesFechados.length + ' meses</div></div>' +
+    '</div>' +
+    (mesesPrev.length
+      ? '<div class="rolagem"><table class="tabela"><thead><tr><th>Mês</th><th class="num">A receber (carnês)</th>' +
+        '<th class="num">Custo estimado</th><th class="num">Saldo projetado</th></tr></thead><tbody>' +
+        mesesPrev.map((m) => {
+          const rec2 = porMesPrev[m];
+          const saldo = rec2 - custoMedio;
+          return '<tr><td>' + nomeMes(m) + '</td><td class="num">' + fmt.brl(rec2) + '</td>' +
+            '<td class="num">' + fmt.brl(custoMedio) + '</td>' +
+            '<td class="num" style="color:' + (saldo >= 0 ? 'var(--verde)' : 'var(--ruim)') + '">' + fmt.brl(saldo) + '</td></tr>';
+        }).join('') + '</tbody></table></div>' +
+        '<p class="nota" style="margin-top:8px">A coluna de custo é a MÉDIA dos últimos meses — estimativa de referência, não compromisso. O recebimento supõe as parcelas pagas em dia.</p>'
+      : '<p class="nota">Nenhuma parcela futura em aberto.</p>') +
+    '</div>';
+
+  // "Para onde o dinheiro está indo": saídas por categoria, mês × acumulado,
+  // com barra proporcional ao acumulado.
+  const maiorDesp = Math.max(1, ...dre.catsDesp.map((c) => dre.total.desp[c]));
+  const blocoDestino = dre.catsDesp.length
+    ? '<div class="cartao"><h2>Para onde o dinheiro está indo <span class="nota">— saídas por categoria · clique num lançamento abaixo para reclassificar</span></h2>' +
+      '<div class="rolagem"><table class="tabela"><thead><tr><th>Categoria</th><th></th>' +
+      '<th class="num">' + nomeMes(mes) + '</th><th class="num">Desde o início</th><th class="num">% do total</th></tr></thead><tbody>' +
+      dre.catsDesp.map((c) => {
+        const vTot = dre.total.desp[c];
+        const pct = Math.round(vTot / Math.max(1, dre.total.somaDesp) * 100);
+        return '<tr><td>' + esc(c) + '</td>' +
+          '<td style="width:34%"><div style="background:var(--verde-palido);border-radius:6px;height:12px;overflow:hidden">' +
+            '<div style="width:' + Math.round(vTot / maiorDesp * 100) + '%;height:100%;background:var(--verde)"></div></div></td>' +
+          '<td class="num">' + (dre.mes.desp[c] ? fmt.brl(dre.mes.desp[c]) : '—') + '</td>' +
+          '<td class="num">' + fmt.brl(vTot) + '</td>' +
+          '<td class="num">' + pct + '%</td></tr>';
+      }).join('') +
+      '<tr style="font-weight:800"><td>TOTAL</td><td></td><td class="num">' + fmt.brl(dre.mes.somaDesp) + '</td>' +
+      '<td class="num">' + fmt.brl(dre.total.somaDesp) + '</td><td class="num">100%</td></tr>' +
+      '</tbody></table></div></div>'
+    : '';
+
+  // O DRE do empreendimento (mês · ano · desde o início), com PDF.
+  const linhaDre = (rotulo, vMes, vAno, vTot, opts = {}) =>
+    '<tr' + (opts.forte ? ' style="font-weight:800;border-top:2px solid var(--borda)"' : '') + '>' +
+    '<td' + (opts.recuo ? ' style="padding-left:22px;color:var(--tinta-fraca)"' : '') + '>' + rotulo + '</td>' +
+    [vMes, vAno, vTot].map((v) => '<td class="num"' +
+      (opts.cor ? ' style="color:' + (v >= 0 ? 'var(--verde)' : 'var(--ruim)') + '"' : '') + '>' +
+      (v === 0 && opts.recuo ? '—' : fmt.brl(v)) + '</td>').join('') + '</tr>';
+  const blocoDre =
+    '<div class="cartao"><h2>DRE do empreendimento <span class="nota">— regime de caixa (o que de fato entrou e saiu)</span>' +
+      ' <button class="btn mini" id="dre-pdf" style="float:right">📄 PDF do DRE</button></h2>' +
+    '<div class="rolagem"><table class="tabela"><thead><tr><th></th>' +
+      '<th class="num">' + nomeMes(mes) + '</th><th class="num">' + dre.anoRotulo + '</th><th class="num">Desde o início</th></tr></thead><tbody>' +
+    linhaDre('Recebimentos de vendas (entradas e parcelas)', dre.mes.recVendas, dre.ano.recVendas, dre.total.recVendas) +
+    dre.catsOutras.map((c) => linhaDre(esc(c), dre.mes.outras[c] || 0, dre.ano.outras[c] || 0, dre.total.outras[c], { recuo: true })).join('') +
+    linhaDre('(=) Receita', dre.mes.receita, dre.ano.receita, dre.total.receita, { forte: true }) +
+    dre.catsDesp.map((c) => linhaDre(esc(c), dre.mes.desp[c] || 0, dre.ano.desp[c] || 0, dre.total.desp[c], { recuo: true })).join('') +
+    linhaDre('(−) Despesas', dre.mes.somaDesp, dre.ano.somaDesp, dre.total.somaDesp, { forte: true }) +
+    linhaDre('(=) Resultado', dre.mes.resultado, dre.ano.resultado, dre.total.resultado, { forte: true, cor: true }) +
+    '</tbody></table></div></div>';
+
   app.innerHTML =
     '<div class="filtros"><div class="chips">' +
       meses.map((m) => '<button class="chip' + (m === mes ? ' on' : '') + '" data-m="' + m + '">' + nomeMes(m) + '</button>').join('') +
@@ -110,6 +253,11 @@ TELAS.caixa = function () {
       '<div class="painel"><div class="rot">Saídas</div><div class="num neg">' + fmt.brl(t.saidas) + '</div></div>' +
       '<div class="painel"><div class="rot">Resultado</div><div class="num ' + (t.resultado >= 0 ? 'pos' : 'neg') + '">' + fmt.brl(t.resultado) + '</div></div>' +
     '</div>' +
+    '<div class="paineis">' +
+      '<div class="painel"><div class="rot">Total entradas · desde o início</div><div class="num pos">' + fmt.brl(ac.entradas) + '</div></div>' +
+      '<div class="painel"><div class="rot">Total saídas</div><div class="num neg">' + fmt.brl(ac.saidas) + '</div></div>' +
+      '<div class="painel"><div class="rot">Resultado do empreendimento</div><div class="num ' + (ac.resultado >= 0 ? 'pos' : 'neg') + '">' + fmt.brl(ac.resultado) + '</div></div>' +
+    '</div>' +
     '<div class="acoes-linha" style="margin:0 0 14px">' +
       '<button class="btn primario" id="cx-desp">− Nova despesa</button>' +
       '<button class="btn" id="cx-rece">+ Outra receita</button>' +
@@ -119,13 +267,14 @@ TELAS.caixa = function () {
       '<tbody>' + tabelaAno + '<tr style="border-top:2px solid var(--borda);font-weight:800"><td>TOTAL</td>' +
       '<td class="num">' + fmt.brl(tAno.e) + '</td><td class="num">' + fmt.brl(tAno.s2) + '</td>' +
       '<td class="num">' + fmt.brl(tAno.e - tAno.s2) + '</td></tr></tbody></table></div></div>' +
-    '<div class="cartao"><h2>Lançamentos de ' + nomeMes(mes) + ' <span class="nota">— ' + movs.length + '</span></h2>' +
-      (movs.map((m) => '<div class="lin" ' + (m.vendaId ? 'data-venda="' + esc(m.vendaId) + '"' : 'style="cursor:default"') + '>' +
+    blocoPrevisao + blocoDestino + blocoDre +
+    '<div class="cartao"><h2>Lançamentos de ' + nomeMes(mes) + ' <span class="nota">— ' + movs.length + ' · clique para editar/reclassificar</span></h2>' +
+      (movs.map((m) => '<div class="lin" ' + (m.col === 'cx' ? 'data-cx="' + esc(m.id) + '"' :
+          (m.vendaId ? 'data-venda="' + esc(m.vendaId) + '"' : 'style="cursor:default"')) + '>' +
         '<div class="cresce"><b>' + esc(m.descricao) + '</b>' +
         '<span class="sub">' + fmt.data(m.data) + ' · ' + esc(m.categoria) + (m.forma ? ' · ' + esc(m.forma) : '') + '</span></div>' +
         '<span class="dinheiro" style="color:' + (m.entrada ? 'var(--verde)' : 'var(--ruim)') + '">' +
           (m.entrada ? '+' : '−') + fmt.brl(m.valor) + '</span>' +
-        (m.col === 'cx' ? '<button class="btn mini cx-apagar" data-id="' + esc(m.id) + '">🗑</button>' : '') +
         '</div>').join('') || '<p class="nota">Nenhum lançamento neste mês.</p>') +
     '</div>';
 
@@ -145,24 +294,66 @@ TELAS.caixa = function () {
   app.querySelectorAll('.lin[data-venda]').forEach((el) => {
     el.onclick = () => { location.hash = '#/venda/' + el.dataset.venda; };
   });
-  app.querySelectorAll('.cx-apagar').forEach((b) => {
-    b.onclick = async (e) => {
-      e.stopPropagation();
-      const c = achar('cx', b.dataset.id);
-      if (!c) return;
-      if (await confirmar('Apagar o lançamento "' + (c.descricao || '') + '" de ' + fmt.brl(c.valor) + '? (vai para a lixeira)', { perigo: true, ok: 'Apagar' })) {
-        try {
-          await api('apagar', { colecao: 'cx', id: c.id });
-          const arr = S.reg.cx || [];
-          const i = arr.findIndex((x) => x.id === c.id);
-          if (i >= 0) arr[i] = { ...arr[i], apagadoEm: new Date().toISOString() };
-          gravarCache();
-          TELAS.caixa();
-        } catch (err) { toast(err.message || 'Não consegui apagar agora', 'ruim'); }
-      }
-    };
+  app.querySelectorAll('.lin[data-cx]').forEach((el) => {
+    el.onclick = () => abrirEdicaoLancamento(el.dataset.cx);
   });
+  const bDre = document.getElementById('dre-pdf');
+  if (bDre) bDre.onclick = () => { PDF.dre(dre, S.cfg || {}); toast('DRE em PDF gerado'); };
 };
+
+/* ── Editar/reclassificar um lançamento avulso ─────────────────────────────
+   É aqui que "MENSALIDADE VITOR · Outros" vira "Funcionários": a importação
+   classificou por palavra-chave e quem conhece o dinheiro corrige a categoria.
+   Recebimento de venda NÃO passa por aqui (estorna na ficha da venda). */
+function abrirEdicaoLancamento(id) {
+  const c = achar('cx', id);
+  if (!c) return;
+  const cats = c.tipo === 'saida'
+    ? ((S.cfg && S.cfg.categoriasDespesa) || ['Outros'])
+    : ((S.cfg && S.cfg.categoriasReceita) || ['Outros']);
+  const listaCats = cats.includes(c.categoria) || !c.categoria ? cats : [c.categoria].concat(cats);
+  const corpo =
+    campo('Descrição', entrada('descricao', c.descricao || '')) +
+    '<div class="colunas-3">' +
+      campo('Valor (R$)', entrada('valor', c.valor, { inputmode: 'decimal' })) +
+      campo('Data', entrada('data', c.data || '', { tipo: 'date' })) +
+      campo('Forma', seletor('forma', c.forma || 'PIX', (S.cfg && S.cfg.formasPg) || ['PIX'])) +
+    '</div>' +
+    campo('Categoria', seletor('categoria', c.categoria || 'Outros', listaCats), 'é o que separa o DRE — estrutura, funcionário, comissão…') +
+    campo('Observação', entrada('obs', c.obs || ''));
+  abrirModal({
+    titulo: (c.tipo === 'saida' ? 'Saída' : 'Receita') + ' — editar',
+    corpo,
+    acoes: [
+      { texto: 'Voltar', aoClicar: () => fecharModal() },
+      { texto: 'Apagar', classe: 'perigo', aoClicar: async (fundo) => {
+        if (await confirmar('Apagar "' + (c.descricao || '') + '" de ' + fmt.brl(c.valor) + '? (vai para a lixeira, com registro)', { perigo: true, ok: 'Apagar' })) {
+          try {
+            await api('apagar', { colecao: 'cx', id: c.id });
+            const arr = S.reg.cx || [];
+            const i = arr.findIndex((x) => x.id === c.id);
+            if (i >= 0) arr[i] = { ...arr[i], apagadoEm: new Date().toISOString() };
+            gravarCache();
+            fecharSilencioso(fundo);
+            TELAS.caixa();
+          } catch (err) { toast(err.message || 'Não consegui apagar agora', 'ruim'); }
+        }
+      } },
+      { texto: 'Salvar', classe: 'primario', aoClicar: (fundo) => {
+        const v = lerCampos(fundo);
+        const valor = numeroBR(v.valor);
+        if (!(valor > 0)) { toast('Valor inválido', 'ruim'); return; }
+        salvar('cx', {
+          id: c.id, valor, data: v.data, forma: v.forma, categoria: v.categoria,
+          descricao: String(v.descricao || '').trim().slice(0, 200), obs: String(v.obs || '').slice(0, 300),
+        });
+        fecharSilencioso(fundo);
+        toast('Lançamento atualizado');
+        TELAS.caixa();
+      } },
+    ],
+  });
+}
 
 function abrirLancamento(tipo) {
   const cats = tipo === 'saida'
@@ -198,81 +389,3 @@ function abrirLancamento(tipo) {
     ],
   });
 }
-
-/* ── Tela: comissões ───────────────────────────────────────────────────────── */
-/* A pergunta: "quanto devo a cada corretor?" — o controle que na planilha era
-   uma coluna de anotações "PG VITOR 1000, falta…". Devido = o combinado nas
-   vendas dele. Pago = as saídas de caixa categoria Comissão no nome dele. */
-TELAS.comissoes = function () {
-  const app = document.getElementById('app');
-  const corretores = lista('corretor');
-  const vendas = lista('venda');
-  const pagos = cxVivos().filter((c) => c.tipo === 'saida' && c.categoria === 'Comissão');
-
-  const porCorretor = corretores.map((cor) => {
-    const suas = vendas.filter((v) => v.corretorId === cor.id && v.situacao !== 'distratada');
-    const distratadas = vendas.filter((v) => v.corretorId === cor.id && v.situacao === 'distratada');
-    const devido = suas.reduce((s, v) => s + (Number(v.comissao) || 0), 0);
-    const pago = pagos.filter((p) => p.corretorId === cor.id).reduce((s, p) => s + (Number(p.valor) || 0), 0);
-    return { cor, suas, distratadas, devido, pago, saldo: devido - pago };
-  }).filter((x) => x.suas.length || x.pago > 0)
-    .sort((a, b) => b.saldo - a.saldo);
-
-  const totalDevido = porCorretor.reduce((s, x) => s + x.devido, 0);
-  const totalPago = porCorretor.reduce((s, x) => s + x.pago, 0);
-
-  app.innerHTML =
-    '<div class="paineis">' +
-      '<div class="painel"><div class="rot">Comissões combinadas</div><div class="num">' + fmt.brl(totalDevido) + '</div></div>' +
-      '<div class="painel"><div class="rot">Já pagas</div><div class="num pos">' + fmt.brl(totalPago) + '</div></div>' +
-      '<div class="painel"><div class="rot">A pagar</div><div class="num' + (totalDevido - totalPago > 0.01 ? ' neg' : '') + '">' + fmt.brl(totalDevido - totalPago) + '</div></div>' +
-    '</div>' +
-    (porCorretor.map((x) =>
-      '<div class="cartao"><h2>' + esc(x.cor.nome) +
-        ' <span class="nota">· ' + x.suas.length + ' venda(s)' +
-        (x.distratadas.length ? ' · ' + x.distratadas.length + ' distratada(s) fora da conta' : '') +
-        (x.cor.chavePix ? ' · PIX ' + esc(x.cor.chavePix) : '') + '</span></h2>' +
-      '<div class="paineis" style="margin:0 0 10px">' +
-        '<div class="painel"><div class="rot">Combinado</div><div class="num">' + fmt.brl(x.devido) + '</div></div>' +
-        '<div class="painel"><div class="rot">Pago</div><div class="num pos">' + fmt.brl(x.pago) + '</div></div>' +
-        '<div class="painel"><div class="rot">Saldo</div><div class="num' + (x.saldo > 0.01 ? ' neg' : '') + '">' + fmt.brl(x.saldo) + '</div></div>' +
-      '</div>' +
-      (x.saldo > 0.01 ? '<button class="btn primario bt-pagar" data-id="' + esc(x.cor.id) + '" data-nome="' + esc(x.cor.nome) + '" data-saldo="' + x.saldo.toFixed(2) + '">Registrar pagamento</button>' : '') +
-      '<details style="margin-top:10px"><summary class="nota" style="cursor:pointer">ver as vendas e os pagamentos</summary>' +
-        x.suas.map((v) => '<div class="nota" style="padding:3px 0">• <a href="#/venda/' + esc(v.id) + '">' + esc(v.codigo || '') + '</a> Q' + v.quadra + '-L' + v.lote + ' · ' + esc(v.clienteNome || '') + ' — ' + fmt.brl(v.comissao) + '</div>').join('') +
-        pagos.filter((p) => p.corretorId === x.cor.id).map((p) => '<div class="nota" style="padding:3px 0">✓ pago ' + fmt.brl(p.valor) + ' em ' + fmt.data(p.data) + (p.obs ? ' · ' + esc(p.obs) : '') + '</div>').join('') +
-      '</details></div>').join('') || vazio('🤝', 'Nenhuma comissão por aqui', 'As comissões nascem nas vendas com corretor.'));
-
-  app.querySelectorAll('.bt-pagar').forEach((b) => {
-    b.onclick = () => {
-      const corId = b.dataset.id, nome = b.dataset.nome, saldo = Number(b.dataset.saldo);
-      const corpo =
-        '<p class="nota">Saldo com ' + esc(nome) + ': <b>' + fmt.brl(saldo) + '</b></p>' +
-        '<div class="colunas-3">' +
-          campo('Valor pago (R$)', entrada('valor', saldo.toFixed(2), { inputmode: 'decimal' })) +
-          campo('Em', entrada('data', hojeISO(), { tipo: 'date' })) +
-          campo('Forma', seletor('forma', 'PIX', (S.cfg && S.cfg.formasPg) || ['PIX'])) +
-        '</div>' + campo('Observação', entrada('obs', '', { placeholder: 'quais vendas cobre…' }));
-      abrirModal({
-        titulo: 'Pagar comissão — ' + nome,
-        corpo,
-        acoes: [
-          { texto: 'Voltar', aoClicar: () => fecharModal() },
-          { texto: 'Registrar', classe: 'primario', aoClicar: (fundo) => {
-            const c = lerCampos(fundo);
-            const valor = numeroBR(c.valor);
-            if (!(valor > 0)) { toast('Diga o valor', 'ruim'); return; }
-            salvar('cx', {
-              tipo: 'saida', valor, data: c.data, forma: c.forma,
-              categoria: 'Comissão', corretorId: corId,
-              descricao: 'Comissão — ' + nome, obs: String(c.obs || '').slice(0, 300),
-            });
-            fecharSilencioso(fundo);
-            toast('Comissão registrada');
-            TELAS.comissoes();
-          } },
-        ],
-      });
-    };
-  });
-};

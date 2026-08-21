@@ -1,14 +1,20 @@
 /* Service worker — casca offline. SUBA O NÚMERO a cada publicação, senão o
    navegador continua servindo o arquivo velho (lição paga mais de uma vez). */
-const CACHE = 'bsq-shell-v1';
+const CACHE = 'bsq-shell-v3';
 const ARQUIVOS = [
   './', 'index.html', 'styles.css', 'config.js', 'ui.js', 'store.js', 'carne.js',
   'pdf.js', 'espelho.js', 'vendas.js', 'caixa.js', 'cadastros.js', 'app.js',
-  'libs/jspdf.umd.min.js', 'manifest.webmanifest', 'icons/icon-192.png', 'icons/icon-512.png'
+  'libs/jspdf.umd.min.js', 'manifest.webmanifest', 'icons/icon-192.png', 'icons/icon-512.png',
+  'icons/logo-full.png', 'icons/logo-pdf.png'
 ];
 
 self.addEventListener('install', (e) => {
-  e.waitUntil(caches.open(CACHE).then((c) => c.addAll(ARQUIVOS)).then(() => self.skipWaiting()));
+  // cache:'reload' força buscar DA REDE na instalação — sem isso o cache novo
+  // nascia com arquivos velhos herdados do cache HTTP do navegador, e nem
+  // "recarregar 2 vezes" resolvia.
+  e.waitUntil(caches.open(CACHE)
+    .then((c) => c.addAll(ARQUIVOS.map((u) => new Request(u, { cache: 'reload' }))))
+    .then(() => self.skipWaiting()));
 });
 
 self.addEventListener('activate', (e) => {

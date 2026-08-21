@@ -46,20 +46,49 @@ TELAS.vendas = function () {
     return true;
   }).sort((a, b) => (b.r.emAtraso - a.r.emAtraso) || String(b.v.criadoEm || '').localeCompare(a.v.criadoEm || ''));
 
+  // VGV = o valor geral de vendas (soma dos contratos que estão de pé).
+  const naoDistratadas = linhas.filter(({ v }) => v.situacao !== 'distratada');
+  const vgv = naoDistratadas.reduce((s, x) => s + x.r.total, 0);
+
+  // Vendas mês a mês (pela data da venda): quantas e quanto de VGV.
+  const porMesVenda = {};
+  for (const { v, r } of naoDistratadas) {
+    const m = mesDe(v.dataVenda || v.criadoEm);
+    if (!/^\d{4}-\d{2}$/.test(m)) continue;
+    const b = porMesVenda[m] = porMesVenda[m] || { n: 0, vgv: 0 };
+    b.n++; b.vgv += r.total;
+  }
+  const mesesVenda = Object.keys(porMesVenda).sort();
+  const maiorVgvMes = Math.max(1, ...mesesVenda.map((m) => porMesVenda[m].vgv));
+  const cartaoMensal = mesesVenda.length
+    ? '<details class="cartao" style="padding:12px 16px"' + (TELAS._vdMensalAberto ? ' open' : '') + ' id="vd-mensal">' +
+      '<summary style="cursor:pointer;font-weight:700">📈 Vendas mês a mês <span class="nota">— quantas e quanto de VGV</span></summary>' +
+      '<div class="rolagem" style="margin-top:10px"><table class="tabela"><thead><tr><th>Mês</th><th>Vendas</th><th></th><th class="num">VGV do mês</th></tr></thead><tbody>' +
+      mesesVenda.map((m) => '<tr><td>' + nomeMes(m) + '</td><td>' + porMesVenda[m].n + '</td>' +
+        '<td style="width:40%"><div style="background:var(--verde-palido);border-radius:6px;height:12px;overflow:hidden">' +
+        '<div style="width:' + Math.round(porMesVenda[m].vgv / maiorVgvMes * 100) + '%;height:100%;background:var(--verde)"></div></div></td>' +
+        '<td class="num">' + fmt.brl(porMesVenda[m].vgv) + '</td></tr>').join('') +
+      '<tr style="font-weight:800"><td>TOTAL</td><td>' + naoDistratadas.length + '</td><td></td><td class="num">' + fmt.brl(vgv) + '</td></tr>' +
+      '</tbody></table></div></details>'
+    : '';
+
   app.innerHTML =
     '<div class="paineis">' +
+      '<div class="painel"><div class="rot">VGV vendido</div><div class="num pos">' + fmt.brl(vgv) + '</div>' +
+        '<div class="sub">' + naoDistratadas.length + ' contrato(s) de pé</div></div>' +
       '<div class="painel"><div class="rot">Contratos vivos</div><div class="num">' + vendasVivas().length + '</div></div>' +
       '<div class="painel clicavel" id="pn-atraso"><div class="rot">Em atraso</div><div class="num' + (emAtraso.length ? ' neg' : ' pos') + '">' + emAtraso.length + '</div>' +
         '<div class="sub">' + fmt.brl(totalAtraso) + ' vencidos</div></div>' +
       '<div class="painel"><div class="rot">Recebido no mês</div><div class="num pos">' + fmt.brl(recebidoMes) + '</div></div>' +
       '<div class="painel"><div class="rot">Quitadas</div><div class="num">' + todas.filter((v) => v.situacao === 'quitada').length + '</div></div>' +
-    '</div>' +
+    '</div>' + cartaoMensal +
     '<div class="filtros">' +
       '<input type="search" id="vd-q" placeholder="cliente, lote, código…" value="' + esc(filtro.q) + '">' +
       '<select id="vd-sit"><option value="">Todas</option>' +
         [['ativa', 'Ativas'], ['conferir', 'Conferir'], ['quitada', 'Quitadas'], ['distratada', 'Distratadas']]
           .map(([v2, t]) => '<option value="' + v2 + '"' + (filtro.sit === v2 ? ' selected' : '') + '>' + t + '</option>').join('') + '</select>' +
       '<button class="chip' + (filtro.so === 'atraso' ? ' on' : '') + '" id="vd-atraso">só atraso</button>' +
+      '<button class="btn mini" id="vd-pdf" title="baixa o retrato do que está na tela — filtrou, sai só o filtrado">📄 PDF</button>' +
     '</div>' +
     (filtradas.map(({ v, r }) => {
       const pct = r.total > 0 ? Math.round(r.pago / r.total * 100) : 0;
@@ -73,6 +102,18 @@ TELAS.vendas = function () {
         '</div>';
     }).join('') || vazio('🔍', 'Nada com esse filtro'));
 
+  document.getElementById('vd-pdf').onclick = () => {
+    // O recorte sai ESCRITO no papel: um PDF filtrado sem dizer o filtro
+    // viraria "o total" na reunião.
+    const pedacos = [];
+    if (filtro.so === 'atraso') pedacos.push('só em atraso');
+    if (filtro.sit) pedacos.push(({ ativa: 'ativas', conferir: 'a conferir', quitada: 'quitadas', distratada: 'distratadas' })[filtro.sit] || filtro.sit);
+    if (filtro.q) pedacos.push('busca "' + filtro.q + '"');
+    PDF.vendasDash(filtradas, pedacos.join(' · ') || 'todas as vendas', S.cfg || {});
+    toast('PDF gerado — ' + filtradas.length + ' venda(s)');
+  };
+  const dMensal = document.getElementById('vd-mensal');
+  if (dMensal) dMensal.addEventListener('toggle', () => { TELAS._vdMensalAberto = dMensal.open; });
   document.getElementById('vd-q').oninput = (e) => { filtro.q = e.target.value; TELAS.vendas(); };
   document.getElementById('vd-sit').onchange = (e) => { filtro.sit = e.target.value; TELAS.vendas(); };
   document.getElementById('vd-atraso').onclick = () => { filtro.so = filtro.so === 'atraso' ? '' : 'atraso'; TELAS.vendas(); };
@@ -124,6 +165,7 @@ TELAS.venda = function (id) {
       (sit === 'distratada' && S.perfil === 'direcao' ? '<button class="btn" id="bt-reabrir">Reabrir venda</button>' : '') +
       (sit === 'conferir' ? '<button class="btn" id="bt-ok">Conferido — marcar ativa</button>' : '') +
       '<button class="btn" id="bt-anexo">📎 Anexar contrato/arquivo</button>' +
+      '<button class="btn" id="bt-pdf-venda">📄 Baixar PDF desta venda</button>' +
     '</div></div>';
 
   const linhasCarne = r.carne.map((l) => {
@@ -202,6 +244,8 @@ TELAS.venda = function (id) {
   };
   const bA = document.getElementById('bt-anexo');
   if (bA) bA.onclick = () => abrirAnexoVenda(v);
+  const bPdf = document.getElementById('bt-pdf-venda');
+  if (bPdf) bPdf.onclick = () => { PDF.venda(v, r, recs, S.cfg || {}); toast('PDF da ' + (v.codigo || 'venda') + ' gerado'); };
   app.querySelectorAll('.bt-estorno').forEach((b) => {
     b.onclick = async () => {
       const rc = achar('rec', b.dataset.id);
