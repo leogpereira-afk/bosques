@@ -12,6 +12,7 @@ const ROTAS = {
   propostas:  { titulo: 'Propostas',     ic: '📨' },
   caixa:      { titulo: 'Caixa',         ic: '💰' },
   lancamentos: { titulo: 'Lançamentos',  ic: '🧾' },
+  relatorios: { titulo: 'Relatórios',   ic: '📊' },
   apresentacao: { titulo: 'Apresentação', ic: '🏞️' },
   comissoes:  { titulo: 'Comissões',     ic: '🤝', oculta: true }, // vive dentro de Corretores
   clientes:   { titulo: 'Clientes',      ic: '👥' },
@@ -23,8 +24,8 @@ const ROTAS = {
 // oferecer o que a pessoa não pode abrir.
 function rotasDoPerfil() {
   if (S.perfil === 'corretor') return ['espelho', 'propostas', 'apresentacao'];
-  if (S.perfil === 'escritorio') return ['home', 'espelho', 'vendas', 'propostas', 'caixa', 'lancamentos', 'clientes', 'corretores', 'apresentacao'];
-  return ['home', 'espelho', 'vendas', 'propostas', 'caixa', 'lancamentos', 'clientes', 'corretores', 'apresentacao', 'config'];
+  if (S.perfil === 'escritorio') return ['home', 'espelho', 'vendas', 'propostas', 'caixa', 'lancamentos', 'relatorios', 'clientes', 'corretores', 'apresentacao'];
+  return ['home', 'espelho', 'vendas', 'propostas', 'caixa', 'lancamentos', 'relatorios', 'clientes', 'corretores', 'apresentacao', 'config'];
 }
 
 function rotaAtual() {
@@ -209,6 +210,8 @@ TELAS.config = function () {
       campo('WhatsApp da casa', entrada('empresa.telefone', emp.telefone || ''), 'fallback do botão da proposta') +
       campo('Cidade', entrada('empresa.cidade', emp.cidade || 'Montes Claros')) +
     '</div>' +
+    campo('Dados para pagamento (saem na proposta)', areaTexto('empresa.contaBancaria', emp.contaBancaria || '',
+      'ex.: PIX (CNPJ): 00.000.000/0001-00 · Banco Sicoob ag 0000 c/c 00000-0 · Associação Campestre Portal dos Bosques')) +
     '<h2 style="margin-top:8px">Regras de venda</h2><div class="colunas-3">' +
       campo('Reajuste (%)', entrada('reajuste.pct', reaj.pct, { inputmode: 'decimal' }), 'da parcela "Reajustada"') +
       campo('a cada quantas parcelas', entrada('reajuste.aCada', reaj.aCada, { inputmode: 'numeric' })) +

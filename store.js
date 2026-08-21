@@ -8,7 +8,7 @@
 // TODAS as coleções do sistema. Ao criar uma nova, acrescente AQUI (e no
 // COLECOES do nucleo.mjs) — era em dois lugares e a cotação chegava do
 // servidor mas era jogada fora por não existir nesta lista.
-const COLECOES_APP = ['lote', 'cliente', 'corretor', 'venda', 'prop', 'rec', 'cx', 'doc', 'foto'];
+const COLECOES_APP = ['lote', 'cliente', 'corretor', 'venda', 'prop', 'rec', 'cx', 'doc', 'foto', 'prev'];
 const regVazio = () => COLECOES_APP.reduce((a, c) => { a[c] = []; return a; }, {});
 
 const S = {

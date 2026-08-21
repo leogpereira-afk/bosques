@@ -103,6 +103,7 @@ const SITUACOES = {
   enviada:     { txt: 'Enviada', cls: 'et-enviada' },
   aceita:      { txt: 'Virou venda', cls: 'et-quitada' },
   recusada:    { txt: 'Não avançou', cls: 'et-distratada' },
+  arquivada:   { txt: 'Arquivada', cls: 'et-aberta' },
   // parcela (carne.js deriva estas situações; ninguém as grava)
   paga:        { txt: 'Paga', cls: 'et-quitada' },
   parcial:     { txt: 'Paga em parte', cls: 'et-parcial' },

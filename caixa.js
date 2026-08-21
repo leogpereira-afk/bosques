@@ -505,3 +505,197 @@ TELAS.lancamentos = function () {
     };
   });
 };
+
+/* ── Tela: relatórios ───────────────────────────────────────────────────────
+   O retrato do negócio num horizonte que VOCÊ escolhe: este mês, este ano ou
+   até o último carnê acabar. Vendido, recebido, a receber, gasto — e os
+   GASTOS FUTUROS PREVISTOS, que se cadastram aqui (única vez ou mensal). */
+
+// Parcelas em aberto dos contratos vivos, por mês de vencimento.
+// Vencida NÃO entra no mês: vira um número próprio ("cobrar"), senão o
+// passado se disfarça de futuro.
+function aReceberPorMes() {
+  const hoje = hojeISO();
+  const porMes = {};
+  let vencido = 0, total = 0, parcelas = 0;
+  for (const v of vendasVivas()) {
+    const r = CARNE.resumo(v, cfgReajuste(), recsDaVenda(v.id));
+    for (const l of r.carne) {
+      const falta = Math.round((l.valor - Math.min(l.pago, l.valor)) * 100) / 100;
+      if (falta <= 0.004) continue;
+      total += falta; parcelas++;
+      if (l.venc && l.venc < hoje) { vencido += falta; continue; }
+      const m = mesDe(l.venc);
+      if (/^\d{4}-\d{2}$/.test(m)) porMes[m] = (porMes[m] || 0) + falta;
+    }
+  }
+  return { porMes, vencido, total, parcelas };
+}
+
+// Quanto está PREVISTO de gasto num mês (cadastro 'prev').
+function previstoNoMes(m) {
+  let soma = 0;
+  for (const g of lista('prev')) {
+    if (g.recorrencia === 'mensal') {
+      if ((!g.inicio || g.inicio <= m) && (!g.fim || m <= g.fim)) soma += Number(g.valor) || 0;
+    } else if ((g.data || '').slice(0, 7) === m) {
+      soma += Number(g.valor) || 0;
+    }
+  }
+  return soma;
+}
+
+TELAS.relatorios = function () {
+  const app = document.getElementById('app');
+  const hz = TELAS._hz || 'ano';
+  TELAS._hz = hz;
+  const mesAtual = mesDe(hojeISO());
+  const anoAtual = mesAtual.slice(0, 4);
+
+  // vendido / recebido / gasto (sempre desde o início — é o retrato do negócio)
+  const vendasDePe = lista('venda').filter((v) => v.situacao !== 'distratada');
+  const vgv = vendasDePe.reduce((s, v) => s + CARNE.resumo(v, cfgReajuste(), []).total, 0);
+  const ac = totaisAcumulados();
+
+  // a receber e previstos DENTRO do horizonte
+  const ar = aReceberPorMes();
+  const mesesFuturos = Object.keys(ar.porMes).sort().filter((m) => m >= mesAtual);
+  const doHorizonte = mesesFuturos.filter((m) =>
+    hz === 'mes' ? m === mesAtual : hz === 'ano' ? m.startsWith(anoAtual) : true);
+  const aReceberHz = doHorizonte.reduce((s, m) => s + ar.porMes[m], 0);
+  const previstoHz = doHorizonte.reduce((s, m) => s + previstoNoMes(m), 0);
+
+  const rotuloHz = { mes: 'em ' + nomeMes(mesAtual), ano: 'em ' + anoAtual, total: 'até acabar' }[hz];
+
+  // tabela do horizonte: por mês (mês/ano) ou por ANO (até acabar — 150
+  // parcelas vão até 2038; 13 linhas de ano leem melhor que 150 de mês)
+  let grupos;
+  if (hz === 'total') {
+    const porAno = {};
+    for (const m of mesesFuturos) {
+      const a = m.slice(0, 4);
+      const g = porAno[a] = porAno[a] || { rec: 0, prev: 0 };
+      g.rec += ar.porMes[m]; g.prev += previstoNoMes(m);
+    }
+    grupos = Object.keys(porAno).sort().map((a) => ({ rotulo: a, ...porAno[a] }));
+  } else {
+    grupos = doHorizonte.map((m) => ({ rotulo: nomeMes(m), rec: ar.porMes[m], prev: previstoNoMes(m) }));
+  }
+
+  const previstos = lista('prev').sort((a, b) => String(a.data || a.inicio || '').localeCompare(b.data || b.inicio || ''));
+
+  app.innerHTML =
+    '<div class="filtros"><div class="chips">' +
+      [['mes', 'Este mês'], ['ano', 'Este ano'], ['total', 'Até acabar']].map(([v, t2]) =>
+        '<button class="chip' + (hz === v ? ' on' : '') + '" data-hz="' + v + '">' + t2 + '</button>').join('') +
+    '</div><button class="btn mini" id="rel-pdf">📄 PDF do relatório</button></div>' +
+    '<div class="paineis">' +
+      '<div class="painel"><div class="rot">Lotes vendidos</div><div class="num">' + vendasDePe.length + '</div></div>' +
+      '<div class="painel"><div class="rot">Valor total vendido (VGV)</div><div class="num pos">' + fmt.brl(vgv) + '</div></div>' +
+      '<div class="painel"><div class="rot">Já recebido</div><div class="num pos">' + fmt.brl(ac.entradas) + '</div></div>' +
+      '<div class="painel"><div class="rot">Já gasto</div><div class="num neg">' + fmt.brl(ac.saidas) + '</div></div>' +
+    '</div>' +
+    '<div class="paineis">' +
+      '<div class="painel"><div class="rot">A receber ' + rotuloHz + '</div><div class="num pos">' + fmt.brl(aReceberHz) + '</div>' +
+        '<div class="sub">' + (hz === 'total' ? ar.parcelas + ' parcela(s) em aberto' : 'parcelas a vencer no período') + '</div></div>' +
+      '<div class="painel"><div class="rot">Vencido a cobrar</div><div class="num' + (ar.vencido ? ' neg' : '') + '">' + fmt.brl(ar.vencido) + '</div></div>' +
+      '<div class="painel"><div class="rot">Gastos previstos ' + rotuloHz + '</div><div class="num">' + fmt.brl(previstoHz) + '</div></div>' +
+      '<div class="painel"><div class="rot">Saldo projetado ' + rotuloHz + '</div>' +
+        '<div class="num ' + (aReceberHz - previstoHz >= 0 ? 'pos' : 'neg') + '">' + fmt.brl(aReceberHz - previstoHz) + '</div>' +
+        '<div class="sub">a receber − previstos (sem o vencido)</div></div>' +
+    '</div>' +
+    '<div class="cartao"><h2>' + (hz === 'total' ? 'Ano a ano até o fim dos carnês' : 'Mês a mês do período') + '</h2>' +
+      (grupos.length
+        ? '<div class="rolagem"><table class="tabela"><thead><tr><th>' + (hz === 'total' ? 'Ano' : 'Mês') + '</th>' +
+          '<th class="num">A receber</th><th class="num">Gastos previstos</th><th class="num">Saldo projetado</th></tr></thead><tbody>' +
+          grupos.map((g) => '<tr><td>' + g.rotulo + '</td><td class="num">' + fmt.brl(g.rec) + '</td>' +
+            '<td class="num">' + (g.prev ? fmt.brl(g.prev) : '—') + '</td>' +
+            '<td class="num" style="color:' + (g.rec - g.prev >= 0 ? 'var(--verde)' : 'var(--ruim)') + '">' + fmt.brl(g.rec - g.prev) + '</td></tr>').join('') +
+          '<tr style="font-weight:800"><td>TOTAL</td><td class="num">' + fmt.brl(aReceberHz) + '</td>' +
+          '<td class="num">' + fmt.brl(previstoHz) + '</td><td class="num">' + fmt.brl(aReceberHz - previstoHz) + '</td></tr>' +
+          '</tbody></table></div>' +
+          '<p class="nota" style="margin-top:8px">O "a receber" supõe as parcelas pagas em dia; o vencido acumulado (' + fmt.brl(ar.vencido) + ') fica fora destas linhas de propósito.</p>'
+        : '<p class="nota">Nada a vencer nesse período.</p>') + '</div>' +
+    '<div class="cartao"><h2>Gastos futuros previsíveis <span class="nota">— o que você já sabe que vem</span></h2>' +
+      (previstos.map((g) =>
+        '<div class="lin prev-lin" data-id="' + esc(g.id) + '">' +
+        '<div class="cresce"><b>' + esc(g.descricao || '—') + '</b>' +
+        '<span class="sub">' + (g.recorrencia === 'mensal'
+          ? 'mensal · de ' + nomeMes(g.inicio || mesAtual) + (g.fim ? ' até ' + nomeMes(g.fim) : ' em diante')
+          : 'única · ' + nomeMes((g.data || '').slice(0, 7) || mesAtual)) +
+          ' · ' + esc(g.categoria || 'Outros') + (g.obs ? ' · ' + esc(g.obs) : '') + '</span></div>' +
+        '<span class="dinheiro">' + fmt.brl(g.valor) + (g.recorrencia === 'mensal' ? '<span class="nota">/mês</span>' : '') + '</span>' +
+        '</div>').join('') || '<p class="nota">Nenhum previsto ainda — cadastre o que você já sabe que vai pagar (obra, mensalidades…).</p>') +
+      '<button class="btn primario" id="prev-novo" style="margin-top:8px">+ Gasto previsto</button></div>';
+
+  app.querySelectorAll('.chip[data-hz]').forEach((c) => {
+    c.onclick = () => { TELAS._hz = c.dataset.hz; TELAS.relatorios(); };
+  });
+  document.getElementById('prev-novo').onclick = () => abrirGastoPrevisto(null);
+  app.querySelectorAll('.prev-lin').forEach((el) => {
+    el.onclick = () => abrirGastoPrevisto(el.dataset.id);
+  });
+  document.getElementById('rel-pdf').onclick = () => {
+    PDF.relatorio({
+      rotuloHz, hz, vendidos: vendasDePe.length, vgv,
+      recebido: ac.entradas, gasto: ac.saidas,
+      aReceber: aReceberHz, vencido: ar.vencido, previsto: previstoHz, grupos,
+    }, S.cfg || {});
+    toast('Relatório em PDF gerado');
+  };
+};
+
+function abrirGastoPrevisto(id) {
+  const g = id ? (achar('prev', id) || {}) : {};
+  const cats = (S.cfg && S.cfg.categoriasDespesa) || ['Outros'];
+  const mesAtual = mesDe(hojeISO());
+  const corpo =
+    campo('Descrição', entrada('descricao', g.descricao || '', { placeholder: 'ex.: patrola da estrada, energia da sede…' })) +
+    '<div class="colunas-3">' +
+      campo('Valor (R$)', entrada('valor', g.valor != null ? g.valor : '', { inputmode: 'decimal' })) +
+      campo('Categoria', seletor('categoria', g.categoria || cats[0], cats)) +
+      campo('Repete?', seletor('recorrencia', g.recorrencia || 'unica', [{ v: 'unica', t: 'Uma vez só' }, { v: 'mensal', t: 'Todo mês' }])) +
+    '</div>' +
+    '<div class="colunas-3">' +
+      campo('Mês (se única)', entrada('data', (g.data || '').slice(0, 7) || mesAtual, { tipo: 'month' })) +
+      campo('De (se mensal)', entrada('inicio', g.inicio || mesAtual, { tipo: 'month' })) +
+      campo('Até (se mensal)', entrada('fim', g.fim || '', { tipo: 'month' }), 'vazio = sem fim') +
+    '</div>' +
+    campo('Observação', entrada('obs', g.obs || ''));
+  abrirModal({
+    titulo: id ? 'Gasto previsto — editar' : 'Novo gasto previsto',
+    corpo,
+    acoes: [
+      { texto: 'Voltar', aoClicar: () => fecharModal() },
+      ...(id ? [{ texto: 'Apagar', classe: 'perigo', aoClicar: async (fundo) => {
+        if (await confirmar('Apagar este gasto previsto?', { perigo: true, ok: 'Apagar' })) {
+          try {
+            await api('apagar', { colecao: 'prev', id });
+            const arr = S.reg.prev || [];
+            const i = arr.findIndex((x) => x.id === id);
+            if (i >= 0) arr[i] = { ...arr[i], apagadoEm: new Date().toISOString() };
+            gravarCache();
+            fecharSilencioso(fundo);
+            TELAS.relatorios();
+          } catch (e) { toast(e.message || 'Não consegui agora', 'ruim'); }
+        }
+      } }] : []),
+      { texto: 'Salvar', classe: 'primario', aoClicar: (fundo) => {
+        const v = lerCampos(fundo);
+        const valor = numeroBR(v.valor);
+        if (!v.descricao || !v.descricao.trim()) { toast('Descreva o gasto', 'ruim'); return; }
+        if (!(valor > 0)) { toast('Diga o valor', 'ruim'); return; }
+        salvar('prev', {
+          id: id || undefined,
+          descricao: v.descricao.trim().slice(0, 200), valor,
+          categoria: v.categoria, recorrencia: v.recorrencia === 'mensal' ? 'mensal' : 'unica',
+          data: String(v.data || '').slice(0, 7), inicio: String(v.inicio || '').slice(0, 7),
+          fim: String(v.fim || '').slice(0, 7), obs: String(v.obs || '').slice(0, 300),
+        });
+        fecharSilencioso(fundo);
+        toast('Gasto previsto salvo');
+        TELAS.relatorios();
+      } },
+    ],
+  });
+}

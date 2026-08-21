@@ -207,6 +207,9 @@ button { font-family: inherit; }
 .caixa-login .erro { color: var(--ruim); font-size: 13px; min-height: 18px; margin-bottom: 4px; }
 .caixa-login button { width: 100%; }
 
+#credito { text-align: center; font-size: 11.5px; color: #9ab3a0; padding: 18px 0 14px; }
+#credito span { font-weight: 700; color: #7d9a84; }
+
 /* ── Celular ────────────────────────────────────────────────────────────── */
 @media (max-width: 860px) {
   #casca { flex-direction: column; }

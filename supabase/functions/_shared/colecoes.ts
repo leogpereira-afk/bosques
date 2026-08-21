@@ -23,6 +23,8 @@ export const COLECOES: Record<string, { pre: string; nome: string }> = {
   // Foto da apresentação do empreendimento (toda a equipe vê — é material
   // de venda; só direção/escritório sobem e apagam).
   foto:     { pre: "",   nome: "Foto da apresentação" },
+  // Gasto futuro previsto (Relatórios): única em um mês, ou mensal entre dois.
+  prev:     { pre: "",   nome: "Gasto previsto" },
 };
 
 export const NOMES_COLECOES = Object.keys(COLECOES);

@@ -50,27 +50,53 @@ TELAS.vendas = function () {
   const naoDistratadas = linhas.filter(({ v }) => v.situacao !== 'distratada');
   const vgv = naoDistratadas.reduce((s, x) => s + x.r.total, 0);
 
-  // Vendas mês a mês (pela data da venda): quantas e quanto de VGV.
+  // Uma linha de venda — a mesma peça nos dois modos (dentro do mês e na busca).
+  const linhaVenda = ({ v, r }) => {
+    const pct = r.total > 0 ? Math.round(r.pago / r.total * 100) : 0;
+    return '<div class="lin' + (v.situacao === 'distratada' ? ' riscada' : '') + '" data-id="' + esc(v.id) + '">' +
+      '<div class="cresce"><b>Q' + v.quadra + '-L' + v.lote + ' · ' + esc(v.clienteNome || '?') + '</b>' +
+      '<span class="sub">' + esc(v.codigo || '') + (v.corretorNome ? ' · ' + esc(v.corretorNome) : '') +
+        ' · pagou ' + pct + '% (' + fmt.brl(r.pago) + ' de ' + fmt.brl(r.total) + ')</span></div>' +
+      (r.qtdAtraso > 0 && ['ativa', 'conferir'].includes(v.situacao || 'ativa')
+        ? '<span class="etiqueta et-atrasada">' + r.qtdAtraso + ' atrasada' + (r.qtdAtraso > 1 ? 's' : '') + ' · ' + fmt.brl(r.emAtraso) + '</span>'
+        : etiqueta(v.situacao || 'ativa')) +
+      '</div>';
+  };
+
+  // A tela é organizada PELO mês a mês: clica no mês e as vendas dele abrem
+  // ali dentro. Só a busca/filtro tira do agrupamento (mostra o resultado
+  // plano — procurar um nome não pode exigir saber o mês).
   const porMesVenda = {};
-  for (const { v, r } of naoDistratadas) {
-    const m = mesDe(v.dataVenda || v.criadoEm);
-    if (!/^\d{4}-\d{2}$/.test(m)) continue;
-    const b = porMesVenda[m] = porMesVenda[m] || { n: 0, vgv: 0 };
-    b.n++; b.vgv += r.total;
+  for (const x of linhas) {
+    const m = mesDe(x.v.dataVenda || x.v.criadoEm);
+    const chave = /^\d{4}-\d{2}$/.test(m) ? m : 'sem-data';
+    const b = porMesVenda[chave] = porMesVenda[chave] || { n: 0, vgv: 0, itens: [] };
+    b.itens.push(x);
+    if (x.v.situacao !== 'distratada') { b.n++; b.vgv += x.r.total; }
   }
-  const mesesVenda = Object.keys(porMesVenda).sort();
+  const mesesVenda = Object.keys(porMesVenda).sort().reverse();   // o mais novo em cima
   const maiorVgvMes = Math.max(1, ...mesesVenda.map((m) => porMesVenda[m].vgv));
-  const cartaoMensal = mesesVenda.length
-    ? '<details class="cartao" style="padding:12px 16px"' + (TELAS._vdMensalAberto ? ' open' : '') + ' id="vd-mensal">' +
-      '<summary style="cursor:pointer;font-weight:700">📈 Vendas mês a mês <span class="nota">— quantas e quanto de VGV</span></summary>' +
-      '<div class="rolagem" style="margin-top:10px"><table class="tabela"><thead><tr><th>Mês</th><th>Vendas</th><th></th><th class="num">VGV do mês</th></tr></thead><tbody>' +
-      mesesVenda.map((m) => '<tr><td>' + nomeMes(m) + '</td><td>' + porMesVenda[m].n + '</td>' +
-        '<td style="width:40%"><div style="background:var(--verde-palido);border-radius:6px;height:12px;overflow:hidden">' +
-        '<div style="width:' + Math.round(porMesVenda[m].vgv / maiorVgvMes * 100) + '%;height:100%;background:var(--verde)"></div></div></td>' +
-        '<td class="num">' + fmt.brl(porMesVenda[m].vgv) + '</td></tr>').join('') +
-      '<tr style="font-weight:800"><td>TOTAL</td><td>' + naoDistratadas.length + '</td><td></td><td class="num">' + fmt.brl(vgv) + '</td></tr>' +
-      '</tbody></table></div></details>'
-    : '';
+  TELAS._mesesVdAbertos = TELAS._mesesVdAbertos || new Set();
+  const ordenaAtraso = (a, b) => (b.r.emAtraso - a.r.emAtraso) || String(b.v.criadoEm || '').localeCompare(a.v.criadoEm || '');
+  const cartaoMensal =
+    '<div class="cartao" style="padding:12px 16px"><h2>📈 Vendas mês a mês <span class="nota">— clique no mês para abrir o que vendeu nele</span></h2>' +
+    mesesVenda.map((m) => {
+      const b = porMesVenda[m];
+      return '<details data-mesvd="' + m + '"' + (TELAS._mesesVdAbertos.has(m) ? ' open' : '') + ' style="border-bottom:1px solid var(--borda)">' +
+        '<summary style="cursor:pointer;display:flex;align-items:center;gap:10px;padding:9px 2px">' +
+          '<b style="min-width:74px">' + (m === 'sem-data' ? 'sem data' : nomeMes(m)) + '</b>' +
+          '<span class="nota" style="min-width:74px">' + b.n + ' venda(s)</span>' +
+          '<span style="flex:1"><span style="display:block;background:var(--verde-palido);border-radius:6px;height:12px;overflow:hidden">' +
+            '<span style="display:block;width:' + Math.round(b.vgv / maiorVgvMes * 100) + '%;height:100%;background:var(--verde)"></span></span></span>' +
+          '<b style="white-space:nowrap">' + fmt.brl(b.vgv) + '</b>' +
+        '</summary>' +
+        '<div style="padding:8px 0 10px">' + b.itens.sort(ordenaAtraso).map(linhaVenda).join('') + '</div>' +
+        '</details>';
+    }).join('') +
+    '<div style="display:flex;gap:10px;padding:10px 2px 2px;font-weight:800"><span style="min-width:74px">TOTAL</span>' +
+      '<span style="min-width:74px">' + naoDistratadas.length + '</span><span style="flex:1"></span>' +
+      '<span>' + fmt.brl(vgv) + '</span></div>' +
+    '</div>';
 
   app.innerHTML =
     '<div class="paineis">' +
@@ -81,7 +107,7 @@ TELAS.vendas = function () {
         '<div class="sub">' + fmt.brl(totalAtraso) + ' vencidos</div></div>' +
       '<div class="painel"><div class="rot">Recebido no mês</div><div class="num pos">' + fmt.brl(recebidoMes) + '</div></div>' +
       '<div class="painel"><div class="rot">Quitadas</div><div class="num">' + todas.filter((v) => v.situacao === 'quitada').length + '</div></div>' +
-    '</div>' + cartaoMensal +
+    '</div>' +
     '<div class="filtros">' +
       '<input type="search" id="vd-q" placeholder="cliente, lote, código…" value="' + esc(filtro.q) + '">' +
       '<select id="vd-sit"><option value="">Todas</option>' +
@@ -90,17 +116,9 @@ TELAS.vendas = function () {
       '<button class="chip' + (filtro.so === 'atraso' ? ' on' : '') + '" id="vd-atraso">só atraso</button>' +
       '<button class="btn mini" id="vd-pdf" title="baixa o retrato do que está na tela — filtrou, sai só o filtrado">📄 PDF</button>' +
     '</div>' +
-    (filtradas.map(({ v, r }) => {
-      const pct = r.total > 0 ? Math.round(r.pago / r.total * 100) : 0;
-      return '<div class="lin' + (v.situacao === 'distratada' ? ' riscada' : '') + '" data-id="' + esc(v.id) + '">' +
-        '<div class="cresce"><b>Q' + v.quadra + '-L' + v.lote + ' · ' + esc(v.clienteNome || '?') + '</b>' +
-        '<span class="sub">' + esc(v.codigo || '') + (v.corretorNome ? ' · ' + esc(v.corretorNome) : '') +
-          ' · pagou ' + pct + '% (' + fmt.brl(r.pago) + ' de ' + fmt.brl(r.total) + ')</span></div>' +
-        (r.qtdAtraso > 0 && ['ativa', 'conferir'].includes(v.situacao || 'ativa')
-          ? '<span class="etiqueta et-atrasada">' + r.qtdAtraso + ' atrasada' + (r.qtdAtraso > 1 ? 's' : '') + ' · ' + fmt.brl(r.emAtraso) + '</span>'
-          : etiqueta(v.situacao || 'ativa')) +
-        '</div>';
-    }).join('') || vazio('🔍', 'Nada com esse filtro'));
+    ((filtro.q || filtro.sit || filtro.so)
+      ? (filtradas.map(linhaVenda).join('') || vazio('🔍', 'Nada com esse filtro'))
+      : cartaoMensal);
 
   document.getElementById('vd-pdf').onclick = () => {
     // O recorte sai ESCRITO no papel: um PDF filtrado sem dizer o filtro
@@ -112,8 +130,12 @@ TELAS.vendas = function () {
     PDF.vendasDash(filtradas, pedacos.join(' · ') || 'todas as vendas', S.cfg || {});
     toast('PDF gerado — ' + filtradas.length + ' venda(s)');
   };
-  const dMensal = document.getElementById('vd-mensal');
-  if (dMensal) dMensal.addEventListener('toggle', () => { TELAS._vdMensalAberto = dMensal.open; });
+  app.querySelectorAll('details[data-mesvd]').forEach((d) => {
+    d.addEventListener('toggle', () => {
+      if (d.open) TELAS._mesesVdAbertos.add(d.dataset.mesvd);
+      else TELAS._mesesVdAbertos.delete(d.dataset.mesvd);
+    });
+  });
   document.getElementById('vd-q').oninput = (e) => { filtro.q = e.target.value; TELAS.vendas(); };
   document.getElementById('vd-sit').onchange = (e) => { filtro.sit = e.target.value; TELAS.vendas(); };
   document.getElementById('vd-atraso').onclick = () => { filtro.so = filtro.so === 'atraso' ? '' : 'atraso'; TELAS.vendas(); };
@@ -413,25 +435,66 @@ TELAS.propostas = function () {
   const props = lista('prop');
   if (!props.length) { app.innerHTML = vazio('📨', 'Nenhuma proposta enviada', 'Mande a primeira pelo simulador de um lote disponível.'); return; }
 
+  // O corretor animado manda 10 numa tarde: dá para marcar várias e ARQUIVAR
+  // de uma vez — elas saem da vista sem virar "recusada" (arquivar não julga).
+  const f = TELAS._fProps || { sit: 'enviada' };
+  TELAS._fProps = f;
+  const sel = TELAS._propSel = TELAS._propSel || new Set();
+
   const abertas = props.filter((p) => (p.situacao || 'enviada') === 'enviada');
   const viradas = props.filter((p) => p.situacao === 'aceita');
+  const doFiltro = props.filter((p) => f.sit === 'todas' ? true : (p.situacao || 'enviada') === f.sit);
+  for (const id of [...sel]) if (!doFiltro.some((p) => p.id === id)) sel.delete(id);
+
+  const chips = [['enviada', 'No ar (' + abertas.length + ')'], ['aceita', 'Viraram venda'],
+    ['recusada', 'Não avançaram'], ['arquivada', 'Arquivadas'], ['todas', 'Todas']];
+
   app.innerHTML =
     '<div class="paineis">' +
       '<div class="painel"><div class="rot">Enviadas</div><div class="num">' + props.length + '</div></div>' +
       '<div class="painel"><div class="rot">No ar</div><div class="num">' + abertas.length + '</div></div>' +
       '<div class="painel"><div class="rot">Viraram venda</div><div class="num pos">' + viradas.length + '</div></div>' +
     '</div>' +
-    props.map((p) => {
+    '<div class="filtros"><div class="chips">' +
+      chips.map(([v, t2]) => '<button class="chip' + (f.sit === v ? ' on' : '') + '" data-sit="' + v + '">' + t2 + '</button>').join('') +
+    '</div>' +
+    '<button class="btn mini" id="pr-arquivar"' + (sel.size ? '' : ' disabled') + '>🗂 Arquivar marcadas (' + sel.size + ')</button>' +
+    '</div>' +
+    (doFiltro.map((p) => {
       const eventos = (p.eventos || []);
       const interesse = eventos.some((e) => e.tipo === 'interesse');
+      const podeMarcar = (p.situacao || 'enviada') !== 'arquivada';
       return '<div class="lin" data-id="' + esc(p.id) + '">' +
+        (podeMarcar ? '<input type="checkbox" class="pr-check" data-id="' + esc(p.id) + '"' +
+          (sel.has(p.id) ? ' checked' : '') + ' style="width:18px;height:18px;flex-shrink:0">' : '') +
         '<div class="cresce"><b>Q' + p.quadra + '-L' + p.lote + ' · ' + esc((p.cliente && p.cliente.nome) || '?') + '</b>' +
         '<span class="sub">' + esc(p.codigo || '') + ' · ' + fmt.brl(p.valor) + ' · por ' + esc(p.donoNome || '—') +
           ' · ' + fmt.quando(p.enviadaEm || p.criadoEm) +
           ' · 👁 ' + (p.views || 0) + (interesse ? ' · ✅ demonstrou interesse' : '') + '</span></div>' +
         etiqueta(p.situacao || 'enviada') + '</div>';
-    }).join('');
+    }).join('') || vazio('🗂', 'Nada nesse filtro'));
 
+  app.querySelectorAll('.chip[data-sit]').forEach((c) => {
+    c.onclick = () => { f.sit = c.dataset.sit; sel.clear(); TELAS.propostas(); };
+  });
+  app.querySelectorAll('.pr-check').forEach((cb) => {
+    cb.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (cb.checked) sel.add(cb.dataset.id); else sel.delete(cb.dataset.id);
+      const b = document.getElementById('pr-arquivar');
+      b.disabled = !sel.size;
+      b.textContent = '🗂 Arquivar marcadas (' + sel.size + ')';
+    });
+  });
+  document.getElementById('pr-arquivar').onclick = async () => {
+    if (!sel.size) return;
+    if (await confirmar('Arquivar ' + sel.size + ' proposta(s)? Elas saem da vista mas ficam no CRM e no filtro "Arquivadas".')) {
+      for (const id of sel) salvar('prop', { id, situacao: 'arquivada' });
+      sel.clear();
+      toast('Arquivadas');
+      TELAS.propostas();
+    }
+  };
   app.querySelectorAll('.lin[data-id]').forEach((el) => {
     el.onclick = () => abrirFichaProposta(el.dataset.id);
   });
@@ -454,18 +517,32 @@ function abrirFichaProposta(id) {
       '<div class="nota">' + fmt.dataHora(e.em) + ' — ' +
       ({ interesse: '✅ clicou "tenho interesse"', duvida: '💬 clicou "tirar dúvida"', abriu_pdf: '📄 abriu o PDF' }[e.tipo] || esc(e.tipo)) + '</div>').join('') + '</div>' : '');
 
+  const rerender = () => { if (TELAS[rotaAtual().nome]) TELAS[rotaAtual().nome](rotaAtual().id); };
   const acoes = [{ texto: 'Fechar', aoClicar: () => fecharModal() }];
+  if ((p.situacao || 'enviada') === 'arquivada') {
+    acoes.push({ texto: 'Desarquivar', aoClicar: (fundo) => {
+      salvar('prop', { id: p.id, situacao: 'enviada' });
+      fecharSilencioso(fundo); rerender();
+    } });
+  }
   if ((p.situacao || 'enviada') === 'enviada') {
+    acoes.push({ texto: '🗂 Arquivar', aoClicar: (fundo) => {
+      salvar('prop', { id: p.id, situacao: 'arquivada' });
+      fecharSilencioso(fundo); rerender();
+    } });
     acoes.push({ texto: 'Não avançou', aoClicar: (fundo) => {
       salvar('prop', { id: p.id, situacao: 'recusada' });
-      fecharSilencioso(fundo); TELAS.propostas();
+      fecharSilencioso(fundo); rerender();
     } });
     if (!ehCorretorPerfil() && lote && lote.status === 'Disponível') {
       acoes.push({ texto: 'Virou venda!', classe: 'primario', aoClicar: (fundo) => {
         salvar('prop', { id: p.id, situacao: 'aceita' });
         fecharSilencioso(fundo);
         abrirNovaVenda(lote, {
-          entrada: p.entrada, qtde: p.qtdeParcelas, valorParcela: p.valorParcela, tipo: p.tipoParcela || 'Fixa',
+          entrada: p.entrada, qtde: p.qtdeParcelas, valorParcela: p.valorParcela,
+          tipo: p.tipoParcela === 'À vista' ? 'Avista' : (p.tipoParcela || 'Fixa'),
+          corretorId: p.corretorId || '', comissao: p.comissao || '', formaPg: p.formaPg || 'PIX',
+          nome: p.cliente && p.cliente.nome, telefone: p.cliente && p.cliente.telefone,
         });
       } });
     }

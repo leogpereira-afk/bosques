@@ -141,26 +141,34 @@ TELAS.lote = function (id) {
 
   let simulador = '';
   if (l.status === 'Disponível') {
+    const avista = sim.tipo === 'Avista';
     const total = totalDoPlano(sim, reaj);
     const corretores = lista('corretor').filter((c) => c.ativo !== false);
     simulador =
       '<div class="cartao"><h2>Simulador <span class="nota">— monte o plano, baixe o PDF ou mande o link</span></h2>' +
       '<div class="colunas-3">' +
-        campo('Tipo de parcela', seletor('tipo', sim.tipo, [{ v: 'Fixa', t: 'Fixa (mesmo valor)' }, { v: 'Reajustada', t: 'Reajustada +' + reaj.pct + '%/' + reaj.aCada + 'p' }])) +
-        campo('Entrada (R$)', entrada('entrada', sim.entrada, { inputmode: 'decimal' })) +
-        campo('Nº de parcelas', entrada('qtde', sim.qtde, { inputmode: 'numeric' })) +
+        campo('Como vai pagar', seletor('tipo', sim.tipo, [{ v: 'Fixa', t: 'Parcelas fixas' }, { v: 'Reajustada', t: 'Reajustadas +' + reaj.pct + '%/' + reaj.aCada + 'p' }, { v: 'Avista', t: 'À vista' }])) +
+        campo(avista ? 'Valor à vista (R$)' : 'Entrada (R$)', entrada('entrada', sim.entrada, { inputmode: 'decimal' })) +
+        campo('Pagamento por', seletor('formaPg', sim.formaPg || 'PIX', (S.cfg && S.cfg.formasPg) || ['PIX', 'Boleto', 'Cartão de Crédito'])) +
       '</div>' +
-      '<div class="colunas">' +
-        campo('Valor da parcela (R$)', entrada('valorParcela', sim.valorParcela, { inputmode: 'decimal' }), 'sugerido pela tabela do lote — pode ajustar') +
+      (avista ? '' :
+      '<div class="colunas-3">' +
+        campo('Nº de parcelas', entrada('qtde', sim.qtde, { inputmode: 'numeric' })) +
+        campo('Valor da parcela (R$)', entrada('valorParcela', sim.valorParcela, { inputmode: 'decimal' }), 'sugerido pela tabela do lote') +
         '<div class="campo"><label>Total do plano</label><div style="font-size:21px;font-weight:800;padding:7px 0" id="sim-total">' + fmt.brl(total) + '</div>' +
           (sim.tipo === 'Reajustada' ? '<div class="dica">já somando os degraus de +' + reaj.pct + '%</div>' : '') + '</div>' +
-      '</div>' +
+      '</div>') +
+      (avista ? '<div class="campo"><label>Total do plano</label><div style="font-size:21px;font-weight:800;padding:0 0 7px" id="sim-total">' + fmt.brl(total) + '</div></div>' : '') +
       '<div class="colunas' + (ehCorretorPerfil() ? '' : '-3') + '">' +
         campo('Nome do cliente', entrada('nome', sim.nome || '', { placeholder: 'quem vai receber a proposta' })) +
         campo('WhatsApp dele', entrada('telefone', sim.telefone || '', { inputmode: 'tel', placeholder: '(38) 9…' })) +
         (ehCorretorPerfil() ? '' :
           campo('Corretor', seletor('corretorId', sim.corretorId || '', corretores.map((c) => ({ v: c.id, t: c.nome })), 'sem corretor (a casa)'))) +
       '</div>' +
+      (ehCorretorPerfil() ? '' :
+        '<div class="colunas"><div>' +
+        campo('Comissão do corretor (R$)', entrada('comissao', sim.comissao != null ? sim.comissao : '', { inputmode: 'decimal' }),
+          'INTERNO — não sai no PDF do cliente; já vai preenchida para a venda') + '</div><div></div></div>') +
       '<div class="acoes-linha">' +
         '<button class="btn primario" id="bt-pdf-prop">📄 Baixar PDF da proposta</button>' +
         '<button class="btn" id="bt-proposta">📱 Enviar por link (WhatsApp)</button>' +
@@ -220,12 +228,19 @@ TELAS.lote = function (id) {
       const v = lerCampos(raiz);
       const tipoAntes = sim.tipo;
       Object.assign(sim, {
-        tipo: v.tipo, entrada: numeroBR(v.entrada), qtde: Math.round(numeroBR(v.qtde)),
-        valorParcela: numeroBR(v.valorParcela),
+        tipo: v.tipo, entrada: numeroBR(v.entrada),
+        qtde: v.qtde != null ? Math.round(numeroBR(v.qtde)) : sim.qtde,
+        valorParcela: v.valorParcela != null ? numeroBR(v.valorParcela) : sim.valorParcela,
         nome: String(v.nome || ''), telefone: String(v.telefone || ''),
         corretorId: v.corretorId != null ? v.corretorId : sim.corretorId,
+        formaPg: v.formaPg || sim.formaPg,
+        comissao: v.comissao != null ? numeroBR(v.comissao) : sim.comissao,
       });
-      if (v.tipo !== tipoAntes) { sim.valorParcela = parcelaDoTipo(); TELAS.lote(id); return; }
+      if (v.tipo !== tipoAntes) {
+        if (v.tipo === 'Avista') sim.entrada = l.preco;          // à vista: começa no preço de tabela
+        else { sim.valorParcela = parcelaDoTipo(); if (!(sim.qtde > 0)) sim.qtde = 150; if (tipoAntes === 'Avista') sim.entrada = 4000; }
+        TELAS.lote(id); return;
+      }
       document.getElementById('sim-total').textContent = fmt.brl(totalDoPlano(sim, reaj));
     });
   });
@@ -240,7 +255,7 @@ TELAS.lote = function (id) {
 // Total honesto: a parcela Reajustada sobe em degraus — multiplicar reto
 // subestimaria o plano (e o PDF sairia prometendo menos do que o carnê cobra).
 function totalDoPlano(sim, reaj) {
-  const qtde = Math.max(0, Math.round(Number(sim.qtde) || 0));
+  const qtde = sim.tipo === 'Avista' ? 0 : Math.max(0, Math.round(Number(sim.qtde) || 0));
   let soma = Number(sim.entrada) || 0;
   for (let n = 1; n <= qtde; n++) {
     soma += CARNE.valorParcelaN({ valorParcela: sim.valorParcela, tipoParcela: sim.tipo }, n, reaj);
@@ -337,9 +352,11 @@ function montarPropDoSim(l, sim) {
     loteId: l.id, quadra: l.quadra, lote: l.lote, areaM2: l.areaM2,
     valor: totalDoPlano(sim, reaj),
     entrada: Number(sim.entrada) || 0,
-    qtdeParcelas: Math.max(0, Math.round(Number(sim.qtde) || 0)),
-    valorParcela: Number(sim.valorParcela) || 0,
-    tipoParcela: sim.tipo === 'Reajustada' ? 'Reajustada' : 'Fixa',
+    qtdeParcelas: sim.tipo === 'Avista' ? 0 : Math.max(0, Math.round(Number(sim.qtde) || 0)),
+    valorParcela: sim.tipo === 'Avista' ? 0 : (Number(sim.valorParcela) || 0),
+    tipoParcela: sim.tipo === 'Avista' ? 'À vista' : (sim.tipo === 'Reajustada' ? 'Reajustada' : 'Fixa'),
+    formaPg: sim.formaPg || 'PIX',
+    comissao: Number(sim.comissao) || 0,   // interno: NUNCA impresso no PDF do cliente
     cliente: { nome: sim.nome.trim().slice(0, 80), telefone: String(sim.telefone || '').slice(0, 30) },
     corretorNome: souCorretor ? (S.quem || '') : (cor ? cor.nome : ''),
     corretorId: souCorretor ? '' : (cor ? cor.id : ''),
@@ -350,14 +367,19 @@ function montarPropDoSim(l, sim) {
   };
 }
 
-function baixarPdfProposta(l, sim) {
+async function baixarPdfProposta(l, sim) {
   const prop = montarPropDoSim(l, sim);
   if (!prop) return;
   const salva = salvar('prop', { ...prop, canal: 'pdf' });   // entra no CRM
-  const blob = PDF.proposta(achar('prop', salva.id) || salva, l, S.cfg || {});
-  salvarNoAparelho(blob, 'Proposta-Bosques-Q' + l.quadra + 'L' + l.lote + '-' +
+  // A proposta sai NUMERADA: espera o servidor carimbar o PR-XXXX. Só sem
+  // internet ela sai sem número (e ganha o dela ao sincronizar).
+  try { await subirFila(); } catch (e) { /* offline: segue */ }
+  const atual = achar('prop', salva.id) || salva;
+  if (!atual.codigo) toast('Sem internet agora: saiu SEM número — ela ganha o PR ao sincronizar', 'ruim');
+  const blob = PDF.proposta(atual, l, S.cfg || {});
+  salvarNoAparelho(blob, 'Proposta-Bosques-' + (atual.codigo || 'Q' + l.quadra + 'L' + l.lote) + '-' +
     prop.cliente.nome.split(' ')[0] + '.pdf');
-  toast('PDF baixado e proposta registrada no CRM');
+  toast('PDF ' + (atual.codigo || '') + ' baixado e no CRM do lote');
   TELAS.lote(l.id);
 }
 
@@ -420,18 +442,18 @@ function abrirNovaVenda(l, sim) {
       campo('Data da venda', entrada('dataVenda', hoje, { tipo: 'date' })) +
     '</div><hr style="border:0;border-top:1px solid var(--borda);margin:6px 0 12px">' +
     '<div class="colunas">' +
-      campo('Corretor', seletor('corretorId', '', corretores.map((c) => ({ v: c.id, t: c.nome })), 'sem corretor')) +
-      campo('Comissão combinada (R$)', entrada('comissao', '', { inputmode: 'decimal' })) +
+      campo('Corretor', seletor('corretorId', sim.corretorId || '', corretores.map((c) => ({ v: c.id, t: c.nome })), 'sem corretor')) +
+      campo('Comissão combinada (R$)', entrada('comissao', sim.comissao != null && sim.comissao !== 0 ? sim.comissao : '', { inputmode: 'decimal' })) +
     '</div>' +
     '<div class="colunas-3">' +
       campo('Entrada (R$)', entrada('entrada', sim.entrada, { inputmode: 'decimal' })) +
-      campo('Forma da entrada', seletor('formaEntrada', 'PIX', (S.cfg && S.cfg.formasPg) || ['PIX', 'Dinheiro'])) +
+      campo('Forma da entrada', seletor('formaEntrada', sim.formaPg || 'PIX', (S.cfg && S.cfg.formasPg) || ['PIX', 'Dinheiro'])) +
       campo('Recebida em', entrada('dataEntrada', hoje, { tipo: 'date' }), 'deixe vazio se ainda não recebeu') +
     '</div>' +
     '<div class="colunas-3">' +
-      campo('Nº de parcelas', entrada('qtde', sim.qtde, { inputmode: 'numeric' })) +
-      campo('Valor da parcela', entrada('valorParcela', sim.valorParcela, { inputmode: 'decimal' })) +
-      campo('Tipo', seletor('tipoParcela', sim.tipo, ['Fixa', 'Reajustada'])) +
+      campo('Nº de parcelas', entrada('qtde', sim.tipo === 'Avista' ? 0 : sim.qtde, { inputmode: 'numeric' }), 'à vista = 0') +
+      campo('Valor da parcela', entrada('valorParcela', sim.tipo === 'Avista' ? 0 : sim.valorParcela, { inputmode: 'decimal' })) +
+      campo('Tipo', seletor('tipoParcela', sim.tipo === 'Avista' ? 'Fixa' : sim.tipo, ['Fixa', 'Reajustada'])) +
     '</div>' +
     campo('Observações', areaTexto('obs', ''));
 

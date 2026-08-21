@@ -30,39 +30,47 @@ const PDF = (() => {
 
   function cabecalho(doc, cfg, titulo) {
     doc.setFillColor(...VERDE);
-    doc.rect(0, 0, 210, 26, 'F');
+    doc.rect(0, 0, 210, 30, 'F');
+    doc.setFillColor(...VERDE_CLARO);
+    doc.rect(0, 30, 210, 1.6, 'F');                 // o filete da marca
     if (LOGO) {
-      // fundo da logo = o MESMO verde do retângulo: emenda invisível
-      try { doc.addImage(LOGO, 'PNG', 10, 2.4, 40.2, 21.1); } catch (e) { /* cai no texto */ }
+      // fundo da logo = o MESMO verde da faixa: emenda invisível
+      try { doc.addImage(LOGO, 'PNG', 9, 2, 49.5, 26); } catch (e) { /* cai no texto */ }
     }
     if (!LOGO) {
       doc.setTextColor(255, 255, 255);
       doc.setFont('helvetica', 'bold');
-      doc.setFontSize(15);
-      doc.text('PORTAL DOS BOSQUES', 14, 12);
+      doc.setFontSize(16);
+      doc.text('PORTAL DOS BOSQUES', 14, 14);
       doc.setFont('helvetica', 'normal');
       doc.setFontSize(9);
       doc.setTextColor(197, 225, 165);
-      doc.text(((cfg.empresa && cfg.empresa.nome) || 'Associação Campestre Portal dos Bosques'), 14, 18);
+      doc.text(((cfg.empresa && cfg.empresa.nome) || 'Associação Campestre Portal dos Bosques'), 14, 20);
     }
     doc.setTextColor(255, 255, 255);
     doc.setFont('helvetica', 'bold');
-    doc.setFontSize(11);
-    doc.text(titulo, 196, 15, { align: 'right' });
+    doc.setFontSize(12);
+    doc.text(titulo, 196, 14, { align: 'right' });
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(7.5);
+    doc.setTextColor(197, 225, 165);
+    doc.text('Associação Campestre Portal dos Bosques · Montes Claros/MG', 196, 20, { align: 'right' });
   }
 
   function rodape(doc, texto) {
     doc.setFontSize(8);
     doc.setTextColor(...CINZA);
-    doc.text(texto, 105, 290, { align: 'center' });
+    doc.text(texto, 105, 288, { align: 'center' });
+    doc.setFontSize(7);
+    doc.text('developed by Léo Gonçalves', 105, 292.5, { align: 'center' });
   }
 
   // ── Proposta: 1 página limpa ──────────────────────────────────────────────
   function proposta(p, lote, cfg) {
     const doc = novo();
-    cabecalho(doc, cfg, 'PROPOSTA ' + (p.codigo || ''));
+    cabecalho(doc, cfg, 'PROPOSTA ' + (p.codigo || 'sem número'));
 
-    let y = 40;
+    let y = 44;
     doc.setTextColor(30, 43, 33);
     doc.setFont('helvetica', 'bold'); doc.setFontSize(13);
     doc.text('Proposta para ' + ((p.cliente && p.cliente.nome) || ''), 14, y);
@@ -97,8 +105,9 @@ const PDF = (() => {
     // O plano REDUZIDO para o cliente: na parcela reajustada, os degraus dos
     // primeiros anos (1–12, 13–24…) em vez de uma linha vaga — é o que o
     // comprador quer saber: "quanto pago em cada fase".
-    const linhas = [['Entrada', brl(p.entrada)]];
-    const nParc = p.qtdeParcelas || 0;
+    const avista = (p.tipoParcela === 'À vista') || !(p.qtdeParcelas > 0);
+    const linhas = avista ? [['Pagamento à vista', brl(p.entrada)]] : [['Entrada', brl(p.entrada)]];
+    const nParc = avista ? 0 : (p.qtdeParcelas || 0);
     if (nParc > 0) {
       if (p.tipoParcela === 'Reajustada') {
         const pct = ((cfg.reajuste || {}).pct) || 6;
@@ -118,6 +127,7 @@ const PDF = (() => {
         linhas.push([nParc + ' parcelas mensais fixas', brl(p.valorParcela) + ' /mês']);
       }
     }
+    if (p.formaPg) linhas.push(['Forma de pagamento', String(p.formaPg)]);
     linhas.push(['Total do plano', brl(p.valor)]);
     for (const [a, b] of linhas) {
       doc.setTextColor(...CINZA); doc.text(a, 14, y);
@@ -129,6 +139,21 @@ const PDF = (() => {
       doc.line(14, y - 4.5, 196, y - 4.5);
     }
 
+    const conta = (cfg.empresa && cfg.empresa.contaBancaria || '').trim();
+    if (conta) {
+      y += 6;
+      doc.setFillColor(240, 246, 240);
+      const linhasConta = doc.splitTextToSize(conta, 172);
+      const altura = 12 + linhasConta.length * 4.6;
+      doc.roundedRect(14, y - 4, 182, altura, 3, 3, 'F');
+      doc.setTextColor(...VERDE);
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(9.5);
+      doc.text('DADOS PARA PAGAMENTO', 19, y + 1.5);
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(9);
+      doc.setTextColor(30, 43, 33);
+      doc.text(linhasConta, 19, y + 7);
+      y += altura;
+    }
     y += 8;
     doc.setFontSize(9); doc.setTextColor(...CINZA);
     const obsTxt = 'Esta proposta é uma simulação de compra e não vale como contrato. Valores sujeitos a ' +
@@ -152,7 +177,7 @@ const PDF = (() => {
   function recibo(rc, venda, cfg) {
     const doc = novo();
     cabecalho(doc, cfg, 'RECIBO ' + (rc.codigo || ''));
-    let y = 44;
+    let y = 48;
     doc.setTextColor(30, 43, 33);
     doc.setFont('helvetica', 'bold'); doc.setFontSize(20);
     doc.text(brl(rc.valor), 105, y, { align: 'center' });
@@ -227,7 +252,7 @@ const PDF = (() => {
       dataBR(new Date().toISOString()) + ' por ' + (S.quem || '—');
     cabecalho(doc, cfg, 'VENDA ' + (v.codigo || ''));
 
-    let y = 38;
+    let y = 42;
     doc.setTextColor(30, 43, 33);
     doc.setFont('helvetica', 'bold'); doc.setFontSize(14);
     doc.text('Q' + v.quadra + '-L' + v.lote + ' — ' + trunca(v.clienteNome || '?', 40), 14, y);
@@ -312,7 +337,7 @@ const PDF = (() => {
     const rod = 'Vendas — ' + recorte + ' · gerado em ' + hojeTxt + ' por ' + (S.quem || '—');
     cabecalho(doc, cfg, 'VENDAS · ' + hojeTxt);
 
-    let y = 36;
+    let y = 40;
     doc.setFont('helvetica', 'bold'); doc.setFontSize(12);
     doc.setTextColor(30, 43, 33);
     doc.text('Retrato: ' + recorte, 14, y);
@@ -381,7 +406,7 @@ const PDF = (() => {
       dataBR(new Date().toISOString()) + ' por ' + (S.quem || '—');
     cabecalho(doc, cfg, 'DRE · ' + nomeMes2(d.mesSel));
 
-    let y = 38;
+    let y = 42;
     doc.setTextColor(30, 43, 33);
     doc.setFont('helvetica', 'bold'); doc.setFontSize(13);
     doc.text('Demonstração do resultado — regime de caixa', 14, y);
@@ -427,7 +452,7 @@ const PDF = (() => {
     const rod = 'Espelho de vendas · ' + hojeTxt + ' · gerado por ' + (S.quem || '—');
     cabecalho(doc, cfg, 'ESPELHO · ' + hojeTxt);
 
-    let y = 36;
+    let y = 40;
     const disp = ls.filter((l) => l.status === 'Disponível').length;
     const vend = ls.filter((l) => l.status === 'Vendido').length;
     doc.setFont('helvetica', 'bold'); doc.setFontSize(11);
@@ -485,5 +510,60 @@ const PDF = (() => {
     salvarNoAparelho(doc.output('blob'), 'Espelho-Bosques-' + new Date().toISOString().slice(0, 10) + '.pdf');
   }
 
-  return { proposta, recibo, venda, vendasDash, dre, espelho };
+  // ── Relatório do empreendimento (a aba Relatórios, no papel) ───────────────
+  function relatorio(d, cfg) {
+    const doc = novo();
+    const hojeTxt = dataBR(new Date().toISOString());
+    const rod = 'Relatório do empreendimento (' + d.rotuloHz + ') · ' + hojeTxt + ' · por ' + (S.quem || '—');
+    cabecalho(doc, cfg, 'RELATÓRIO · ' + hojeTxt);
+    let y = 42;
+    doc.setTextColor(30, 43, 33);
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(13);
+    doc.text('Retrato do empreendimento — horizonte: ' + d.rotuloHz, 14, y);
+    y += 9;
+    const paineis = [
+      ['LOTES VENDIDOS', String(d.vendidos), [30, 43, 33]],
+      ['VGV VENDIDO', brl(d.vgv), [30, 43, 33]],
+      ['JÁ RECEBIDO', brl(d.recebido), [46, 125, 50]],
+      ['JÁ GASTO', brl(d.gasto), [198, 40, 40]],
+    ];
+    const paineis2 = [
+      ['A RECEBER (' + d.rotuloHz.toUpperCase() + ')', brl(d.aReceber), [46, 125, 50]],
+      ['VENCIDO A COBRAR', brl(d.vencido), d.vencido ? [198, 40, 40] : [95, 122, 102]],
+      ['GASTOS PREVISTOS', brl(d.previsto), [30, 43, 33]],
+      ['SALDO PROJETADO', brl(d.aReceber - d.previsto), d.aReceber - d.previsto >= 0 ? [46, 125, 50] : [198, 40, 40]],
+    ];
+    for (const grupo of [paineis, paineis2]) {
+      grupo.forEach(([rot, valTxt, cor], i) => {
+        const x = 14 + i * 46.5;
+        doc.setFillColor(240, 246, 240);
+        doc.roundedRect(x, y - 4, 44, 15, 2, 2, 'F');
+        doc.setFontSize(6.4); doc.setTextColor(...CINZA);
+        doc.text(rot, x + 3, y);
+        doc.setFontSize(10); doc.setFont('helvetica', 'bold');
+        doc.setTextColor(...cor);
+        doc.text(valTxt, x + 3, y + 7);
+        doc.setFont('helvetica', 'normal');
+      });
+      y += 19;
+    }
+    y += 4;
+    if (d.grupos && d.grupos.length) {
+      const cols = [
+        { t: d.hz === 'total' ? 'Ano' : 'Mês', x: 14 },
+        { t: 'A receber', x: 120, alinha: 'right' },
+        { t: 'Previstos', x: 158, alinha: 'right' },
+        { t: 'Saldo projetado', x: 196, alinha: 'right' },
+      ];
+      const linhas = d.grupos.map((g) => [g.rotulo, brl(g.rec), g.prev ? brl(g.prev) : '—',
+        { t: brl(g.rec - g.prev), cor: g.rec - g.prev >= 0 ? [46, 125, 50] : [198, 40, 40] }]);
+      linhas.push([{ t: 'TOTAL', negrito: true }, { t: brl(d.aReceber), negrito: true },
+        { t: brl(d.previsto), negrito: true }, { t: brl(d.aReceber - d.previsto), negrito: true }]);
+      tabelaPaginada(doc, cols, linhas, y, rod);
+    }
+    rodape(doc, rod);
+    salvarNoAparelho(doc.output('blob'), 'Relatorio-Bosques-' + new Date().toISOString().slice(0, 10) + '.pdf');
+  }
+
+  return { proposta, recibo, venda, vendasDash, dre, espelho, relatorio };
 })();
