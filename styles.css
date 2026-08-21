@@ -175,6 +175,10 @@ button { font-family: inherit; }
 .tabela tr:hover td { background: #f7faf7; }
 .rolagem { overflow-x: auto; }
 
+/* ── Extrato em duas colunas (Lançamentos) ──────────────────────────────── */
+.colunas-lanc { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; align-items: start; }
+.ln-row:hover td { background: #f7faf7; }
+
 /* ── Vazio, toasts, modal ───────────────────────────────────────────────── */
 .vazio { text-align: center; color: var(--tinta-fraca); padding: 44px 16px; }
 .vazio .icone { font-size: 34px; display: block; margin-bottom: 8px; }
@@ -220,7 +224,7 @@ button { font-family: inherit; }
   #menu a .ic { font-size: 19px; width: auto; }
   #menu a .selo { position: absolute; margin: 0; transform: translate(14px, -4px); }
   #app { padding: 14px 12px 84px; }
-  .colunas, .colunas-3 { grid-template-columns: 1fr; }
+  .colunas, .colunas-3, .colunas-lanc { grid-template-columns: 1fr; }
 }
 
 @media print {

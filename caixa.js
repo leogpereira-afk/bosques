@@ -460,6 +460,40 @@ TELAS.lancamentos = function () {
   const somaE = filtrados.filter((x) => x.entrada).reduce((s, x) => s + x.valor, 0);
   const somaS = filtrados.filter((x) => !x.entrada).reduce((s, x) => s + x.valor, 0);
 
+  // Extrato em DUAS COLUNAS, estilo banco: entradas à esquerda, saídas à
+  // direita, linha fina como planilha. Filtrou por um tipo só, a coluna
+  // ocupa a tela inteira. No celular as colunas empilham (CSS).
+  const entradas2 = filtrados.filter((x) => x.entrada);
+  const saidas2 = filtrados.filter((x) => !x.entrada);
+
+  const linhaExtrato = (x) =>
+    '<tr class="ln-row" data-col="' + x.col + '" data-id="' + esc(x.id) + '"' +
+      (x.col === 'rec' ? ' data-venda="' + esc(x.vendaId) + '"' : '') + ' style="cursor:pointer">' +
+    '<td style="white-space:nowrap;color:var(--tinta-fraca)">' + (x.data ? fmt.data(x.data).slice(0, 5) : '⚠ s/data') + '</td>' +
+    '<td><b>' + esc(x.descricao) + '</b>' + (x.codigo ? ' <span class="nota">' + esc(x.codigo) + '</span>' : '') +
+      '<br><span class="nota">' + esc(x.categoria) + (x.forma ? ' · ' + esc(x.forma) : '') +
+      ' · ' + esc(x.criadoPor) + (x.nHist ? ' · ✏️' + x.nHist : '') +
+      (x.obs ? ' · ' + esc(x.obs) : '') + '</span></td>' +
+    '<td class="num" style="font-weight:700;color:' + (x.entrada ? 'var(--verde)' : 'var(--ruim)') + '">' +
+      (x.entrada ? '+' : '−') + fmt.brl(x.valor) + '</td></tr>';
+
+  const coluna = (titulo, icone, itens, soma, corTot) =>
+    '<div class="cartao" style="margin:0"><h2>' + icone + ' ' + titulo +
+      ' <span class="nota">— ' + itens.length + ' lançamento(s)</span>' +
+      '<span style="float:right;font-weight:800;color:' + corTot + '">' + fmt.brl(soma) + '</span></h2>' +
+    (itens.length
+      ? '<div class="rolagem"><table class="tabela"><thead><tr><th>Data</th><th>Descrição</th><th class="num">Valor</th></tr></thead><tbody>' +
+        itens.map(linhaExtrato).join('') + '</tbody></table></div>'
+      : '<p class="nota">Nada nesse recorte.</p>') + '</div>';
+
+  const grade =
+    f.tipo === 'entrada' ? coluna('Entradas', '↑', entradas2, somaE, 'var(--verde)')
+    : f.tipo === 'saida' ? coluna('Saídas', '↓', saidas2, somaS, 'var(--ruim)')
+    : '<div class="colunas-lanc">' +
+        coluna('Entradas', '↑', entradas2, somaE, 'var(--verde)') +
+        coluna('Saídas', '↓', saidas2, somaS, 'var(--ruim)') +
+      '</div>';
+
   app.innerHTML =
     '<div class="paineis">' +
       '<div class="painel"><div class="rot">Lançamentos no recorte</div><div class="num">' + filtrados.length + '</div></div>' +
@@ -479,18 +513,7 @@ TELAS.lancamentos = function () {
         cats.map((c) => '<option' + (f.cat === c ? ' selected' : '') + '>' + esc(c) + '</option>').join('') + '</select>' +
       '<button class="btn primario" id="ln-desp">− Despesa</button>' +
       '<button class="btn" id="ln-rece">+ Receita</button>' +
-    '</div>' +
-    (filtrados.map((x) =>
-      '<div class="lin" data-col="' + x.col + '" data-id="' + esc(x.id) + '" ' + (x.col === 'rec' ? 'data-venda="' + esc(x.vendaId) + '"' : '') + '>' +
-      '<div class="cresce"><b>' + esc(x.descricao) + (x.codigo ? ' <span class="nota">' + esc(x.codigo) + '</span>' : '') + '</b>' +
-      '<span class="sub">' + (x.data ? fmt.data(x.data) : '⚠ SEM DATA') + ' · ' + esc(x.categoria) +
-        (x.forma ? ' · ' + esc(x.forma) : '') +
-        ' · por ' + esc(x.criadoPor) +
-        (x.nHist ? ' · ✏️ ' + x.nHist + ' edição(ões)' : '') +
-        (x.obs ? ' · ' + esc(x.obs) : '') + '</span></div>' +
-      '<span class="dinheiro" style="color:' + (x.entrada ? 'var(--verde)' : 'var(--ruim)') + '">' +
-        (x.entrada ? '+' : '−') + fmt.brl(x.valor) + '</span>' +
-      '</div>').join('') || vazio('🧾', 'Nada nesse recorte'));
+    '</div>' + grade;
 
   document.getElementById('ln-q').oninput = (e) => { f.q = e.target.value; TELAS.lancamentos(); };
   document.getElementById('ln-mes').onchange = (e) => { f.mes = e.target.value; TELAS.lancamentos(); };
@@ -498,7 +521,7 @@ TELAS.lancamentos = function () {
   document.getElementById('ln-cat').onchange = (e) => { f.cat = e.target.value; TELAS.lancamentos(); };
   document.getElementById('ln-desp').onclick = () => abrirLancamento('saida', TELAS.lancamentos);
   document.getElementById('ln-rece').onclick = () => abrirLancamento('entrada', TELAS.lancamentos);
-  app.querySelectorAll('.lin[data-col]').forEach((el) => {
+  app.querySelectorAll('.ln-row').forEach((el) => {
     el.onclick = () => {
       if (el.dataset.col === 'cx') abrirEdicaoLancamento(el.dataset.id, TELAS.lancamentos);
       else location.hash = '#/venda/' + el.dataset.venda;
