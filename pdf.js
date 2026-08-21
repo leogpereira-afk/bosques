@@ -565,5 +565,43 @@ const PDF = (() => {
     salvarNoAparelho(doc.output('blob'), 'Relatorio-Bosques-' + new Date().toISOString().slice(0, 10) + '.pdf');
   }
 
-  return { proposta, recibo, venda, vendasDash, dre, espelho, relatorio };
+  // ── Cronograma da obra: etapa, período, previsto × pago × falta ────────────
+  function cronograma(itens, tot, cfg) {
+    const doc = novo();
+    const hojeTxt = dataBR(new Date().toISOString());
+    const rod = 'Cronograma da obra · ' + hojeTxt + ' · por ' + (S.quem || '—');
+    cabecalho(doc, cfg, 'CRONOGRAMA · ' + hojeTxt);
+    let y = 42;
+    doc.setTextColor(30, 43, 33);
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(13);
+    doc.text('Cronograma da obra — previsto × pago', 14, y);
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(9);
+    doc.setTextColor(...CINZA);
+    y += 5.5;
+    const pct = tot.previstoTotal > 0 ? Math.round(tot.pagoTotal / tot.previstoTotal * 100) : 0;
+    doc.text('Previsto ' + brl(tot.previstoTotal) + ' · pago ' + brl(tot.pagoTotal) + ' (' + pct + '%) · falta ' +
+      brl(Math.max(0, tot.previstoTotal - tot.pagoTotal)), 14, y);
+    y += 8;
+    const rotSit = { prevista: 'prevista', andamento: 'andamento', concluida: 'CONCLUÍDA', atrasada: 'ATRASADA' };
+    const cols = [
+      { t: 'Etapa', x: 14 }, { t: 'Início', x: 80 }, { t: 'Término', x: 100 }, { t: 'Situação', x: 120 },
+      { t: 'Previsto', x: 158, alinha: 'right' }, { t: 'Pago', x: 178, alinha: 'right' },
+      { t: 'Falta', x: 196, alinha: 'right' },
+    ];
+    const linhas = itens.map(({ e, sit, pago }) => {
+      const prev = Number(e.valorPrevisto) || 0;
+      return [trunca(e.nome, 34), dataBR(e.inicio) || '—', dataBR(e.fim) || '—',
+        { t: rotSit[sit] || sit, cor: sit === 'atrasada' ? [198, 40, 40] : sit === 'concluida' ? [0, 105, 92] : undefined },
+        brl(prev), brl(pago),
+        { t: brl(Math.max(0, prev - pago)), cor: prev - pago > 0.01 ? [198, 40, 40] : [95, 122, 102] }];
+    });
+    linhas.push([{ t: 'TOTAL', negrito: true }, '', '', '',
+      { t: brl(tot.previstoTotal), negrito: true }, { t: brl(tot.pagoTotal), negrito: true },
+      { t: brl(Math.max(0, tot.previstoTotal - tot.pagoTotal)), negrito: true }]);
+    tabelaPaginada(doc, cols, linhas, y, rod);
+    rodape(doc, rod);
+    salvarNoAparelho(doc.output('blob'), 'Cronograma-Bosques-' + new Date().toISOString().slice(0, 10) + '.pdf');
+  }
+
+  return { proposta, recibo, venda, vendasDash, dre, espelho, relatorio, cronograma };
 })();

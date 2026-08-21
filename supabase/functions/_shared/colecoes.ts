@@ -25,6 +25,9 @@ export const COLECOES: Record<string, { pre: string; nome: string }> = {
   foto:     { pre: "",   nome: "Foto da apresentação" },
   // Gasto futuro previsto (Relatórios): única em um mês, ou mensal entre dois.
   prev:     { pre: "",   nome: "Gasto previsto" },
+  // Etapa do cronograma da obra: valor previsto, início/término, e as
+  // despesas pagas se vinculam a ela (cx.etapaId).
+  etapa:    { pre: "",   nome: "Etapa do cronograma" },
 };
 
 export const NOMES_COLECOES = Object.keys(COLECOES);

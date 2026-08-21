@@ -328,6 +328,10 @@ function abrirEdicaoLancamento(id, aoTerminar) {
       campo('Forma', seletor('forma', c.forma || 'PIX', (S.cfg && S.cfg.formasPg) || ['PIX'])) +
     '</div>' +
     campo('Categoria', seletor('categoria', c.categoria || 'Outros', listaCats), 'é o que separa o DRE — estrutura, funcionário, comissão…') +
+    (c.tipo === 'saida'
+      ? campo('Etapa do cronograma', seletor('etapaId', c.etapaId || '',
+          lista('etapa').map((e2) => ({ v: e2.id, t: e2.nome })), 'nenhuma'), 'soma no "pago" da etapa')
+      : '') +
     campo('Observação', entrada('obs', c.obs || '')) + trilha;
   abrirModal({
     titulo: (c.tipo === 'saida' ? 'Saída' : 'Receita') + ' — editar',
@@ -360,9 +364,15 @@ function abrirEdicaoLancamento(id, aoTerminar) {
         if ((v.forma || '') !== (c.forma || '')) mud.push('forma ' + (c.forma || '—') + ' → ' + v.forma);
         if (desc !== (c.descricao || '')) mud.push('descrição alterada');
         if ((String(v.obs || '')) !== (c.obs || '')) mud.push('observação alterada');
+        const etapaNova = v.etapaId != null ? v.etapaId : (c.etapaId || '');
+        if (etapaNova !== (c.etapaId || '')) {
+          const nomeEt = (achar('etapa', etapaNova) || {}).nome || 'nenhuma';
+          mud.push('etapa → ' + nomeEt);
+        }
         if (!mud.length) { fecharSilencioso(fundo); return; }
         salvar('cx', {
           id: c.id, valor, data: v.data, forma: v.forma, categoria: v.categoria,
+          etapaId: etapaNova,
           descricao: desc, obs: String(v.obs || '').slice(0, 300),
           historico: historiar(c, 'Editou: ' + mud.join('; ')),
         });
@@ -374,8 +384,9 @@ function abrirEdicaoLancamento(id, aoTerminar) {
   });
 }
 
-function abrirLancamento(tipo, aoTerminar) {
+function abrirLancamento(tipo, aoTerminar, etapaPre) {
   const depois = aoTerminar || TELAS.caixa;
+  const etapasVivas = tipo === 'saida' ? lista('etapa').filter((e) => e.situacao !== 'concluida') : [];
   const cats = tipo === 'saida'
     ? ((S.cfg && S.cfg.categoriasDespesa) || ['Outros'])
     : ((S.cfg && S.cfg.categoriasReceita) || ['Outros']);
@@ -387,6 +398,9 @@ function abrirLancamento(tipo, aoTerminar) {
       campo('Forma', seletor('forma', 'PIX', (S.cfg && S.cfg.formasPg) || ['PIX'])) +
     '</div>' +
     campo('Categoria', seletor('categoria', cats[0], cats)) +
+    (etapasVivas.length
+      ? campo('Etapa do cronograma', seletor('etapaId', etapaPre || '', etapasVivas.map((e) => ({ v: e.id, t: e.nome })), 'nenhuma'), 'soma no "pago" da etapa')
+      : '') +
     campo('Observação', entrada('obs', ''));
   abrirModal({
     titulo: tipo === 'saida' ? 'Nova despesa' : 'Outra receita',
@@ -400,6 +414,7 @@ function abrirLancamento(tipo, aoTerminar) {
         if (!(valor > 0)) { toast('Diga o valor', 'ruim'); return; }
         salvar('cx', {
           tipo, valor, data: c.data, forma: c.forma, categoria: c.categoria,
+          etapaId: c.etapaId || '',
           descricao: c.descricao.trim().slice(0, 200), obs: String(c.obs || '').slice(0, 300),
         });
         fecharSilencioso(fundo);
@@ -555,7 +570,9 @@ function aReceberPorMes() {
   return { porMes, vencido, total, parcelas };
 }
 
-// Quanto está PREVISTO de gasto num mês (cadastro 'prev').
+// Quanto está PREVISTO de gasto num mês: os cadastrados à mão ('prev') MAIS
+// o que falta das etapas do cronograma (o restante de cada etapa não
+// concluída, diluído nos meses que sobram do período dela).
 function previstoNoMes(m) {
   let soma = 0;
   for (const g of lista('prev')) {
@@ -565,7 +582,7 @@ function previstoNoMes(m) {
       soma += Number(g.valor) || 0;
     }
   }
-  return soma;
+  return soma + previstoEtapasNoMes(m);
 }
 
 TELAS.relatorios = function () {
@@ -649,6 +666,7 @@ TELAS.relatorios = function () {
           ' · ' + esc(g.categoria || 'Outros') + (g.obs ? ' · ' + esc(g.obs) : '') + '</span></div>' +
         '<span class="dinheiro">' + fmt.brl(g.valor) + (g.recorrencia === 'mensal' ? '<span class="nota">/mês</span>' : '') + '</span>' +
         '</div>').join('') || '<p class="nota">Nenhum previsto ainda — cadastre o que você já sabe que vai pagar (obra, mensalidades…).</p>') +
+      '<p class="nota" style="margin-top:8px">O que FALTA das etapas do Cronograma entra sozinho nesta conta — não cadastre de novo aqui, senão dobra.</p>' +
       '<button class="btn primario" id="prev-novo" style="margin-top:8px">+ Gasto previsto</button></div>';
 
   app.querySelectorAll('.chip[data-hz]').forEach((c) => {

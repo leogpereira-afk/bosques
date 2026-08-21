@@ -1,9 +1,9 @@
 /* Service worker — casca offline. SUBA O NÚMERO a cada publicação, senão o
    navegador continua servindo o arquivo velho (lição paga mais de uma vez). */
-const CACHE = 'bsq-shell-v7';
+const CACHE = 'bsq-shell-v8';
 const ARQUIVOS = [
   './', 'index.html', 'styles.css', 'config.js', 'ui.js', 'store.js', 'carne.js',
-  'pdf.js', 'espelho.js', 'vendas.js', 'caixa.js', 'cadastros.js', 'apresentacao.js', 'app.js',
+  'pdf.js', 'espelho.js', 'vendas.js', 'caixa.js', 'cadastros.js', 'cronograma.js', 'apresentacao.js', 'app.js',
   'libs/jspdf.umd.min.js', 'manifest.webmanifest', 'icons/icon-192.png', 'icons/icon-512.png',
   'icons/logo-full.png', 'icons/logo-pdf.png'
 ];

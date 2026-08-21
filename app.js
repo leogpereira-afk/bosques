@@ -13,6 +13,7 @@ const ROTAS = {
   caixa:      { titulo: 'Caixa',         ic: '💰' },
   lancamentos: { titulo: 'Lançamentos',  ic: '🧾' },
   relatorios: { titulo: 'Relatórios',   ic: '📊' },
+  cronograma: { titulo: 'Cronograma',   ic: '🏗️' },
   apresentacao: { titulo: 'Apresentação', ic: '🏞️' },
   comissoes:  { titulo: 'Comissões',     ic: '🤝', oculta: true }, // vive dentro de Corretores
   clientes:   { titulo: 'Clientes',      ic: '👥' },
@@ -24,8 +25,8 @@ const ROTAS = {
 // oferecer o que a pessoa não pode abrir.
 function rotasDoPerfil() {
   if (S.perfil === 'corretor') return ['espelho', 'propostas', 'apresentacao'];
-  if (S.perfil === 'escritorio') return ['home', 'espelho', 'vendas', 'propostas', 'caixa', 'lancamentos', 'relatorios', 'clientes', 'corretores', 'apresentacao'];
-  return ['home', 'espelho', 'vendas', 'propostas', 'caixa', 'lancamentos', 'relatorios', 'clientes', 'corretores', 'apresentacao', 'config'];
+  if (S.perfil === 'escritorio') return ['home', 'espelho', 'vendas', 'propostas', 'caixa', 'lancamentos', 'relatorios', 'cronograma', 'clientes', 'corretores', 'apresentacao'];
+  return ['home', 'espelho', 'vendas', 'propostas', 'caixa', 'lancamentos', 'relatorios', 'cronograma', 'clientes', 'corretores', 'apresentacao', 'config'];
 }
 
 function rotaAtual() {

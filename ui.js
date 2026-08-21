@@ -104,6 +104,10 @@ const SITUACOES = {
   aceita:      { txt: 'Virou venda', cls: 'et-quitada' },
   recusada:    { txt: 'Não avançou', cls: 'et-distratada' },
   arquivada:   { txt: 'Arquivada', cls: 'et-aberta' },
+  // etapa do cronograma (a 'atrasada' derivada reaproveita a das parcelas)
+  prevista:    { txt: 'Prevista', cls: 'et-aberta' },
+  andamento:   { txt: 'Em andamento', cls: 'et-enviada' },
+  concluida:   { txt: 'Concluída', cls: 'et-quitada' },
   // parcela (carne.js deriva estas situações; ninguém as grava)
   paga:        { txt: 'Paga', cls: 'et-quitada' },
   parcial:     { txt: 'Paga em parte', cls: 'et-parcial' },
