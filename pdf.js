@@ -552,6 +552,14 @@ const PDF = (() => {
       });
       y += 19;
     }
+    if (d.comissoesAPagar > 0.01) {
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(9.5);
+      doc.setTextColor(...CINZA);
+      doc.text('Contas a pagar — comissões devidas aos corretores: ', 14, y);
+      doc.setFont('helvetica', 'bold'); doc.setTextColor(198, 40, 40);
+      doc.text(brl(d.comissoesAPagar), 92, y);
+      y += 7;
+    }
     y += 4;
     if (d.aging && d.aging.some((f) => f.rs > 0)) {
       doc.setFont('helvetica', 'bold'); doc.setFontSize(11);

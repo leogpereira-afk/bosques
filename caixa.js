@@ -710,6 +710,21 @@ TELAS.relatorios = function () {
           '</tbody></table></div>' +
           '<p class="nota" style="margin-top:8px">O "a receber" supõe as parcelas pagas em dia; o vencido acumulado (' + fmt.brl(ar.vencido) + ') fica fora destas linhas de propósito.</p>'
         : '<p class="nota">Nada a vencer nesse período.</p>') + '</div>' +
+    (() => {
+      const cap = comissoesAPagar();
+      if (!cap.length) return '';
+      const totalCap = cap.reduce((s, x) => s + x.saldo, 0);
+      return '<div class="cartao"><h2>Contas a pagar — comissões <span class="nota">— saldo devido por corretor</span>' +
+        '<span style="float:right;font-weight:800;color:var(--ruim)">' + fmt.brl(totalCap) + '</span></h2>' +
+        cap.map((x) => '<div class="lin" style="cursor:default">' +
+          '<div class="cresce"><b>' + esc(x.cor.nome) + '</b>' +
+          '<span class="sub">combinado ' + fmt.brl(x.devido) + ' · pago ' + fmt.brl(x.pago) +
+            (x.cor.chavePix ? ' · PIX ' + esc(x.cor.chavePix) : '') + '</span></div>' +
+          '<span class="dinheiro" style="color:var(--ruim)">' + fmt.brl(x.saldo) + '</span>' +
+          '<button class="btn mini cap-pagar" data-id="' + esc(x.cor.id) + '" data-nome="' + esc(x.cor.nome) + '" data-saldo="' + x.saldo.toFixed(2) + '">💸 pagar</button>' +
+          '</div>').join('') +
+        '<p class="nota" style="margin-top:6px">Este valor NÃO está dentro dos "gastos previstos" acima — comissão devida não tem mês marcado; paga quando você decidir.</p></div>';
+    })() +
     '<div class="cartao" id="rel-previstos"><h2>Gastos futuros previsíveis <span class="nota">— o que você já sabe que vem</span></h2>' +
       (previstos.map((g) =>
         '<div class="lin prev-lin" data-id="' + esc(g.id) + '">' +
@@ -740,6 +755,9 @@ TELAS.relatorios = function () {
       else if (acao === 'tabela') { const c2 = document.getElementById('rel-tabela'); if (c2) c2.scrollIntoView({ behavior: 'smooth', block: 'start' }); }
     };
   });
+  app.querySelectorAll('.cap-pagar').forEach((b) => {
+    b.onclick = () => abrirPagarComissao(b.dataset.id, b.dataset.nome, Number(b.dataset.saldo));
+  });
   const bCobrar = document.getElementById('rel-cobrar');
   if (bCobrar) bCobrar.onclick = () => { TELAS._fVendas = { q: '', sit: '', so: 'atraso' }; location.hash = '#/vendas'; };
   app.querySelectorAll('.rel-ano').forEach((tr) => {
@@ -758,6 +776,7 @@ TELAS.relatorios = function () {
       recebido: ac.entradas, gasto: ac.saidas,
       aReceber: aReceberHz, vencido: ar.vencido, previsto: previstoHz, grupos,
       aging: aging.map((f) => ({ rotulo: f.rotulo, rs: f.rs, parcelas: f.parcelas, contratos: f.contratos.size })),
+      comissoesAPagar: comissoesAPagar().reduce((s, x) => s + x.saldo, 0),
     }, S.cfg || {});
     toast('Relatório em PDF gerado');
   };

@@ -578,6 +578,10 @@ Deno.serve(async (req) => {
                 if (antigo.etapaId) novo.etapaId = antigo.etapaId;
                 if (antigo.categoria) novo.categoria = antigo.categoria;
                 if (!novo.data && antigo.data) novo.data = antigo.data;
+                // associação de comissão feita no app (um corretor ou rateio
+                // entre vários) também sobrevive à reimportação
+                if (antigo.corretorId && !novo.corretorId) novo.corretorId = antigo.corretorId;
+                if (antigo.rateio && antigo.rateio.length) novo.rateio = antigo.rateio;
               }
               if (antigo.apagadoEm) {
                 if (antigo.apagadoPor === MARCA_PRUNE) { ressuscitados++; } // voltou à planilha

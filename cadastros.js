@@ -182,6 +182,34 @@ TELAS.clientes = function () {
   });
 };
 
+/* ── Comissão paga por corretor (respeitando rateio) ────────────────────────
+   Um pagamento pode ser de UM corretor (corretorId) ou DIVIDIDO entre vários
+   (rateio: [{corretorId, valor}]). Quem soma tem que olhar os dois — somar só
+   corretorId faria a parte da Renata num pagamento dividido sumir da conta. */
+function pagoComissaoDoCorretor(corId, pagos) {
+  let s = 0;
+  for (const p2 of pagos) {
+    if (p2.rateio && p2.rateio.length) {
+      const it = p2.rateio.find((r2) => r2.corretorId === corId);
+      if (it) s += Number(it.valor) || 0;
+    } else if (p2.corretorId === corId) {
+      s += Number(p2.valor) || 0;
+    }
+  }
+  return s;
+}
+// As contas a pagar de comissão: saldo devido por corretor (>0).
+function comissoesAPagar() {
+  const pagos = cxVivos().filter((c) => c.tipo === 'saida' && c.categoria === 'Comissão');
+  const vendas = lista('venda');
+  return lista('corretor').map((cor) => {
+    const devido = vendas.filter((v) => v.corretorId === cor.id && v.situacao !== 'distratada')
+      .reduce((s, v) => s + (Number(v.comissao) || 0), 0);
+    const pago = pagoComissaoDoCorretor(cor.id, pagos);
+    return { cor, devido, pago, saldo: Math.round((devido - pago) * 100) / 100 };
+  }).filter((x) => x.saldo > 0.01).sort((a, b) => b.saldo - a.saldo);
+}
+
 /* ── Tela: corretores — ranking + tudo do corretor numa gaveta ─────────────── */
 TELAS.corretores = function () {
   const app = document.getElementById('app');
@@ -195,14 +223,14 @@ TELAS.corretores = function () {
     const distratadas = vendas.filter((v) => v.corretorId === cor.id && v.situacao === 'distratada');
     const vgv = suas.reduce((s, v) => s + CARNE.resumo(v, cfgReajuste(), []).total, 0);
     const devido = suas.reduce((s, v) => s + (Number(v.comissao) || 0), 0);
-    const pago = pagos.filter((p2) => p2.corretorId === cor.id).reduce((s, p2) => s + (Number(p2.valor) || 0), 0);
+    const pago = pagoComissaoDoCorretor(cor.id, pagos);
     return { cor, suas, distratadas, vgv, devido, pago, saldo: devido - pago };
   }).filter((x) => x.suas.length || x.pago > 0 || x.cor.ativo !== false)
     .sort((a, b) => (b.suas.length - a.suas.length) || (b.vgv - a.vgv));
 
   const totalVgv = ficha.reduce((s, x) => s + x.vgv, 0);
   const totalSaldo = ficha.reduce((s, x) => s + Math.max(0, x.saldo), 0);
-  const semDono = pagos.filter((p2) => !p2.corretorId);
+  const semDono = pagos.filter((p2) => !p2.corretorId && !(p2.rateio && p2.rateio.length));
   TELAS._corAbertos = TELAS._corAbertos || new Set();
 
   const medalha = (i) => i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : (i + 1) + 'º';
@@ -242,12 +270,22 @@ TELAS.corretores = function () {
           '<span class="sub">' + esc(v.codigo || '') + ' · Q' + v.quadra + '-L' + v.lote + ' · ' + fmt.data(v.dataVenda || v.criadoEm) +
             ' · comissão ' + fmt.brl(v.comissao) + '</span></div>' + etiqueta(v.situacao || 'ativa') + '</div>').join('') ||
           '<p class="nota">Nenhuma venda ainda.</p>') +
-        (pagos.some((p2) => p2.corretorId === x.cor.id)
-          ? '<h2 style="font-size:14px;margin:10px 0 4px">Pagamentos de comissão</h2>' +
-            pagos.filter((p2) => p2.corretorId === x.cor.id).map((p2) =>
-              '<div class="nota" style="padding:2px 0">✓ ' + fmt.brl(p2.valor) + ' em ' + fmt.data(p2.data) +
-              (p2.obs ? ' · ' + esc(p2.obs) : '') + '</div>').join('')
-          : '') +
+        (() => {
+          const meus = pagos.map((p2) => {
+            if (p2.rateio && p2.rateio.length) {
+              const it = p2.rateio.find((r2) => r2.corretorId === x.cor.id);
+              return it ? { p2, valor: it.valor, dividido: true } : null;
+            }
+            return p2.corretorId === x.cor.id ? { p2, valor: p2.valor, dividido: false } : null;
+          }).filter(Boolean);
+          return meus.length
+            ? '<h2 style="font-size:14px;margin:10px 0 4px">Pagamentos de comissão</h2>' +
+              meus.map(({ p2, valor, dividido }) =>
+                '<div class="nota" style="padding:2px 0">✓ ' + fmt.brl(valor) + ' em ' + fmt.data(p2.data) +
+                (dividido ? ' · <b>dividido</b> (' + esc(p2.descricao || '') + ')' : '') +
+                (p2.obs ? ' · ' + esc(p2.obs) : '') + '</div>').join('')
+            : '';
+        })() +
       '</div></details>').join('') +
     (semDono.length
       ? '<div class="cartao" style="border-color:#f0ddb5"><h2>⚠ Comissões pagas sem corretor identificado <span class="nota">— clique para dizer de quem é</span></h2>' +
@@ -294,32 +332,68 @@ function abrirAssociarComissao(cxId) {
     const primeiro = (cor.nome || '').trim().split(' ')[0].toUpperCase();
     return primeiro.length >= 4 && texto.includes(primeiro);
   });
+  const opcoesCor = (sel) => corretores.map((cor) =>
+    '<option value="' + esc(cor.id) + '"' + (cor.id === sel ? ' selected' : '') + '>' + esc(cor.nome) + '</option>').join('');
+  const linhaDiv = (corId, valor) =>
+    '<div class="colunas asc-linha" style="margin-bottom:0">' +
+      '<div class="campo"><select class="asc-cor"><option value="">— corretor —</option>' + opcoesCor(corId) + '</select></div>' +
+      '<div class="campo"><input class="asc-val" type="text" inputmode="decimal" value="' + valor + '" placeholder="valor (R$)"></div>' +
+    '</div>';
   const corpo =
     '<div class="lin" style="cursor:default"><div class="cresce"><b>' + esc(c.descricao || 'Comissão') + '</b>' +
       '<span class="sub">' + fmt.data(c.data) + (c.obs ? ' · ' + esc(c.obs) : '') + '</span></div>' +
       '<span class="dinheiro">' + fmt.brl(c.valor) + '</span></div>' +
-    campo('De quem é esta comissão?', seletor('corretorId', sugerido ? sugerido.id : '',
-      corretores.map((cor) => ({ v: cor.id, t: cor.nome })), '— escolher —'),
-      sugerido ? 'sugerido pelo nome no texto: ' + sugerido.nome : '');
-  abrirModal({
+    '<div class="campo"><label>De quem é esta comissão?</label>' +
+      (sugerido ? '<div class="dica">sugerido pelo nome no texto: ' + esc(sugerido.nome) + '</div>' : '') + '</div>' +
+    '<div id="asc-linhas">' + linhaDiv(sugerido ? sugerido.id : '', c.valor) + '</div>' +
+    '<button class="btn mini" id="asc-mais" type="button">+ dividir com mais um corretor</button>' +
+    '<div class="nota" id="asc-soma" style="margin-top:6px"></div>';
+  const fundoA = abrirModal({
     titulo: 'Associar comissão',
     corpo,
     acoes: [
       { texto: 'Voltar', aoClicar: () => fecharModal() },
       { texto: 'Associar', classe: 'primario', aoClicar: (fundo) => {
-        const v = lerCampos(fundo);
-        if (!v.corretorId) { toast('Escolha o corretor', 'ruim'); return; }
-        const cor = corretores.find((x) => x.id === v.corretorId);
-        salvar('cx', {
-          id: cxId, corretorId: v.corretorId,
-          historico: historiar(c, 'Comissão associada a ' + (cor ? cor.nome : v.corretorId)),
-        });
+        const partes = [...fundo.querySelectorAll('.asc-linha')].map((l2) => ({
+          corretorId: l2.querySelector('.asc-cor').value,
+          valor: numeroBR(l2.querySelector('.asc-val').value),
+        })).filter((x) => x.corretorId && x.valor > 0);
+        if (!partes.length) { toast('Escolha pelo menos um corretor', 'ruim'); return; }
+        const soma = Math.round(partes.reduce((s, x) => s + x.valor, 0) * 100) / 100;
+        if (partes.length > 1 && Math.abs(soma - c.valor) > 0.011) {
+          toast('A divisão soma ' + fmt.brl(soma) + ' mas o pagamento foi ' + fmt.brl(c.valor), 'ruim');
+          return;
+        }
+        const nomes = partes.map((x) => (corretores.find((cor) => cor.id === x.corretorId) || {}).nome || '?');
+        salvar('cx', partes.length === 1
+          ? { id: cxId, corretorId: partes[0].corretorId, rateio: null,
+              historico: historiar(c, 'Comissão associada a ' + nomes[0]) }
+          : { id: cxId, corretorId: '', rateio: partes,
+              historico: historiar(c, 'Comissão dividida: ' + partes.map((x, i2) => nomes[i2] + ' ' + fmt.brl(x.valor)).join(' + ')) });
         fecharSilencioso(fundo);
-        toast('Associada a ' + (cor ? cor.nome : ''));
+        toast(partes.length === 1 ? 'Associada a ' + nomes[0] : 'Dividida entre ' + nomes.join(' e '));
         TELAS.corretores();
       } },
     ],
   });
+  const atualizaSoma = () => {
+    const vals = [...fundoA.querySelectorAll('.asc-val')].map((el2) => numeroBR(el2.value));
+    const soma = Math.round(vals.reduce((s, x2) => s + x2, 0) * 100) / 100;
+    const el3 = fundoA.querySelector('#asc-soma');
+    el3.textContent = vals.length > 1 ? 'soma da divisão: ' + fmt.brl(soma) + ' de ' + fmt.brl(c.valor) : '';
+    el3.style.color = Math.abs(soma - c.valor) > 0.011 && vals.length > 1 ? 'var(--ruim)' : 'var(--tinta-fraca)';
+  };
+  fundoA.querySelector('#asc-mais').onclick = () => {
+    const caixa2 = fundoA.querySelector('#asc-linhas');
+    caixa2.insertAdjacentHTML('beforeend', linhaDiv('', ''));
+    const n = caixa2.querySelectorAll('.asc-linha').length;
+    const cota = Math.floor(c.valor / n * 100) / 100;
+    const vals = [...caixa2.querySelectorAll('.asc-val')];
+    vals.forEach((el2, i2) => { el2.value = i2 === 0 ? (c.valor - cota * (n - 1)).toFixed(2) : cota.toFixed(2); });
+    caixa2.querySelectorAll('.asc-val').forEach((el2) => { el2.oninput = atualizaSoma; });
+    atualizaSoma();
+  };
+  fundoA.querySelectorAll('.asc-val').forEach((el2) => { el2.oninput = atualizaSoma; });
 }
 
 function abrirPagarComissao(corId, nome, saldo) {
