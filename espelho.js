@@ -30,7 +30,7 @@ TELAS.espelho = function () {
   if (!ls.length) { app.innerHTML = vazio('🗺️', 'Nenhum lote cadastrado', 'Os lotes entram pela importação da planilha ou por Configurações.'); return; }
 
   const quadras = [...new Set(ls.map((l) => l.quadra))].sort((a, b) => a - b);
-  const filtro = TELAS._fEspelho || { q: '', quadra: '', status: '' };
+  const filtro = TELAS._fEspelho || { q: '', quadra: '', status: '', atraso: false };
   TELAS._fEspelho = filtro;
 
   const disponiveis = ls.filter((l) => l.status === 'Disponível');
@@ -46,6 +46,7 @@ TELAS.espelho = function () {
   const filtrados = ls.filter((l) =>
     (!filtro.quadra || String(l.quadra) === filtro.quadra) &&
     (!filtro.status || l.status === filtro.status) &&
+    (!filtro.atraso || atrasos.has(l.id)) &&
     (!filtro.q || (l.lote + '').includes(filtro.q) || nomeLote(l).toLowerCase().includes(filtro.q.toLowerCase())));
 
   // Cada quadra é uma gaveta: recolhe o que não interessa hoje. Nascem
@@ -98,24 +99,44 @@ TELAS.espelho = function () {
       '<input type="search" id="esp-q" placeholder="nº do lote…" value="' + esc(filtro.q) + '">' +
       '<select id="esp-quadra"><option value="">Todas as quadras</option>' +
         quadras.map((q) => '<option value="' + q + '"' + (filtro.quadra === String(q) ? ' selected' : '') + '>Quadra ' + q + '</option>').join('') + '</select>' +
-      '<select id="esp-status"><option value="">Todos</option>' +
-        ['Disponível', 'Reservado', 'Vendido'].map((s) => '<option' + (filtro.status === s ? ' selected' : '') + '>' + s + '</option>').join('') + '</select>' +
     '</div>' +
-    '<div class="legenda"><span><i style="background:#e1f2e2;border-color:#a8d5a0"></i>Disponível</span>' +
-      '<span><i style="background:#f0f0ef"></i>Vendido</span>' +
-      '<span><i style="background:#fff8ec"></i>Reservado</span>' +
-      (ehCorretorPerfil() ? '' : '<span><i style="background:#c62828;border-color:#c62828"></i> ! = parcela em atraso</span>') + '</div>' +
+    '<div class="filtros"><div class="chips">' +
+      [['Disponível', disp, '#e1f2e2;border-color:#a8d5a0'],
+       ['Vendido', vend, '#f0f0ef'],
+       ['Reservado', ls.filter((l) => l.status === 'Reservado').length, '#fff8ec;border-color:#f0ddb5']]
+        .map(([s, n2, cor]) => '<button class="chip esp-chip' + (filtro.status === s ? ' on' : '') + '" data-st="' + s + '">' +
+          '<i style="display:inline-block;width:11px;height:11px;border-radius:4px;border:1px solid var(--borda);background:' + cor + ';margin-right:6px;vertical-align:-1px"></i>' +
+          s + ' (' + n2 + ')</button>').join('') +
+      (ehCorretorPerfil() ? '' :
+        '<button class="chip esp-chip-atraso' + (filtro.atraso ? ' on' : '') + '">🔴 Com atraso (' + atrasos.size + ')</button>') +
+    '</div>' +
+    (ehCorretorPerfil() ? '' : '<span class="nota">🔒 no canto do lote verde = reservar na hora</span>') +
+    '</div>' +
     (blocos || vazio('🔍', 'Nada com esse filtro'));
 
   document.getElementById('esp-pdf').onclick = () => {
-    PDF.espelho(ls, atrasos, S.cfg || {});
-    toast('Espelho em PDF gerado — ' + ls.length + ' lotes');
+    // O papel sai IGUAL à tela: filtrou, o PDF leva só o filtrado — e com o
+    // recorte escrito, senão o pedaço vira "o total" na mão de alguém.
+    const pedacos = [];
+    if (filtro.status) pedacos.push('só ' + filtro.status.toLowerCase() + 's');
+    if (filtro.atraso) pedacos.push('só com atraso');
+    if (filtro.quadra) pedacos.push('quadra ' + filtro.quadra);
+    if (filtro.q) pedacos.push('busca "' + filtro.q + '"');
+    PDF.espelho(filtrados, atrasos, S.cfg || {}, pedacos.join(' · '));
+    toast('Espelho em PDF gerado — ' + filtrados.length + ' lote(s)' + (pedacos.length ? ' (recorte)' : ''));
   };
   const bNovo = document.getElementById('esp-novo-lote');
   if (bNovo) bNovo.onclick = () => abrirCadastroLote(null);
   document.getElementById('esp-q').oninput = (e) => { filtro.q = e.target.value; TELAS.espelho(); };
   document.getElementById('esp-quadra').onchange = (e) => { filtro.quadra = e.target.value; TELAS.espelho(); };
-  document.getElementById('esp-status').onchange = (e) => { filtro.status = e.target.value; TELAS.espelho(); };
+  document.querySelectorAll('.esp-chip').forEach((c) => {
+    c.onclick = () => {
+      filtro.status = filtro.status === c.dataset.st ? '' : c.dataset.st;   // clicou de novo, desliga
+      TELAS.espelho();
+    };
+  });
+  const chAtr = document.querySelector('.esp-chip-atraso');
+  if (chAtr) chAtr.onclick = () => { filtro.atraso = !filtro.atraso; TELAS.espelho(); };
   document.querySelectorAll('.lote-q').forEach((el) => {
     el.onclick = () => { location.hash = '#/lote/' + el.dataset.id; };
   });
@@ -197,7 +218,11 @@ TELAS.lote = function (id) {
           : '<div></div>') +
       '</div>') +
       '<div class="colunas' + (ehCorretorPerfil() ? '' : '-3') + '">' +
-        campo('Nome do cliente', entrada('nome', sim.nome || '', { placeholder: 'quem vai receber a proposta' })) +
+        (ehCorretorPerfil()
+          ? campo('Nome do cliente', entrada('nome', sim.nome || '', { placeholder: 'quem vai receber a proposta' }))
+          : campo('Cliente', '<input list="dl-clientes" data-campo="nome" value="' + esc(sim.nome || '') + '" placeholder="digite — busca no cadastro" autocomplete="off">' +
+              '<datalist id="dl-clientes">' + lista('cliente').map((c2) => '<option value="' + esc(c2.nome || '') + '">').join('') + '</datalist>',
+              'já busca no banco de clientes; nome novo é cadastrado ao gerar')) +
         campo('WhatsApp dele', entrada('telefone', sim.telefone || '', { inputmode: 'tel', placeholder: '(38) 9…' })) +
         (ehCorretorPerfil() ? '' :
           campo('Corretor', seletor('corretorId', sim.corretorId || '', corretores.map((c) => ({ v: c.id, t: c.nome })), 'sem corretor (a casa)'))) +
@@ -299,6 +324,17 @@ TELAS.lote = function (id) {
         entradaVezes: v.entradaVezes != null ? Math.max(2, Math.round(numeroBR(v.entradaVezes)) || 4) : sim.entradaVezes,
         entradaJurosPct: v.entradaJurosPct != null ? numeroBR(v.entradaJurosPct) : sim.entradaJurosPct,
       });
+      // nome que bate com o cadastro → vincula o cliente e puxa o WhatsApp
+      if (!ehCorretorPerfil()) {
+        const nomeNorm = String(sim.nome || '').trim().toUpperCase();
+        const cli = nomeNorm ? lista('cliente').find((c2) => (c2.nome || '').trim().toUpperCase() === nomeNorm) : null;
+        sim.clienteId = cli ? cli.id : '';
+        if (cli && !sim.telefone && (cli.whatsapp || cli.celular)) {
+          sim.telefone = cli.whatsapp || cli.celular;
+          const elTel = raiz.querySelector('[data-campo="telefone"]');
+          if (elTel) elTel.value = sim.telefone;
+        }
+      }
       const modoAntes = el.dataset.campo === 'entradaModo';
       if (modoAntes) {
         // o que o campo MOSTRA como padrão precisa existir no dado — senão a
@@ -471,7 +507,26 @@ function montarPropDoSim(l, sim) {
   const reaj = cfgReajuste();
   const souCorretor = ehCorretorPerfil();
   const cor = souCorretor ? null : lista('corretor').find((c) => c.id === sim.corretorId);
+  // O interessado ENTRA NO BANCO de clientes (direção/escritório): existente é
+  // reaproveitado pelo nome; novo é cadastrado na hora — a proposta nunca cria
+  // um cliente-fantasma que só vive dentro dela. (Corretor não grava cliente:
+  // o dele segue embutido na proposta, e vira cadastro na venda.)
+  let clienteId = '';
+  if (!souCorretor) {
+    const nomeNorm = sim.nome.trim().toUpperCase();
+    let cli = (sim.clienteId && achar('cliente', sim.clienteId)) ||
+      lista('cliente').find((c2) => (c2.nome || '').trim().toUpperCase() === nomeNorm);
+    if (!cli) {
+      cli = salvar('cliente', { nome: sim.nome.trim().slice(0, 90), whatsapp: String(sim.telefone || '').slice(0, 30) });
+      toast('Cliente "' + cli.nome + '" cadastrado — complete a ficha depois');
+    } else if (sim.telefone && !cli.whatsapp && !cli.celular) {
+      salvar('cliente', { id: cli.id, whatsapp: String(sim.telefone || '').slice(0, 30) });
+    }
+    clienteId = cli.id;
+    sim.clienteId = cli.id;
+  }
   return {
+    clienteId,
     loteId: l.id, quadra: l.quadra, lote: l.lote, areaM2: l.areaM2,
     valor: totalDoPlano(sim, reaj),
     entrada: Number(sim.entrada) || 0,
@@ -557,7 +612,7 @@ function abrirNovaVenda(l, sim) {
   const corretores = lista('corretor').filter((c) => c.ativo !== false);
   const hoje = hojeISO();
   const corpo =
-    campo('Cliente já cadastrado', seletor('clienteId', '', clientes.map((c) => ({ v: c.id, t: c.nome + (c.cpf ? ' · ' + fmt.doc(c.cpf) : '') })), '— cadastrar novo abaixo —')) +
+    campo('Cliente já cadastrado', seletor('clienteId', sim.clienteId || '', clientes.map((c) => ({ v: c.id, t: c.nome + (c.cpf ? ' · ' + fmt.doc(c.cpf) : '') })), '— cadastrar novo abaixo —')) +
     '<div class="colunas">' +
       campo('ou nome do cliente novo', entrada('nomeNovo', '')) +
       campo('CPF dele', entrada('cpfNovo', '', { inputmode: 'numeric' })) +

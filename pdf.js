@@ -447,10 +447,10 @@ const PDF = (() => {
   }
 
   // ── Espelho de vendas em PDF: o mapa das quadras para levar/mandar ─────────
-  function espelho(ls, atrasos, cfg) {
+  function espelho(ls, atrasos, cfg, recorte) {
     const doc = novo();
     const hojeTxt = dataBR(new Date().toISOString());
-    const rod = 'Espelho de vendas · ' + hojeTxt + ' · gerado por ' + (S.quem || '—');
+    const rod = 'Espelho de vendas' + (recorte ? ' (' + recorte + ')' : '') + ' · ' + hojeTxt + ' · gerado por ' + (S.quem || '—');
     cabecalho(doc, cfg, 'ESPELHO · ' + hojeTxt);
 
     let y = 40;
@@ -461,8 +461,8 @@ const PDF = (() => {
     const vend = ls.filter((l) => l.status === 'Vendido').length;
     doc.setFont('helvetica', 'bold'); doc.setFontSize(11);
     doc.setTextColor(30, 43, 33);
-    doc.text(ls.length + ' lotes · ' + disp + ' disponíveis · ' + vend + ' vendidos (' +
-      Math.round(vend / Math.max(1, ls.length) * 100) + '%)', 14, y);
+    doc.text(ls.length + ' lote(s)' + (recorte ? ' — recorte: ' + recorte : ' · ' + disp + ' disponíveis · ' + vend + ' vendidos (' +
+      Math.round(vend / Math.max(1, ls.length) * 100) + '%)'), 14, y);
     y += 5;
     doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5);
     doc.setTextColor(...CINZA);
@@ -512,7 +512,8 @@ const PDF = (() => {
       y += linhasQ * (ALT + 1.6) + 4;
     }
     rodape(doc, rod);
-    salvarNoAparelho(doc.output('blob'), 'Espelho-Bosques-' + new Date().toISOString().slice(0, 10) + '.pdf');
+    salvarNoAparelho(doc.output('blob'), 'Espelho-Bosques-' + new Date().toISOString().slice(0, 10) +
+      (recorte ? '-recorte' : '') + '.pdf');
   }
 
   // ── Relatório do empreendimento (a aba Relatórios, no papel) ───────────────

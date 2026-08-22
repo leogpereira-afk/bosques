@@ -157,8 +157,13 @@ button { font-family: inherit; }
 .lote-q .m2 { font-size: 10.5px; color: var(--tinta-fraca); }
 .lote-q .preco { font-size: 11px; font-weight: 700; color: var(--verde); }
 .lote-q.disp { background: #e1f2e2; border-color: #a8d5a0; }
-.lq-res { position: absolute; top: 2px; left: 4px; font-size: 10px; opacity: .4; cursor: pointer; }
-.lq-res:hover { opacity: 1; }
+.lq-res {
+  position: absolute; top: -7px; left: -6px; font-size: 12px; cursor: pointer;
+  background: #fff; border: 1px solid #a8d5a0; border-radius: 50%;
+  width: 22px; height: 22px; line-height: 20px; text-align: center;
+  box-shadow: 0 1px 3px rgba(20,45,28,.18);
+}
+.lq-res:hover { transform: scale(1.15); border-color: var(--verde); }
 .lote-q.disp b { color: #1b5e20; }
 .lote-q.disp:hover { border-color: var(--verde); box-shadow: var(--sombra); }
 .lote-q.vendido { background: #f0f0ef; color: #888; }

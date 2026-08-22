@@ -41,6 +41,12 @@ function abrirFichaPessoa(col, id) {
         ? '<div class="nota">falta preencher: <b>' + comp.faltam.join(', ') + '</b></div>'
         : '<div class="nota" style="color:var(--verde)">✓ tudo preenchido</div>') + '</div>'
     : '';
+  const propsDele = (!ehCorretor && id) ? lista('prop').filter((x) => x.clienteId === id) : [];
+  const blocoProps = propsDele.length
+    ? '<div class="campo"><label>Propostas</label>' + propsDele.map((x) =>
+        '<div class="nota" style="padding:2px 0">• ' + esc(x.codigo || '') + ' Q' + x.quadra + '-L' + x.lote +
+        ' · ' + fmt.brl(x.valor) + ' · ' + fmt.quando(x.enviadaEm || x.criadoEm) + ' ' + etiqueta(x.situacao || 'enviada') + '</div>').join('') + '</div>'
+    : '';
   const extras = vendas.length
     ? '<div class="campo"><label>Vendas</label>' + vendas.map((v) =>
         '<div class="nota" style="padding:2px 0">• <a href="#/venda/' + esc(v.id) + '" onclick="fecharModal()">' +
@@ -50,7 +56,7 @@ function abrirFichaPessoa(col, id) {
     : '';
   abrirModal({
     titulo: (id ? '' : 'Novo ') + (ehCorretor ? 'corretor' : 'cliente') + (p.nome ? ' — ' + p.nome : ''),
-    corpo: (blocoComp || '') + fichaPessoaCorpo(p, ehCorretor) + extras,
+    corpo: (blocoComp || '') + fichaPessoaCorpo(p, ehCorretor) + blocoProps + extras,
     largo: true,
     acoes: [
       { texto: 'Voltar', aoClicar: () => fecharModal() },
