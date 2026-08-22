@@ -62,7 +62,7 @@ async function lerCfg(): Promise<any> {
 /* ── União de listas de dois donos ─────────────────────────────────────────── */
 // Listas em que os dois lados TÊM RAZÃO ao mesmo tempo: em vez de o último a
 // gravar apagar o do outro, o servidor junta item a item pelo id.
-const CAMPOS_UNIAO = ["historico", "anexos", "versoes", "documentos"];
+const CAMPOS_UNIAO = ["historico", "anexos", "versoes", "documentos", "cobrancas"];
 
 function unirPorId(antigo: any, novo: any): any[] {
   const a = Array.isArray(antigo) ? antigo : [];
@@ -125,6 +125,10 @@ async function gravar(col: string, registro: any, por: string): Promise<any> {
   if (col === "lote") {
     if (antigo) { novo.status = antigo.status; novo.vendaId = antigo.vendaId; }
     else { novo.status = "Disponível"; novo.vendaId = null; }
+    // Sem venda viva, o status segue a RESERVA: reservou → Reservado;
+    // liberou (reservadoPor: null explícito) → Disponível. Campo ausente
+    // preserva a reserva que estava (upsert não pode soltar reserva alheia).
+    if (!novo.vendaId) novo.status = novo.reservadoPor ? "Reservado" : "Disponível";
   }
 
   if (!novo.criadoEm) { novo.criadoEm = agora(); novo.criadoPor = por || registro.criadoPor || "—"; }

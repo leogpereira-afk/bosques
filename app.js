@@ -190,6 +190,7 @@ TELAS.home = function () {
           '<span class="sub">' + fmt.data(rc.data) + ' · ' + (v ? 'Q' + v.quadra + '-L' + v.lote + ' · ' + esc(v.clienteNome || '') : '—') + '</span></div></div>';
       }).join('') || '<p class="nota">Nenhum dinheiro lançado ainda.</p>') + '</div>';
 
+  ligarBotoesCobranca(app);
   app.querySelectorAll('[data-vai]').forEach((el) => { el.onclick = () => { location.hash = '#/' + el.dataset.vai; }; });
   app.querySelectorAll('.venda-lin').forEach((el) => { el.onclick = () => { location.hash = '#/venda/' + el.dataset.id; }; });
   app.querySelectorAll('.prop-lin').forEach((el) => { el.onclick = () => abrirFichaProposta(el.dataset.id); });

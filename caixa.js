@@ -241,10 +241,10 @@ TELAS.caixa = function () {
       meses.map((m) => '<button class="chip' + (m === mes ? ' on' : '') + '" data-m="' + m + '">' + nomeMes(m) + '</button>').join('') +
     '</div></div>' + avisoSemData +
     '<div class="paineis">' +
-      '<div class="painel"><div class="rot">Entradas · ' + nomeMes(mes) + '</div><div class="num pos">' + fmt.brl(t.entradas) + '</div>' +
+      '<div class="painel clicavel" data-lanc="entrada"><div class="rot">Entradas · ' + nomeMes(mes) + '</div><div class="num pos">' + fmt.brl(t.entradas) + '</div>' +
         '<div class="sub">carnês previam ' + fmt.brl(projecao) + '</div></div>' +
-      '<div class="painel"><div class="rot">Saídas</div><div class="num neg">' + fmt.brl(t.saidas) + '</div></div>' +
-      '<div class="painel"><div class="rot">Resultado</div><div class="num ' + (t.resultado >= 0 ? 'pos' : 'neg') + '">' + fmt.brl(t.resultado) + '</div></div>' +
+      '<div class="painel clicavel" data-lanc="saida"><div class="rot">Saídas</div><div class="num neg">' + fmt.brl(t.saidas) + '</div></div>' +
+      '<div class="painel clicavel" data-lanc=""><div class="rot">Resultado</div><div class="num ' + (t.resultado >= 0 ? 'pos' : 'neg') + '">' + fmt.brl(t.resultado) + '</div></div>' +
     '</div>' +
     '<div class="paineis">' +
       '<div class="painel"><div class="rot">Total entradas · desde o início</div><div class="num pos">' + fmt.brl(ac.entradas) + '</div></div>' +
@@ -271,6 +271,12 @@ TELAS.caixa = function () {
         '</div>').join('') || '<p class="nota">Nenhum lançamento neste mês.</p>') +
     '</div>';
 
+  app.querySelectorAll('.painel[data-lanc]').forEach((el) => {
+    el.onclick = () => {
+      TELAS._fLanc = { q: '', tipo: el.dataset.lanc, cat: '', mes };
+      location.hash = '#/lancamentos';
+    };
+  });
   app.querySelectorAll('.chip[data-m], .mes-link').forEach((el) => {
     el.onclick = (e) => { e.preventDefault(); TELAS._mesCaixa = el.dataset.m; TELAS.caixa(); };
   });
@@ -578,6 +584,29 @@ function previstoNoMes(m) {
   return soma + previstoEtapasNoMes(m);
 }
 
+// Idade do vencido: quem está devendo há mais tempo é quem se cobra primeiro.
+function agingInadimplencia() {
+  const hoje = new Date(hojeISO() + 'T00:00:00');
+  const faixas = [
+    { rotulo: '1 a 30 dias', ate: 30, rs: 0, parcelas: 0, contratos: new Set() },
+    { rotulo: '31 a 60 dias', ate: 60, rs: 0, parcelas: 0, contratos: new Set() },
+    { rotulo: '61 a 90 dias', ate: 90, rs: 0, parcelas: 0, contratos: new Set() },
+    { rotulo: 'mais de 90 dias', ate: 1e9, rs: 0, parcelas: 0, contratos: new Set() },
+  ];
+  for (const v of vendasVivas()) {
+    const r = CARNE.resumo(v, cfgReajuste(), recsDaVenda(v.id));
+    for (const l of r.carne) {
+      if (l.situacao !== 'atrasada') continue;
+      const falta = Math.round((l.valor - Math.min(l.pago, l.valor)) * 100) / 100;
+      if (falta <= 0.004) continue;
+      const dias = Math.floor((hoje - new Date(l.venc + 'T00:00:00')) / 86400000);
+      const f = faixas.find((x) => dias <= x.ate);
+      f.rs += falta; f.parcelas++; f.contratos.add(v.id);
+    }
+  }
+  return faixas;
+}
+
 TELAS.relatorios = function () {
   const app = document.getElementById('app');
   const hz = TELAS._hz || 'ano';
@@ -617,39 +646,71 @@ TELAS.relatorios = function () {
 
   const previstos = lista('prev').sort((a, b) => String(a.data || a.inicio || '').localeCompare(b.data || b.inicio || ''));
 
+  const aging = agingInadimplencia();
+  const maiorFaixa = Math.max(1, ...aging.map((f) => f.rs));
+  const blocoAging = ar.vencido > 0.01
+    ? '<div class="cartao"><h2>Inadimplência por idade <span class="nota">— quem está vencido há mais tempo cobra-se primeiro</span></h2>' +
+      '<div class="rolagem"><table class="tabela"><thead><tr><th>Vencido há</th><th></th>' +
+      '<th class="num">Valor</th><th class="num">Parcelas</th><th class="num">Contratos</th></tr></thead><tbody>' +
+      aging.map((f) => '<tr><td>' + f.rotulo + '</td>' +
+        '<td style="width:34%"><div style="background:var(--verde-palido);border-radius:6px;height:12px;overflow:hidden">' +
+          '<div style="width:' + Math.round(f.rs / maiorFaixa * 100) + '%;height:100%;background:var(--ruim)"></div></div></td>' +
+        '<td class="num">' + (f.rs ? fmt.brl(f.rs) : '—') + '</td>' +
+        '<td class="num">' + (f.parcelas || '—') + '</td><td class="num">' + (f.contratos.size || '—') + '</td></tr>').join('') +
+      '<tr style="font-weight:800"><td>TOTAL</td><td></td><td class="num">' + fmt.brl(ar.vencido) + '</td>' +
+      '<td class="num">' + aging.reduce((s, f) => s + f.parcelas, 0) + '</td>' +
+      '<td class="num">' + new Set(aging.flatMap((f) => [...f.contratos])).size + '</td></tr>' +
+      '</tbody></table></div>' +
+      '<button class="btn mini" id="rel-cobrar" style="margin-top:8px">📣 Ir cobrar (Vendas → só atraso)</button></div>'
+    : '';
+
   app.innerHTML =
     '<div class="filtros"><div class="chips">' +
       [['mes', 'Este mês'], ['ano', 'Este ano'], ['total', 'Até acabar']].map(([v, t2]) =>
         '<button class="chip' + (hz === v ? ' on' : '') + '" data-hz="' + v + '">' + t2 + '</button>').join('') +
     '</div><button class="btn mini" id="rel-pdf">📄 PDF do relatório</button></div>' +
     '<div class="paineis">' +
-      '<div class="painel"><div class="rot">Lotes vendidos</div><div class="num">' + vendasDePe.length + '</div></div>' +
-      '<div class="painel"><div class="rot">Valor total vendido (VGV)</div><div class="num pos">' + fmt.brl(vgv) + '</div></div>' +
-      '<div class="painel"><div class="rot">Já recebido</div><div class="num pos">' + fmt.brl(ac.entradas) + '</div></div>' +
-      '<div class="painel"><div class="rot">Já gasto</div><div class="num neg">' + fmt.brl(ac.saidas) + '</div></div>' +
+      '<div class="painel clicavel" data-acao="vendas"><div class="rot">Lotes vendidos</div><div class="num">' + vendasDePe.length + '</div></div>' +
+      '<div class="painel clicavel" data-acao="vendas"><div class="rot">Valor total vendido (VGV)</div><div class="num pos">' + fmt.brl(vgv) + '</div></div>' +
+      '<div class="painel clicavel" data-acao="recebido"><div class="rot">Já recebido</div><div class="num pos">' + fmt.brl(ac.entradas) + '</div></div>' +
+      '<div class="painel clicavel" data-acao="gasto"><div class="rot">Já gasto</div><div class="num neg">' + fmt.brl(ac.saidas) + '</div></div>' +
     '</div>' +
     '<div class="paineis">' +
-      '<div class="painel"><div class="rot">A receber ' + rotuloHz + '</div><div class="num pos">' + fmt.brl(aReceberHz) + '</div>' +
+      '<div class="painel clicavel" data-acao="caixa"><div class="rot">A receber ' + rotuloHz + '</div><div class="num pos">' + fmt.brl(aReceberHz) + '</div>' +
         '<div class="sub">' + (hz === 'total' ? ar.parcelas + ' parcela(s) em aberto' : 'parcelas a vencer no período') + '</div></div>' +
-      '<div class="painel"><div class="rot">Vencido a cobrar</div><div class="num' + (ar.vencido ? ' neg' : '') + '">' + fmt.brl(ar.vencido) + '</div></div>' +
-      '<div class="painel"><div class="rot">Gastos previstos ' + rotuloHz + '</div><div class="num">' + fmt.brl(previstoHz) + '</div></div>' +
-      '<div class="painel"><div class="rot">Saldo projetado ' + rotuloHz + '</div>' +
+      '<div class="painel clicavel" data-acao="vencido"><div class="rot">Vencido a cobrar</div><div class="num' + (ar.vencido ? ' neg' : '') + '">' + fmt.brl(ar.vencido) + '</div>' +
+        '<div class="sub">clique para ir cobrar</div></div>' +
+      '<div class="painel clicavel" data-acao="previstos"><div class="rot">Gastos previstos ' + rotuloHz + '</div><div class="num">' + fmt.brl(previstoHz) + '</div></div>' +
+      '<div class="painel clicavel" data-acao="tabela"><div class="rot">Saldo projetado ' + rotuloHz + '</div>' +
         '<div class="num ' + (aReceberHz - previstoHz >= 0 ? 'pos' : 'neg') + '">' + fmt.brl(aReceberHz - previstoHz) + '</div>' +
         '<div class="sub">a receber − previstos (sem o vencido)</div></div>' +
-    '</div>' +
-    '<div class="cartao"><h2>' + (hz === 'total' ? 'Ano a ano até o fim dos carnês' : 'Mês a mês do período') + '</h2>' +
+    '</div>' + blocoAging +
+    '<div class="cartao" id="rel-tabela"><h2>' + (hz === 'total' ? 'Ano a ano até o fim dos carnês <span class="nota">— clique no ano para abrir os meses</span>' : 'Mês a mês do período') + '</h2>' +
       (grupos.length
         ? '<div class="rolagem"><table class="tabela"><thead><tr><th>' + (hz === 'total' ? 'Ano' : 'Mês') + '</th>' +
           '<th class="num">A receber</th><th class="num">Gastos previstos</th><th class="num">Saldo projetado</th></tr></thead><tbody>' +
-          grupos.map((g) => '<tr><td>' + g.rotulo + '</td><td class="num">' + fmt.brl(g.rec) + '</td>' +
-            '<td class="num">' + (g.prev ? fmt.brl(g.prev) : '—') + '</td>' +
-            '<td class="num" style="color:' + (g.rec - g.prev >= 0 ? 'var(--verde)' : 'var(--ruim)') + '">' + fmt.brl(g.rec - g.prev) + '</td></tr>').join('') +
+          grupos.map((g) => {
+            const aberto = hz === 'total' && TELAS._anoAbertoRel === g.rotulo;
+            let sub = '';
+            if (aberto) {
+              sub = mesesFuturos.filter((m) => m.startsWith(g.rotulo)).map((m) => {
+                const rec2 = ar.porMes[m], pv = previstoNoMes(m);
+                return '<tr style="background:#f7faf7"><td style="padding-left:26px;color:var(--tinta-fraca)">' + nomeMes(m) + '</td>' +
+                  '<td class="num">' + fmt.brl(rec2) + '</td><td class="num">' + (pv ? fmt.brl(pv) : '—') + '</td>' +
+                  '<td class="num">' + fmt.brl(rec2 - pv) + '</td></tr>';
+              }).join('');
+            }
+            return '<tr' + (hz === 'total' ? ' class="rel-ano" data-ano="' + g.rotulo + '" style="cursor:pointer"' : '') + '>' +
+              '<td>' + (hz === 'total' ? (aberto ? '▼ ' : '▶ ') : '') + g.rotulo + '</td><td class="num">' + fmt.brl(g.rec) + '</td>' +
+              '<td class="num">' + (g.prev ? fmt.brl(g.prev) : '—') + '</td>' +
+              '<td class="num" style="color:' + (g.rec - g.prev >= 0 ? 'var(--verde)' : 'var(--ruim)') + '">' + fmt.brl(g.rec - g.prev) + '</td></tr>' + sub;
+          }).join('') +
           '<tr style="font-weight:800"><td>TOTAL</td><td class="num">' + fmt.brl(aReceberHz) + '</td>' +
           '<td class="num">' + fmt.brl(previstoHz) + '</td><td class="num">' + fmt.brl(aReceberHz - previstoHz) + '</td></tr>' +
           '</tbody></table></div>' +
           '<p class="nota" style="margin-top:8px">O "a receber" supõe as parcelas pagas em dia; o vencido acumulado (' + fmt.brl(ar.vencido) + ') fica fora destas linhas de propósito.</p>'
         : '<p class="nota">Nada a vencer nesse período.</p>') + '</div>' +
-    '<div class="cartao"><h2>Gastos futuros previsíveis <span class="nota">— o que você já sabe que vem</span></h2>' +
+    '<div class="cartao" id="rel-previstos"><h2>Gastos futuros previsíveis <span class="nota">— o que você já sabe que vem</span></h2>' +
       (previstos.map((g) =>
         '<div class="lin prev-lin" data-id="' + esc(g.id) + '">' +
         '<div class="cresce"><b>' + esc(g.descricao || '—') + '</b>' +
@@ -665,6 +726,28 @@ TELAS.relatorios = function () {
   app.querySelectorAll('.chip[data-hz]').forEach((c) => {
     c.onclick = () => { TELAS._hz = c.dataset.hz; TELAS.relatorios(); };
   });
+  // Card clicável leva ao DETALHE do número — número em que não dá para
+  // clicar é beco sem saída.
+  app.querySelectorAll('.painel[data-acao]').forEach((el) => {
+    el.onclick = () => {
+      const acao = el.dataset.acao;
+      if (acao === 'vendas') location.hash = '#/vendas';
+      else if (acao === 'recebido') { TELAS._fLanc = { q: '', tipo: 'entrada', cat: '', mes: 'todos' }; location.hash = '#/lancamentos'; }
+      else if (acao === 'gasto') { TELAS._fLanc = { q: '', tipo: 'saida', cat: '', mes: 'todos' }; location.hash = '#/lancamentos'; }
+      else if (acao === 'caixa') location.hash = '#/caixa';
+      else if (acao === 'vencido') { TELAS._fVendas = { q: '', sit: '', so: 'atraso' }; location.hash = '#/vendas'; }
+      else if (acao === 'previstos') { const c2 = document.getElementById('rel-previstos'); if (c2) c2.scrollIntoView({ behavior: 'smooth', block: 'start' }); }
+      else if (acao === 'tabela') { const c2 = document.getElementById('rel-tabela'); if (c2) c2.scrollIntoView({ behavior: 'smooth', block: 'start' }); }
+    };
+  });
+  const bCobrar = document.getElementById('rel-cobrar');
+  if (bCobrar) bCobrar.onclick = () => { TELAS._fVendas = { q: '', sit: '', so: 'atraso' }; location.hash = '#/vendas'; };
+  app.querySelectorAll('.rel-ano').forEach((tr) => {
+    tr.onclick = () => {
+      TELAS._anoAbertoRel = TELAS._anoAbertoRel === tr.dataset.ano ? null : tr.dataset.ano;
+      TELAS.relatorios();
+    };
+  });
   document.getElementById('prev-novo').onclick = () => abrirGastoPrevisto(null);
   app.querySelectorAll('.prev-lin').forEach((el) => {
     el.onclick = () => abrirGastoPrevisto(el.dataset.id);
@@ -674,6 +757,7 @@ TELAS.relatorios = function () {
       rotuloHz, hz, vendidos: vendasDePe.length, vgv,
       recebido: ac.entradas, gasto: ac.saidas,
       aReceber: aReceberHz, vencido: ar.vencido, previsto: previstoHz, grupos,
+      aging: aging.map((f) => ({ rotulo: f.rotulo, rs: f.rs, parcelas: f.parcelas, contratos: f.contratos.size })),
     }, S.cfg || {});
     toast('Relatório em PDF gerado');
   };

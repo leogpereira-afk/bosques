@@ -147,7 +147,7 @@ TELAS.lote = function (id) {
       '</div></div>';
 
   let simulador = '';
-  if (l.status === 'Disponível') {
+  if (l.status === 'Disponível' || l.status === 'Reservado') {
     const avista = sim.tipo === 'Avista';
     const total = totalDoPlano(sim, reaj);
     const corretores = lista('corretor').filter((c) => c.ativo !== false);
@@ -199,16 +199,39 @@ TELAS.lote = function (id) {
       }).join('') + '</div>'
     : '';
 
+  // Reserva: aviso vivo na ficha (com o vencimento), e vencida ela GRITA.
+  const res = l.reservadoPor;
+  const resVencida = res && res.ate && res.ate < hojeISO();
+  const blocoReserva = res
+    ? '<div class="cartao" style="border-color:' + (resVencida ? '#f2c4c4' : '#f0ddb5') + ';padding:10px 16px">' +
+      (resVencida ? '🔴 <b>Reserva VENCIDA</b>' : '🔒 <b>Reservado</b>') +
+      ' para <b>' + esc(res.nome || '?') + '</b>' + (res.tel ? ' (' + fmt.telefone(res.tel) + ')' : '') +
+      ' até ' + fmt.data(res.ate) + ' · por ' + esc(res.por || '—') +
+      (res.obs ? ' · ' + esc(res.obs) : '') + '</div>'
+    : '';
+
   const admLote = ehCorretorPerfil() ? '' :
     '<div class="acoes-linha" style="margin-bottom:14px">' +
       '<button class="btn mini" id="bt-editar-lote">✏️ Editar lote</button>' +
+      (l.status === 'Disponível' ? '<button class="btn mini" id="bt-reservar">🔒 Reservar</button>' : '') +
+      (res ? '<button class="btn mini" id="bt-liberar">Liberar reserva</button>' : '') +
       (l.status === 'Disponível' ? '<button class="btn mini perigo" id="bt-apagar-lote">Excluir lote</button>' : '') +
     '</div>';
 
-  app.innerHTML = '<a class="nota" href="#/espelho">← espelho</a>' + cabec + admLote + simulador + crm;
+  app.innerHTML = '<a class="nota" href="#/espelho">← espelho</a>' + cabec + blocoReserva + admLote + simulador + crm;
 
   const bEd = document.getElementById('bt-editar-lote');
   if (bEd) bEd.onclick = () => abrirCadastroLote(id);
+  const bRes = document.getElementById('bt-reservar');
+  if (bRes) bRes.onclick = () => abrirReservaLote(l);
+  const bLib = document.getElementById('bt-liberar');
+  if (bLib) bLib.onclick = async () => {
+    if (await confirmar('Liberar a reserva de ' + esc((l.reservadoPor || {}).nome || '?') + '? O lote volta a Disponível.')) {
+      salvar('lote', { id: l.id, reservadoPor: null });
+      toast('Reserva liberada');
+      TELAS.lote(id);
+    }
+  };
   const bAp = document.getElementById('bt-apagar-lote');
   if (bAp) bAp.onclick = async () => {
     if (await confirmar('Excluir o lote ' + nomeLote(l) + '? Ele vai para a lixeira (a direção restaura se precisar).', { perigo: true, ok: 'Excluir' })) {
@@ -228,7 +251,7 @@ TELAS.lote = function (id) {
     el.onclick = () => abrirFichaProposta(el.dataset.id);
   });
 
-  if (l.status !== 'Disponível') return;
+  if (l.status !== 'Disponível' && l.status !== 'Reservado') return;
   const raiz = app;
   raiz.querySelectorAll('[data-campo]').forEach((el) => {
     el.addEventListener('input', () => {
@@ -342,6 +365,41 @@ function abrirCadastroLote(id) {
     const el = fundo.querySelector('[data-campo="' + nome + '"]');
     if (el) el.addEventListener('keydown', () => { el.dataset.mexido = '1'; });
   }
+}
+
+/* ── Reservar lote ──────────────────────────────────────────────────────────
+   Reserva é AVISO com prazo, não trava: a venda pode ser registrada por cima
+   (é a reserva virando negócio). O status Reservado é decidido no servidor. */
+function abrirReservaLote(l) {
+  const corpo =
+    '<div class="colunas">' +
+      campo('Reservado para', entrada('nome', '', { placeholder: 'nome do interessado' })) +
+      campo('WhatsApp dele', entrada('tel', '', { inputmode: 'tel' })) +
+    '</div>' +
+    campo('Validade (dias)', entrada('dias', 3, { inputmode: 'numeric' }), 'vencida, a ficha avisa em vermelho') +
+    campo('Observação', entrada('obs', '', { placeholder: 'aguardando sinal, vem sábado…' }));
+  abrirModal({
+    titulo: '🔒 Reservar ' + nomeLote(l),
+    corpo,
+    acoes: [
+      { texto: 'Voltar', aoClicar: () => fecharModal() },
+      { texto: 'Reservar', classe: 'primario', aoClicar: (fundo) => {
+        const v = lerCampos(fundo);
+        if (!v.nome || !v.nome.trim()) { toast('Diga para quem é a reserva', 'ruim'); return; }
+        const dias = Math.max(1, Math.round(numeroBR(v.dias)) || 3);
+        const ate = new Date(Date.now() + dias * 86400000);
+        salvar('lote', { id: l.id, reservadoPor: {
+          nome: v.nome.trim().slice(0, 80), tel: String(v.tel || '').slice(0, 30),
+          por: S.quem || '—', em: hojeISO(),
+          ate: ate.getFullYear() + '-' + String(ate.getMonth() + 1).padStart(2, '0') + '-' + String(ate.getDate()).padStart(2, '0'),
+          obs: String(v.obs || '').slice(0, 200),
+        } });
+        fecharSilencioso(fundo);
+        toast('Lote reservado por ' + dias + ' dia(s)');
+        TELAS.lote(l.id);
+      } },
+    ],
+  });
 }
 
 /* ── Proposta: duas saídas, um CRM ──────────────────────────────────────────

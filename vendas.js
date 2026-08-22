@@ -48,12 +48,46 @@ function msgCobranca(v, r) {
     (conta ? '\n\nDados para pagamento:\n' + conta : '') +
     '\n\nSe já pagou, desconsidere e nos mande o comprovante. Qualquer coisa é só responder por aqui. Obrigado!';
 }
+function ultimaCobranca(v) {
+  const cs = (v.cobrancas || []).filter(Boolean).map((c) => String(c.em || ''));
+  return cs.length ? cs.sort().pop() : '';
+}
 function botaoCobranca(v, r, mini) {
   const tel = telDaVenda(v);
   if (!tel || !['ativa', 'conferir'].includes(v.situacao || 'ativa')) return '';
   const rot = r.qtdAtraso > 0 ? (mini ? '📱 cobrar' : '📱 Cobrar no WhatsApp') : (mini ? '📱 lembrar' : '📱 Lembrete da próxima parcela');
-  return '<a class="btn ' + (mini ? 'mini ' : '') + 'whats" target="_blank" rel="noopener" ' +
-    'onclick="event.stopPropagation()" href="' + esc(linkWhats(tel, msgCobranca(v, r))) + '">' + rot + '</a>';
+  const ult = ultimaCobranca(v);
+  const cobradoHoje = ult && ult.slice(0, 10) === hojeISO();
+  return (cobradoHoje ? '<span class="etiqueta et-quitada" title="cobrança registrada hoje">✓ cobrado hoje</span> ' : '') +
+    '<a class="btn ' + (mini ? 'mini ' : '') + 'whats bt-cobrar" data-venda="' + esc(v.id) + '" target="_blank" rel="noopener" ' +
+    'href="' + esc(linkWhats(tel, msgCobranca(v, r))) + '">' + rot + '</a>';
+}
+// Cada clique de cobrança FICA ESCRITO na venda (quem, quando, quanto estava
+// em atraso) — é o que evita dois cobrando o mesmo cliente no mesmo dia.
+function registrarCobranca(vendaId) {
+  const v = achar('venda', vendaId);
+  if (!v) return;
+  const r = resumoVenda(v);
+  salvar('venda', {
+    id: vendaId,
+    cobrancas: [{
+      id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+      em: new Date().toISOString(), por: S.quem || '—',
+      valorAtraso: r.emAtraso, canal: 'whatsapp',
+    }],
+    historico: historiar(v, r.qtdAtraso > 0
+      ? 'Cobrança enviada pelo WhatsApp (' + fmt.brl(r.emAtraso) + ' em atraso)'
+      : 'Lembrete de parcela enviado pelo WhatsApp'),
+  });
+}
+// Liga os botões de cobrança de uma tela: registra E deixa o link abrir.
+function ligarBotoesCobranca(raiz) {
+  raiz.querySelectorAll('.bt-cobrar').forEach((a) => {
+    a.addEventListener('click', (e) => {
+      e.stopPropagation();
+      registrarCobranca(a.dataset.venda);
+    });
+  });
 }
 
 /* ── Tela: lista de vendas ─────────────────────────────────────────────────── */
@@ -153,6 +187,7 @@ TELAS.vendas = function () {
           .map(([v2, t]) => '<option value="' + v2 + '"' + (filtro.sit === v2 ? ' selected' : '') + '>' + t + '</option>').join('') + '</select>' +
       '<button class="chip' + (filtro.so === 'atraso' ? ' on' : '') + '" id="vd-atraso">só atraso</button>' +
       '<button class="btn mini" id="vd-pdf" title="baixa o retrato do que está na tela — filtrou, sai só o filtrado">📄 PDF</button>' +
+      (emAtraso.length ? '<button class="btn mini primario" id="vd-fila">📣 Cobrar em série (' + emAtraso.length + ')</button>' : '') +
     '</div>' +
     ((filtro.q || filtro.sit || filtro.so)
       ? (filtradas.map(linhaVenda).join('') || vazio('🔍', 'Nada com esse filtro'))
@@ -168,6 +203,9 @@ TELAS.vendas = function () {
     PDF.vendasDash(filtradas, pedacos.join(' · ') || 'todas as vendas', S.cfg || {});
     toast('PDF gerado — ' + filtradas.length + ' venda(s)');
   };
+  const bFila = document.getElementById('vd-fila');
+  if (bFila) bFila.onclick = abrirFilaCobranca;
+  ligarBotoesCobranca(app);
   app.querySelectorAll('details[data-mesvd]').forEach((d) => {
     d.addEventListener('toggle', () => {
       if (d.open) TELAS._mesesVdAbertos.add(d.dataset.mesvd);
@@ -183,6 +221,65 @@ TELAS.vendas = function () {
     el.onclick = () => { location.hash = '#/venda/' + el.dataset.id; };
   });
 };
+
+/* ── Fila de cobrança: os atrasados um a um, sem se perder ─────────────────── */
+function abrirFilaCobranca() {
+  const fila = lista('venda')
+    .filter((v) => ['ativa', 'conferir'].includes(v.situacao || 'ativa'))
+    .map((v) => ({ v, r: resumoVenda(v) }))
+    .filter((x) => x.r.qtdAtraso > 0)
+    .sort((a, b) => b.r.emAtraso - a.r.emAtraso);
+  if (!fila.length) { toast('Ninguém em atraso 🎉'); return; }
+  let i = 0;
+
+  const pinta = (fundo) => {
+    const { v, r } = fila[i];
+    const tel = telDaVenda(v);
+    const ult = ultimaCobranca(v);
+    const cobradoHoje = ult && ult.slice(0, 10) === hojeISO();
+    fundo.querySelector('header h2').textContent = '📣 Cobrança em série — ' + (i + 1) + ' de ' + fila.length;
+    fundo.querySelector('.corpo').innerHTML =
+      '<div class="lin" style="cursor:default"><div class="cresce">' +
+      '<b>' + esc(v.clienteNome || '?') + ' · Q' + v.quadra + '-L' + v.lote + '</b>' +
+      '<span class="sub">' + esc(v.codigo || '') + ' · ' + r.qtdAtraso + ' parcela(s) vencida(s)' +
+        (ult ? ' · última cobrança ' + fmt.quando(ult) : ' · nunca cobrado') + '</span></div>' +
+      '<span class="dinheiro" style="color:var(--ruim)">' + fmt.brl(r.emAtraso) + '</span></div>' +
+      (cobradoHoje ? '<p class="nota" style="color:var(--atencao)">⚠ Já foi cobrado HOJE — talvez pular.</p>' : '') +
+      (tel ? '<p class="nota" style="margin-top:8px">' + esc(msgCobranca(v, r)).replace(/\n/g, '<br>') + '</p>'
+           : '<p class="nota" style="color:var(--ruim);margin-top:8px">⚠ Sem telefone no cadastro — só pulando (complete o cadastro do cliente).</p>');
+  };
+
+  const avanca = (fundo) => {
+    i++;
+    if (i >= fila.length) {
+      fundo.querySelector('.corpo').innerHTML = '<p style="text-align:center;font-size:17px">🎉 <b>Fila concluída!</b><br>' +
+        '<span class="nota">' + fila.length + ' contrato(s) percorrido(s).</span></p>';
+      fundo.querySelector('header h2').textContent = '📣 Cobrança em série — fim';
+      return;
+    }
+    pinta(fundo);
+  };
+
+  const fundo = abrirModal({
+    titulo: '📣 Cobrança em série',
+    corpo: '<div class="corpo-fila"></div>',
+    largo: true,
+    acoes: [
+      { texto: 'Encerrar', aoClicar: () => fecharModal() },
+      { texto: 'Pular →', aoClicar: (f2) => avanca(f2) },
+      { texto: '📱 Cobrar e próximo', classe: 'primario', aoClicar: (f2) => {
+        if (i >= fila.length) { fecharModal(); return; }
+        const { v, r } = fila[i];
+        const tel = telDaVenda(v);
+        if (!tel) { toast('Sem telefone — pulando', 'ruim'); avanca(f2); return; }
+        window.open(linkWhats(tel, msgCobranca(v, r)), '_blank');
+        registrarCobranca(v.id);
+        avanca(f2);
+      } },
+    ],
+  });
+  pinta(fundo);
+}
 
 /* ── Tela: ficha da venda (o carnê) ────────────────────────────────────────── */
 TELAS.venda = function (id) {
@@ -202,6 +299,8 @@ TELAS.venda = function (id) {
       '👤 ' + esc(v.clienteNome || '?') + (cliente && cliente.cpf ? ' · ' + fmt.doc(cliente.cpf) : '') +
       (zap ? ' · <a href="' + linkWhats(zap, 'Olá, ' + (v.clienteNome || '').split(' ')[0] + '! Sobre seu lote Q' + v.quadra + '-L' + v.lote + ' no Portal dos Bosques…') + '" target="_blank" rel="noopener">WhatsApp</a>' : '') +
       (v.corretorNome ? '<br>🤝 corretor: ' + esc(v.corretorNome) + (v.comissao ? ' (comissão ' + fmt.brl(v.comissao) + ')' : '') : '') +
+      (ultimaCobranca(v) ? '<br>📣 última cobrança: ' + fmt.quando(ultimaCobranca(v)) +
+        ' (' + esc(((v.cobrancas || []).slice().sort((a, b) => String(a.em).localeCompare(b.em)).pop() || {}).por || '—') + ')' : '') +
       '<br>🗓️ venda em ' + fmt.data(v.dataVenda || v.criadoEm) +
       ' · plano: ' + fmt.brl(v.entrada) + ' de entrada + ' + (v.qtdeParcelas || 0) + '× ' + fmt.brl(v.valorParcela) +
       ' (' + esc(v.tipoParcela || 'Fixa') + ')' +
@@ -275,6 +374,7 @@ TELAS.venda = function (id) {
   app.innerHTML = '<a class="nota" href="#/vendas">← vendas</a>' + cabec + carne + blocoRecs + blocoAnexos;
 
   /* ── ações ── */
+  ligarBotoesCobranca(app);
   const bB = document.getElementById('bt-baixa');
   if (bB) bB.onclick = () => abrirBaixa(v, r);
   app.querySelectorAll('.bt-baixa-n').forEach((b) => {
@@ -382,6 +482,27 @@ function abrirBaixa(v, r, parcelaN, faltaSugerida) {
         fecharSilencioso(fundo);
         toast('Baixa lançada — ' + fmt.brl(valor));
         TELAS.venda(v.id);
+        // Confirmação na hora pelo WhatsApp: cliente que recebe "recebemos o
+        // seu pagamento" paga o mês que vem com mais boa vontade.
+        const tel = telDaVenda(v);
+        if (tel) {
+          const ref = nAlvo === 0 ? 'à entrada' : nAlvo > 0 ? 'à parcela ' + nAlvo + '/' + (v.qtdeParcelas || '') : 'ao pagamento';
+          const msg = 'Olá, ' + ((v.clienteNome || '').split(' ')[0] || '') + '! Confirmamos o recebimento de ' +
+            fmt.brl(valor) + ' em ' + fmt.data(c.data) + ', referente ' + ref +
+            ' do seu lote Q' + v.quadra + '-L' + v.lote + '. Obrigado! 🌳 Portal dos Bosques';
+          abrirModal({
+            titulo: '✅ Baixa lançada',
+            corpo: '<p>Quer mandar a confirmação de recebimento para <b>' + esc(v.clienteNome || '') + '</b> no WhatsApp?</p>' +
+              '<p class="nota" style="margin-top:6px">' + esc(msg) + '</p>',
+            acoes: [
+              { texto: 'Agora não', aoClicar: () => fecharModal() },
+              { texto: '📱 Mandar confirmação', classe: 'primario', aoClicar: (f2) => {
+                window.open(linkWhats(tel, msg), '_blank');
+                fecharSilencioso(f2);
+              } },
+            ],
+          });
+        }
       } },
     ],
   });

@@ -550,6 +550,22 @@ const PDF = (() => {
       y += 19;
     }
     y += 4;
+    if (d.aging && d.aging.some((f) => f.rs > 0)) {
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(11);
+      doc.setTextColor(30, 43, 33);
+      doc.text('Inadimplência por idade', 14, y);
+      y += 6;
+      const colsA = [
+        { t: 'Vencido há', x: 14 }, { t: 'Valor', x: 120, alinha: 'right' },
+        { t: 'Parcelas', x: 158, alinha: 'right' }, { t: 'Contratos', x: 196, alinha: 'right' },
+      ];
+      const linhasA = d.aging.map((f) => [f.rotulo,
+        f.rs ? { t: brl(f.rs), cor: [198, 40, 40] } : '—',
+        f.parcelas || '—', f.contratos || '—']);
+      linhasA.push([{ t: 'TOTAL', negrito: true }, { t: brl(d.vencido), negrito: true, cor: [198, 40, 40] },
+        { t: String(d.aging.reduce((s, f) => s + f.parcelas, 0)), negrito: true }, '']);
+      y = tabelaPaginada(doc, colsA, linhasA, y, rod) + 6;
+    }
     if (d.grupos && d.grupos.length) {
       const cols = [
         { t: d.hz === 'total' ? 'Ano' : 'Mês', x: 14 },
