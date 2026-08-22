@@ -229,9 +229,19 @@ TELAS.lote = function (id) {
           campo('Corretor', seletor('corretorId', sim.corretorId || '', corretores.map((c) => ({ v: c.id, t: c.nome })), 'sem corretor (a casa)'))) +
       '</div>' +
       (ehCorretorPerfil() ? '' :
-        '<div class="colunas"><div>' +
+        '<div class="colunas">' +
         campo('Comissão do corretor (R$)', entrada('comissao', sim.comissao != null ? sim.comissao : '', { inputmode: 'decimal' }),
-          'INTERNO — não sai no PDF do cliente; já vai preenchida para a venda') + '</div><div></div></div>') +
+          'INTERNO — não sai no PDF do cliente; já vai preenchida para a venda') +
+        (sim.temCor2
+          ? campo('2º corretor <button type="button" class="btn mini" id="bt-tira-cor2" style="float:right;padding:1px 8px">tirar</button>',
+              seletor('cor2Id', sim.cor2Id || '', corretores.map((c) => ({ v: c.id, t: c.nome })), '— escolher —'))
+          : '<div class="campo"><label>&nbsp;</label><button type="button" class="btn mini" id="bt-cor2">👥 São dois corretores? dividir comissão</button></div>') +
+        '</div>' +
+        (sim.temCor2
+          ? '<div class="colunas"><div></div>' +
+            campo('Comissão do 2º corretor (R$)', entrada('comissao2', sim.comissao2 != null ? sim.comissao2 : '', { inputmode: 'decimal' }),
+              'cada um recebe a sua — as duas entram nas contas a pagar') + '</div>'
+          : '')) +
       '<div class="acoes-linha">' +
         '<button class="btn primario" id="bt-pdf-prop">📄 Baixar PDF da proposta</button>' +
         '<button class="btn" id="bt-proposta">📱 Enviar por link (WhatsApp)</button>' +
@@ -321,6 +331,8 @@ TELAS.lote = function (id) {
         corretorId: v.corretorId != null ? v.corretorId : sim.corretorId,
         formaPg: v.formaPg || sim.formaPg,
         comissao: v.comissao != null ? numeroBR(v.comissao) : sim.comissao,
+        cor2Id: v.cor2Id != null ? v.cor2Id : sim.cor2Id,
+        comissao2: v.comissao2 != null ? numeroBR(v.comissao2) : sim.comissao2,
         entradaModo: v.entradaModo || sim.entradaModo || 'avista',
         entradaVezes: v.entradaVezes != null ? Math.max(2, Math.round(numeroBR(v.entradaVezes)) || 4) : sim.entradaVezes,
         entradaJurosPct: v.entradaJurosPct != null ? numeroBR(v.entradaJurosPct) : sim.entradaJurosPct,
@@ -409,6 +421,11 @@ TELAS.lote = function (id) {
     inpCli.addEventListener('focus', abreSugestoes);
     inpCli.addEventListener('blur', () => { setTimeout(() => { caixaSug.style.display = 'none'; pintaVinculo(); }, 150); });
   }
+
+  const btCor2 = document.getElementById('bt-cor2');
+  if (btCor2) btCor2.onclick = () => { sim.temCor2 = true; TELAS.lote(id); };
+  const btTiraCor2 = document.getElementById('bt-tira-cor2');
+  if (btTiraCor2) btTiraCor2.onclick = () => { sim.temCor2 = false; sim.cor2Id = ''; sim.comissao2 = null; TELAS.lote(id); };
 
   const btPdf = document.getElementById('bt-pdf-prop');
   if (btPdf) btPdf.onclick = () => baixarPdfProposta(l, sim);
@@ -598,6 +615,9 @@ function montarPropDoSim(l, sim) {
     corretorNome: souCorretor ? (S.quem || '') : (cor ? cor.nome : ''),
     corretorId: souCorretor ? '' : (cor ? cor.id : ''),
     corretorTel: cor ? (cor.whatsapp || cor.celular || '') : '',
+    corretor2Id: (!souCorretor && sim.temCor2 && sim.cor2Id) || '',
+    corretor2Nome: (!souCorretor && sim.temCor2 && sim.cor2Id && (lista('corretor').find((c2) => c2.id === sim.cor2Id) || {}).nome) || '',
+    comissao2: (!souCorretor && sim.temCor2 && Number(sim.comissao2)) || 0,
     validadeDias: (S.cfg && S.cfg.validadeProposta) || 7,
     enviadaEm: new Date().toISOString(),
     situacao: 'enviada',
@@ -682,6 +702,10 @@ function abrirNovaVenda(l, sim) {
       campo('Corretor', seletor('corretorId', sim.corretorId || '', corretores.map((c) => ({ v: c.id, t: c.nome })), 'sem corretor')) +
       campo('Comissão combinada (R$)', entrada('comissao', sim.comissao != null && sim.comissao !== 0 ? sim.comissao : '', { inputmode: 'decimal' })) +
     '</div>' +
+    '<div class="colunas">' +
+      campo('2º corretor (se dupla)', seletor('cor2Id', sim.cor2Id || '', corretores.map((c) => ({ v: c.id, t: c.nome })), 'não tem')) +
+      campo('Comissão do 2º (R$)', entrada('comissao2', sim.comissao2 != null && sim.comissao2 !== 0 ? sim.comissao2 : '', { inputmode: 'decimal' })) +
+    '</div>' +
     '<div class="colunas-3">' +
       campo('Entrada (R$)', entrada('entrada', sim.entrada, { inputmode: 'decimal' })) +
       campo('Forma da entrada', seletor('formaEntrada', sim.formaPg || 'PIX', (S.cfg && S.cfg.formasPg) || ['PIX', 'Dinheiro'])) +
@@ -722,6 +746,9 @@ function abrirNovaVenda(l, sim) {
           clienteId, clienteNome,
           corretorId: cor ? cor.id : '', corretorNome: cor ? cor.nome : '',
           comissao: numeroBR(v.comissao),
+          corretor2Id: v.cor2Id || '',
+          corretor2Nome: (v.cor2Id && (corretores.find((c2) => c2.id === v.cor2Id) || {}).nome) || '',
+          comissao2: numeroBR(v.comissao2),
           dataVenda: v.dataVenda || hoje,
           entrada: entradaRS, formaEntrada: v.formaEntrada, dataEntrada,
           entradaDetalhe: detalheEntrada(sim),

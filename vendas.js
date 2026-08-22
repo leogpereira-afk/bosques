@@ -298,7 +298,8 @@ TELAS.venda = function (id) {
     '<div class="sub" style="color:var(--tinta-fraca);font-size:13.5px">' +
       '👤 ' + esc(v.clienteNome || '?') + (cliente && cliente.cpf ? ' · ' + fmt.doc(cliente.cpf) : '') +
       (zap ? ' · <a href="' + linkWhats(zap, 'Olá, ' + (v.clienteNome || '').split(' ')[0] + '! Sobre seu lote Q' + v.quadra + '-L' + v.lote + ' no Portal dos Bosques…') + '" target="_blank" rel="noopener">WhatsApp</a>' : '') +
-      (v.corretorNome ? '<br>🤝 corretor: ' + esc(v.corretorNome) + (v.comissao ? ' (comissão ' + fmt.brl(v.comissao) + ')' : '') : '') +
+      (v.corretorNome ? '<br>🤝 corretor: ' + esc(v.corretorNome) + (v.comissao ? ' (comissão ' + fmt.brl(v.comissao) + ')' : '') +
+        (v.corretor2Nome ? ' + ' + esc(v.corretor2Nome) + (v.comissao2 ? ' (' + fmt.brl(v.comissao2) + ')' : '') : '') : '') +
       (ultimaCobranca(v) ? '<br>📣 última cobrança: ' + fmt.quando(ultimaCobranca(v)) +
         ' (' + esc(((v.cobrancas || []).slice().sort((a, b) => String(a.em).localeCompare(b.em)).pop() || {}).por || '—') + ')' : '') +
       '<br>🗓️ venda em ' + fmt.data(v.dataVenda || v.criadoEm) +
@@ -703,6 +704,7 @@ function abrirFichaProposta(id) {
           entrada: p.entrada, qtde: p.qtdeParcelas, valorParcela: p.valorParcela,
           tipo: p.tipoParcela === 'À vista' ? 'Avista' : (p.tipoParcela || 'Fixa'),
           corretorId: p.corretorId || '', comissao: p.comissao || '', formaPg: p.formaPg || 'PIX',
+          cor2Id: p.corretor2Id || '', comissao2: p.comissao2 || '',
           nome: p.cliente && p.cliente.nome, telefone: p.cliente && p.cliente.telefone,
         });
       } });

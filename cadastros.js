@@ -211,8 +211,9 @@ function comissoesAPagar() {
   const pagos = cxVivos().filter((c) => c.tipo === 'saida' && c.categoria === 'Comissão');
   const vendas = lista('venda');
   return lista('corretor').map((cor) => {
-    const devido = vendas.filter((v) => v.corretorId === cor.id && v.situacao !== 'distratada')
-      .reduce((s, v) => s + (Number(v.comissao) || 0), 0);
+    const vivasDele = vendas.filter((v) => v.situacao !== 'distratada');
+    const devido = vivasDele.filter((v) => v.corretorId === cor.id).reduce((s, v) => s + (Number(v.comissao) || 0), 0) +
+      vivasDele.filter((v) => v.corretor2Id === cor.id).reduce((s, v) => s + (Number(v.comissao2) || 0), 0);
     const pago = pagoComissaoDoCorretor(cor.id, pagos);
     return { cor, devido, pago, saldo: Math.round((devido - pago) * 100) / 100 };
   }).filter((x) => x.saldo > 0.01).sort((a, b) => b.saldo - a.saldo);
@@ -228,12 +229,16 @@ TELAS.corretores = function () {
   // O ranking: quem vendeu mais (nº de vendas; empate decide pelo VGV).
   const ficha = corretores.map((cor) => {
     const suas = vendas.filter((v) => v.corretorId === cor.id && v.situacao !== 'distratada');
+    // participações como 2º corretor: contam na COMISSÃO dele, não no ranking
+    // de vendas (a venda é uma só — dupla contagem incharia o VGV).
+    const comoSegundo = vendas.filter((v) => v.corretor2Id === cor.id && v.situacao !== 'distratada');
     const distratadas = vendas.filter((v) => v.corretorId === cor.id && v.situacao === 'distratada');
     const vgv = suas.reduce((s, v) => s + CARNE.resumo(v, cfgReajuste(), []).total, 0);
-    const devido = suas.reduce((s, v) => s + (Number(v.comissao) || 0), 0);
+    const devido = suas.reduce((s, v) => s + (Number(v.comissao) || 0), 0) +
+      comoSegundo.reduce((s, v) => s + (Number(v.comissao2) || 0), 0);
     const pago = pagoComissaoDoCorretor(cor.id, pagos);
-    return { cor, suas, distratadas, vgv, devido, pago, saldo: devido - pago };
-  }).filter((x) => x.suas.length || x.pago > 0 || x.cor.ativo !== false)
+    return { cor, suas, comoSegundo, distratadas, vgv, devido, pago, saldo: devido - pago };
+  }).filter((x) => x.suas.length || x.comoSegundo.length || x.pago > 0 || x.cor.ativo !== false)
     .sort((a, b) => (b.suas.length - a.suas.length) || (b.vgv - a.vgv));
 
   const totalVgv = ficha.reduce((s, x) => s + x.vgv, 0);
@@ -276,8 +281,17 @@ TELAS.corretores = function () {
         (x.suas.map((v) => '<div class="lin venda-cor" data-id="' + esc(v.id) + '">' +
           '<div class="cresce"><b>' + esc(v.clienteNome || '?') + '</b>' +
           '<span class="sub">' + esc(v.codigo || '') + ' · Q' + v.quadra + '-L' + v.lote + ' · ' + fmt.data(v.dataVenda || v.criadoEm) +
-            ' · comissão ' + fmt.brl(v.comissao) + '</span></div>' + etiqueta(v.situacao || 'ativa') + '</div>').join('') ||
+            ' · comissão ' + fmt.brl(v.comissao) +
+            (v.corretor2Nome ? ' · divide com ' + esc(v.corretor2Nome) : '') + '</span></div>' + etiqueta(v.situacao || 'ativa') + '</div>').join('') ||
           '<p class="nota">Nenhuma venda ainda.</p>') +
+        (x.comoSegundo.length
+          ? '<h2 style="font-size:14px;margin:10px 0 4px">Como 2º corretor <span class="nota">— comissão dele em vendas de outro</span></h2>' +
+            x.comoSegundo.map((v) => '<div class="lin venda-cor" data-id="' + esc(v.id) + '">' +
+            '<div class="cresce"><b>' + esc(v.clienteNome || '?') + '</b>' +
+            '<span class="sub">' + esc(v.codigo || '') + ' · Q' + v.quadra + '-L' + v.lote +
+              ' · venda de ' + esc(v.corretorNome || '—') + ' · comissão dele ' + fmt.brl(v.comissao2) + '</span></div>' +
+            etiqueta(v.situacao || 'ativa') + '</div>').join('')
+          : '') +
         (() => {
           const meus = pagos.map((p2) => {
             if (p2.rateio && p2.rateio.length) {
