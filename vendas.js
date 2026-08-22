@@ -302,7 +302,8 @@ TELAS.venda = function (id) {
       (ultimaCobranca(v) ? '<br>📣 última cobrança: ' + fmt.quando(ultimaCobranca(v)) +
         ' (' + esc(((v.cobrancas || []).slice().sort((a, b) => String(a.em).localeCompare(b.em)).pop() || {}).por || '—') + ')' : '') +
       '<br>🗓️ venda em ' + fmt.data(v.dataVenda || v.criadoEm) +
-      ' · plano: ' + fmt.brl(v.entrada) + ' de entrada + ' + (v.qtdeParcelas || 0) + '× ' + fmt.brl(v.valorParcela) +
+      ' · plano: ' + fmt.brl(v.entrada) + ' de entrada' +
+      (v.entradaDetalhe ? ' (' + esc(v.entradaDetalhe) + ')' : '') + ' + ' + (v.qtdeParcelas || 0) + '× ' + fmt.brl(v.valorParcela) +
       ' (' + esc(v.tipoParcela || 'Fixa') + ')' +
       (v.obs ? '<br>📝 ' + esc(v.obs) : '') +
     '</div>' +

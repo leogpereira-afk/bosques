@@ -49,6 +49,8 @@ const CFG_PADRAO = {
   categoriasReceita: ["Aluguel", "Antecipação", "Sócios", "Outros"],
   // Dias de validade padrão de uma proposta enviada.
   validadeProposta: 7,
+  // A entrada com que o simulador abre (a "fixa de 3 mil" da casa).
+  entradaPadrao: 3000,
   senhaHash: null,
   usuarios: [] as any[],
   atualizadoEm: null,

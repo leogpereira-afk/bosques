@@ -107,6 +107,7 @@ const PDF = (() => {
     // comprador quer saber: "quanto pago em cada fase".
     const avista = (p.tipoParcela === 'À vista') || !(p.qtdeParcelas > 0);
     const linhas = avista ? [['Pagamento à vista', brl(p.entrada)]] : [['Entrada', brl(p.entrada)]];
+    if (!avista && p.entradaDetalhe) linhas.push(['   · condição da entrada', String(p.entradaDetalhe)]);
     const nParc = avista ? 0 : (p.qtdeParcelas || 0);
     if (nParc > 0) {
       if (p.tipoParcela === 'Reajustada') {

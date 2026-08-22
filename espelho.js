@@ -61,12 +61,18 @@ TELAS.espelho = function () {
         doQ.filter((l) => l.status === 'Disponível').length + ' disponíveis de ' + doQ.length + '</span></h3></summary>' +
         '<div class="grade-lotes">' + doQ.map((l) => {
           const cls = l.status === 'Vendido' ? 'vendido' : l.status === 'Reservado' ? 'reservado' : 'disp';
-          return '<div class="lote-q ' + cls + (atrasos.has(l.id) ? ' atraso' : '') + '" data-id="' + esc(l.id) + '">' +
+          const res2 = l.reservadoPor;
+          return '<div class="lote-q ' + cls + (atrasos.has(l.id) ? ' atraso' : '') + '" data-id="' + esc(l.id) + '"' +
+            (res2 ? ' title="Reservado para ' + esc(res2.nome || '?') + ' até ' + fmt.data(res2.ate) + '"' : '') + '>' +
+            (l.status === 'Disponível' && !ehCorretorPerfil()
+              ? '<span class="lq-res" data-id="' + esc(l.id) + '" title="Reservar este lote">🔒</span>' : '') +
             '<b>' + l.lote + '</b>' +
             '<span class="m2">' + fmt.numero(l.areaM2, 0) + ' m²</span>' +
             (l.status === 'Disponível'
               ? '<span class="preco">' + fmt.brl(l.preco).replace(',00', '') + '</span>'
-              : '<span class="m2">' + esc(l.status) + '</span>') +
+              : l.status === 'Reservado' && res2
+                ? '<span class="m2">🔒 ' + esc((res2.nome || '').split(' ')[0]) + '</span>'
+                : '<span class="m2">' + esc(l.status) + '</span>') +
             '</div>';
         }).join('') + '</div></details>';
     }).join('');
@@ -113,6 +119,13 @@ TELAS.espelho = function () {
   document.querySelectorAll('.lote-q').forEach((el) => {
     el.onclick = () => { location.hash = '#/lote/' + el.dataset.id; };
   });
+  document.querySelectorAll('.lq-res').forEach((el) => {
+    el.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const l = achar('lote', el.dataset.id);
+      if (l) abrirReservaLote(l);
+    });
+  });
   document.querySelectorAll('details[data-quadra]').forEach((d) => {
     d.addEventListener('toggle', () => {
       if (d.open) TELAS._quadrasFechadas.delete(d.dataset.quadra);
@@ -129,8 +142,9 @@ TELAS.lote = function (id) {
   const venda = l.vendaId ? achar('venda', l.vendaId) : null;
   const reaj = cfgReajuste();
 
+  const entradaPadrao = Number(S.cfg && S.cfg.entradaPadrao) || 3000;
   const sim = TELAS._sim && TELAS._sim.loteId === id ? TELAS._sim : {
-    loteId: id, tipo: 'Fixa', entrada: 4000, qtde: 150,
+    loteId: id, tipo: 'Fixa', entrada: entradaPadrao, qtde: 150, entradaModo: 'avista',
   };
   TELAS._sim = sim;
   const parcelaDoTipo = () => sim.tipo === 'Reajustada' ? (l.parcReajDesc || l.parcReaj) : (l.parcFixaDesc || l.parcFixa);
@@ -166,6 +180,22 @@ TELAS.lote = function (id) {
           (sim.tipo === 'Reajustada' ? '<div class="dica">já somando os degraus de +' + reaj.pct + '%</div>' : '') + '</div>' +
       '</div>') +
       (avista ? '<div class="campo"><label>Total do plano</label><div style="font-size:21px;font-weight:800;padding:0 0 7px" id="sim-total">' + fmt.brl(total) + '</div></div>' : '') +
+      (avista ? '' :
+      '<div class="colunas">' +
+        campo('Como paga a entrada', seletor('entradaModo', sim.entradaModo || 'avista', [
+          { v: 'avista', t: 'De uma vez (PIX/dinheiro)' },
+          { v: '2', t: 'Parcelada em 2x (sem juros)' },
+          { v: '3', t: 'Parcelada em 3x (sem juros)' },
+          { v: '4', t: 'Parcelada em 4x (sem juros)' },
+          { v: 'cartao', t: 'No cartão, com juros' },
+        ]), detalheEntrada(sim)) +
+        (sim.entradaModo === 'cartao'
+          ? '<div class="colunas">' +
+            campo('Vezes no cartão', entrada('entradaVezes', sim.entradaVezes || 4, { inputmode: 'numeric' })) +
+            campo('Juros total (%)', entrada('entradaJurosPct', sim.entradaJurosPct != null ? sim.entradaJurosPct : 10, { inputmode: 'decimal' }), 'repassado ao cliente') +
+            '</div>'
+          : '<div></div>') +
+      '</div>') +
       '<div class="colunas' + (ehCorretorPerfil() ? '' : '-3') + '">' +
         campo('Nome do cliente', entrada('nome', sim.nome || '', { placeholder: 'quem vai receber a proposta' })) +
         campo('WhatsApp dele', entrada('telefone', sim.telefone || '', { inputmode: 'tel', placeholder: '(38) 9…' })) +
@@ -265,10 +295,23 @@ TELAS.lote = function (id) {
         corretorId: v.corretorId != null ? v.corretorId : sim.corretorId,
         formaPg: v.formaPg || sim.formaPg,
         comissao: v.comissao != null ? numeroBR(v.comissao) : sim.comissao,
+        entradaModo: v.entradaModo || sim.entradaModo || 'avista',
+        entradaVezes: v.entradaVezes != null ? Math.max(2, Math.round(numeroBR(v.entradaVezes)) || 4) : sim.entradaVezes,
+        entradaJurosPct: v.entradaJurosPct != null ? numeroBR(v.entradaJurosPct) : sim.entradaJurosPct,
       });
+      const modoAntes = el.dataset.campo === 'entradaModo';
+      if (modoAntes) {
+        // o que o campo MOSTRA como padrão precisa existir no dado — senão a
+        // proposta sai com juros 0% enquanto a tela mostrava 10%
+        if (sim.entradaModo === 'cartao') {
+          if (sim.entradaVezes == null) sim.entradaVezes = 4;
+          if (sim.entradaJurosPct == null) sim.entradaJurosPct = 10;
+        }
+        TELAS.lote(id); return;   // muda os campos do cartão
+      }
       if (v.tipo !== tipoAntes) {
         if (v.tipo === 'Avista') sim.entrada = l.preco;          // à vista: começa no preço de tabela
-        else { sim.valorParcela = parcelaDoTipo(); if (!(sim.qtde > 0)) sim.qtde = 150; if (tipoAntes === 'Avista') sim.entrada = 4000; }
+        else { sim.valorParcela = parcelaDoTipo(); if (!(sim.qtde > 0)) sim.qtde = 150; if (tipoAntes === 'Avista') sim.entrada = Number(S.cfg && S.cfg.entradaPadrao) || 3000; }
         TELAS.lote(id); return;
       }
       document.getElementById('sim-total').textContent = fmt.brl(totalDoPlano(sim, reaj));
@@ -281,6 +324,21 @@ TELAS.lote = function (id) {
   const btV = document.getElementById('bt-venda');
   if (btV) btV.onclick = () => abrirNovaVenda(l, { ...sim });
 };
+
+// A frase da entrada — a mesma na dica do simulador, na proposta e na venda.
+function detalheEntrada(sim) {
+  const e = Number(sim.entrada) || 0;
+  const modo = sim.entradaModo || 'avista';
+  if (modo === 'avista' || !e) return '';
+  if (modo === 'cartao') {
+    const vezes = Math.max(2, Math.round(Number(sim.entradaVezes)) || 4);
+    const pct = Number(sim.entradaJurosPct) || 0;
+    const total = Math.round(e * (1 + pct / 100) * 100) / 100;
+    return 'cartão: ' + vezes + 'x de ' + fmt.brl(total / vezes) + ' — total ' + fmt.brl(total) + ' com juros de ' + pct + '%';
+  }
+  const n = Number(modo);
+  return n + 'x de ' + fmt.brl(e / n) + ' sem juros';
+}
 
 // Total honesto: a parcela Reajustada sobe em degraus — multiplicar reto
 // subestimaria o plano (e o PDF sairia prometendo menos do que o carnê cobra).
@@ -421,6 +479,8 @@ function montarPropDoSim(l, sim) {
     valorParcela: sim.tipo === 'Avista' ? 0 : (Number(sim.valorParcela) || 0),
     tipoParcela: sim.tipo === 'Avista' ? 'À vista' : (sim.tipo === 'Reajustada' ? 'Reajustada' : 'Fixa'),
     formaPg: sim.formaPg || 'PIX',
+    entradaModo: sim.entradaModo || 'avista',
+    entradaDetalhe: detalheEntrada(sim),
     comissao: Number(sim.comissao) || 0,   // interno: NUNCA impresso no PDF do cliente
     cliente: { nome: sim.nome.trim().slice(0, 80), telefone: String(sim.telefone || '').slice(0, 30) },
     corretorNome: souCorretor ? (S.quem || '') : (cor ? cor.nome : ''),
@@ -552,6 +612,7 @@ function abrirNovaVenda(l, sim) {
           comissao: numeroBR(v.comissao),
           dataVenda: v.dataVenda || hoje,
           entrada: entradaRS, formaEntrada: v.formaEntrada, dataEntrada,
+          entradaDetalhe: detalheEntrada(sim),
           qtdeParcelas: Math.round(numeroBR(v.qtde)), valorParcela: numeroBR(v.valorParcela),
           tipoParcela: v.tipoParcela === 'Reajustada' ? 'Reajustada' : 'Fixa',
           situacao: 'ativa', obs: String(v.obs || '').slice(0, 800),

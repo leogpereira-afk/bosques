@@ -219,6 +219,8 @@ TELAS.config = function () {
       campo('Reajuste (%)', entrada('reajuste.pct', reaj.pct, { inputmode: 'decimal' }), 'da parcela "Reajustada"') +
       campo('a cada quantas parcelas', entrada('reajuste.aCada', reaj.aCada, { inputmode: 'numeric' })) +
       campo('Validade da proposta (dias)', entrada('validadeProposta', cfg.validadeProposta || 7, { inputmode: 'numeric' })) +
+    '</div><div class="colunas-3">' +
+      campo('Entrada padrão (R$)', entrada('entradaPadrao', cfg.entradaPadrao || 3000, { inputmode: 'decimal' }), 'o simulador já abre com ela') +
     '</div>' +
     '<button class="btn primario" id="cf-salvar">Salvar configurações</button></div>' +
 
@@ -267,6 +269,7 @@ TELAS.config = function () {
         empresa: { ...emp, ...v.empresa },
         reajuste: { pct: numeroBR(v.reajuste.pct), aCada: Math.max(1, Math.round(numeroBR(v.reajuste.aCada))) },
         validadeProposta: Math.max(1, Math.round(numeroBR(v.validadeProposta))),
+        entradaPadrao: Math.max(0, numeroBR(v.entradaPadrao)) || 3000,
       } });
       S.cfg = { ...S.cfg, ...r.cfg };
       gravarCache();
