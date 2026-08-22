@@ -156,6 +156,8 @@ button { font-family: inherit; }
 .lote-q span { display: block; line-height: 1.3; }
 .lote-q .m2 { font-size: 10.5px; color: var(--tinta-fraca); }
 .lote-q .preco { font-size: 11px; font-weight: 700; color: var(--verde); }
+.lote-q.disp { background: #e1f2e2; border-color: #a8d5a0; }
+.lote-q.disp b { color: #1b5e20; }
 .lote-q.disp:hover { border-color: var(--verde); box-shadow: var(--sombra); }
 .lote-q.vendido { background: #f0f0ef; color: #888; }
 .lote-q.vendido .preco { color: #999; }

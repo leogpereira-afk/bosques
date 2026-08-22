@@ -95,7 +95,7 @@ TELAS.espelho = function () {
       '<select id="esp-status"><option value="">Todos</option>' +
         ['Disponível', 'Reservado', 'Vendido'].map((s) => '<option' + (filtro.status === s ? ' selected' : '') + '>' + s + '</option>').join('') + '</select>' +
     '</div>' +
-    '<div class="legenda"><span><i style="background:#fff"></i>Disponível</span>' +
+    '<div class="legenda"><span><i style="background:#e1f2e2;border-color:#a8d5a0"></i>Disponível</span>' +
       '<span><i style="background:#f0f0ef"></i>Vendido</span>' +
       '<span><i style="background:#fff8ec"></i>Reservado</span>' +
       (ehCorretorPerfil() ? '' : '<span><i style="background:#c62828;border-color:#c62828"></i> ! = parcela em atraso</span>') + '</div>' +

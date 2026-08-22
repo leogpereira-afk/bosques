@@ -484,7 +484,7 @@ const PDF = (() => {
         const vendido = l.status === 'Vendido';
         if (vendido) { doc.setFillColor(236, 236, 235); doc.setDrawColor(220, 220, 218); }
         else if (l.status === 'Reservado') { doc.setFillColor(255, 248, 236); doc.setDrawColor(240, 221, 181); }
-        else { doc.setFillColor(255, 255, 255); doc.setDrawColor(139, 195, 74); }
+        else { doc.setFillColor(225, 242, 226); doc.setDrawColor(139, 195, 74); }
         doc.roundedRect(x, yc, LARG - 1.4, ALT, 1.6, 1.6, 'FD');
         doc.setFont('helvetica', 'bold'); doc.setFontSize(9);
         doc.setTextColor(...(vendido ? [130, 130, 128] : [30, 43, 33]));
