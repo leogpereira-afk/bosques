@@ -250,9 +250,12 @@ TELAS.corretores = function () {
           : '') +
       '</div></details>').join('') +
     (semDono.length
-      ? '<div class="cartao" style="border-color:#f0ddb5"><h2>⚠ Comissões pagas sem corretor identificado</h2>' +
-        semDono.map((p2) => '<div class="nota" style="padding:2px 0">• ' + fmt.brl(p2.valor) + ' em ' + fmt.data(p2.data) +
-          ' · ' + esc(p2.descricao || '') + ' — abra o lançamento no Caixa para dizer de quem é</div>').join('') + '</div>'
+      ? '<div class="cartao" style="border-color:#f0ddb5"><h2>⚠ Comissões pagas sem corretor identificado <span class="nota">— clique para dizer de quem é</span></h2>' +
+        semDono.map((p2) => '<div class="lin cx-associar" data-id="' + esc(p2.id) + '">' +
+          '<div class="cresce"><b>' + esc(p2.descricao || 'Comissão') + '</b>' +
+          '<span class="sub">' + fmt.data(p2.data) + (p2.obs ? ' · ' + esc(p2.obs) : '') + '</span></div>' +
+          '<span class="dinheiro">' + fmt.brl(p2.valor) + '</span>' +
+          '<span class="etiqueta et-hoje">associar →</span></div>').join('') + '</div>'
       : '');
 
   document.getElementById('cor-novo').onclick = () => abrirFichaPessoa('corretor', null);
@@ -268,6 +271,9 @@ TELAS.corretores = function () {
       else TELAS._corAbertos.delete(d.dataset.cor);
     });
   });
+  app.querySelectorAll('.cx-associar').forEach((el) => {
+    el.onclick = () => abrirAssociarComissao(el.dataset.id);
+  });
   app.querySelectorAll('.bt-pagar').forEach((b) => {
     b.onclick = (e) => {
       e.stopPropagation();
@@ -275,6 +281,46 @@ TELAS.corretores = function () {
     };
   });
 };
+
+/* ── Associar uma comissão órfã ao corretor certo ──────────────────────────
+   O texto da planilha quase sempre TRAZ o nome ("COMISSAO RENATA") — o
+   seletor já vem sugerido por ele; a pessoa só confirma. */
+function abrirAssociarComissao(cxId) {
+  const c = achar('cx', cxId);
+  if (!c) return;
+  const corretores = lista('corretor');
+  const texto = ((c.descricao || '') + ' ' + (c.obs || '')).toUpperCase();
+  const sugerido = corretores.find((cor) => {
+    const primeiro = (cor.nome || '').trim().split(' ')[0].toUpperCase();
+    return primeiro.length >= 4 && texto.includes(primeiro);
+  });
+  const corpo =
+    '<div class="lin" style="cursor:default"><div class="cresce"><b>' + esc(c.descricao || 'Comissão') + '</b>' +
+      '<span class="sub">' + fmt.data(c.data) + (c.obs ? ' · ' + esc(c.obs) : '') + '</span></div>' +
+      '<span class="dinheiro">' + fmt.brl(c.valor) + '</span></div>' +
+    campo('De quem é esta comissão?', seletor('corretorId', sugerido ? sugerido.id : '',
+      corretores.map((cor) => ({ v: cor.id, t: cor.nome })), '— escolher —'),
+      sugerido ? 'sugerido pelo nome no texto: ' + sugerido.nome : '');
+  abrirModal({
+    titulo: 'Associar comissão',
+    corpo,
+    acoes: [
+      { texto: 'Voltar', aoClicar: () => fecharModal() },
+      { texto: 'Associar', classe: 'primario', aoClicar: (fundo) => {
+        const v = lerCampos(fundo);
+        if (!v.corretorId) { toast('Escolha o corretor', 'ruim'); return; }
+        const cor = corretores.find((x) => x.id === v.corretorId);
+        salvar('cx', {
+          id: cxId, corretorId: v.corretorId,
+          historico: historiar(c, 'Comissão associada a ' + (cor ? cor.nome : v.corretorId)),
+        });
+        fecharSilencioso(fundo);
+        toast('Associada a ' + (cor ? cor.nome : ''));
+        TELAS.corretores();
+      } },
+    ],
+  });
+}
 
 function abrirPagarComissao(corId, nome, saldo) {
   const corpo =
