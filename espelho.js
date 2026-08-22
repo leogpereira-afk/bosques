@@ -233,8 +233,8 @@ TELAS.lote = function (id) {
         campo('Comissão do corretor (R$)', entrada('comissao', sim.comissao != null ? sim.comissao : '', { inputmode: 'decimal' }),
           'INTERNO — não sai no PDF do cliente; já vai preenchida para a venda') +
         (sim.temCor2
-          ? campo('2º corretor <button type="button" class="btn mini" id="bt-tira-cor2" style="float:right;padding:1px 8px">tirar</button>',
-              seletor('cor2Id', sim.cor2Id || '', corretores.map((c) => ({ v: c.id, t: c.nome })), '— escolher —'))
+          ? '<div class="campo"><label>2º corretor <a href="#" id="bt-tira-cor2" style="float:right;font-weight:400">✕ tirar</a></label>' +
+            seletor('cor2Id', sim.cor2Id || '', corretores.map((c) => ({ v: c.id, t: c.nome })), '— escolher —') + '</div>'
           : '<div class="campo"><label>&nbsp;</label><button type="button" class="btn mini" id="bt-cor2">👥 São dois corretores? dividir comissão</button></div>') +
         '</div>' +
         (sim.temCor2
@@ -425,7 +425,7 @@ TELAS.lote = function (id) {
   const btCor2 = document.getElementById('bt-cor2');
   if (btCor2) btCor2.onclick = () => { sim.temCor2 = true; TELAS.lote(id); };
   const btTiraCor2 = document.getElementById('bt-tira-cor2');
-  if (btTiraCor2) btTiraCor2.onclick = () => { sim.temCor2 = false; sim.cor2Id = ''; sim.comissao2 = null; TELAS.lote(id); };
+  if (btTiraCor2) btTiraCor2.onclick = (e) => { e.preventDefault(); sim.temCor2 = false; sim.cor2Id = ''; sim.comissao2 = null; TELAS.lote(id); };
 
   const btPdf = document.getElementById('bt-pdf-prop');
   if (btPdf) btPdf.onclick = () => baixarPdfProposta(l, sim);
