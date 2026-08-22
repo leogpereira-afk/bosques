@@ -239,7 +239,9 @@ TELAS.corretores = function () {
     const pago = pagoComissaoDoCorretor(cor.id, pagos);
     return { cor, suas, comoSegundo, distratadas, vgv, devido, pago, saldo: devido - pago };
   }).filter((x) => x.suas.length || x.comoSegundo.length || x.pago > 0 || x.cor.ativo !== false)
-    .sort((a, b) => (b.suas.length - a.suas.length) || (b.vgv - a.vgv));
+    // O ranking é POR VALOR: quem pôs mais dinheiro na mesa vem primeiro
+    // (o nº de vendas só desempata).
+    .sort((a, b) => (b.vgv - a.vgv) || (b.suas.length - a.suas.length));
 
   const totalVgv = ficha.reduce((s, x) => s + x.vgv, 0);
   const totalSaldo = ficha.reduce((s, x) => s + Math.max(0, x.saldo), 0);
