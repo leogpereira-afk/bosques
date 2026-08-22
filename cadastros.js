@@ -29,9 +29,10 @@ function fichaPessoaCorpo(p, ehCorretor) {
   campo('Observações', areaTexto('obs', p.obs || ''));
 }
 
-function abrirFichaPessoa(col, id) {
+function abrirFichaPessoa(col, id, opts) {
+  opts = opts || {};
   const ehCorretor = col === 'corretor';
-  const p = id ? (achar(col, id) || {}) : {};
+  const p = id ? (achar(col, id) || {}) : (opts.prefill || {});
   const vendas = id ? lista('venda').filter((v) => (ehCorretor ? v.corretorId : v.clienteId) === id) : [];
   // Na ficha do CLIENTE, cada venda mostra o corretor que vendeu.
   const comp = !ehCorretor && id ? completudeCliente(p) : null;
@@ -72,7 +73,7 @@ function abrirFichaPessoa(col, id) {
         const v = lerCampos(fundo);
         if (!v.nome || !v.nome.trim()) { toast('Diga o nome', 'ruim'); return; }
         const cpf = String(v.cpf || '').replace(/\D/g, '');
-        salvar(col, {
+        const salvo = salvar(col, {
           id: id || cpf || undefined,
           nome: v.nome.trim().slice(0, 90), cpf,
           whatsapp: String(v.whatsapp || '').slice(0, 30), celular: String(v.celular || '').slice(0, 30),
@@ -86,6 +87,7 @@ function abrirFichaPessoa(col, id) {
         });
         fecharSilencioso(fundo);
         toast('Salvo');
+        if (opts.aoSalvar) { opts.aoSalvar(salvo); return; }
         TELAS[ehCorretor ? 'corretores' : 'clientes']();
       } },
     ],

@@ -220,9 +220,10 @@ TELAS.lote = function (id) {
       '<div class="colunas' + (ehCorretorPerfil() ? '' : '-3') + '">' +
         (ehCorretorPerfil()
           ? campo('Nome do cliente', entrada('nome', sim.nome || '', { placeholder: 'quem vai receber a proposta' }))
-          : campo('Cliente', '<input list="dl-clientes" data-campo="nome" value="' + esc(sim.nome || '') + '" placeholder="digite — busca no cadastro" autocomplete="off">' +
-              '<datalist id="dl-clientes">' + lista('cliente').map((c2) => '<option value="' + esc(c2.nome || '') + '">').join('') + '</datalist>',
-              'já busca no banco de clientes; nome novo é cadastrado ao gerar')) +
+          : '<div class="campo ac-wrap"><label>Cliente</label>' +
+            '<input data-campo="nome" id="cli-busca" value="' + esc(sim.nome || '') + '" placeholder="digite 2 letras — busca no cadastro" autocomplete="off">' +
+            '<div class="ac-lista" id="cli-sugestoes"></div>' +
+            '<div class="dica" id="cli-vinculo">' + (sim.clienteId ? '✓ do cadastro' : '') + '</div></div>') +
         campo('WhatsApp dele', entrada('telefone', sim.telefone || '', { inputmode: 'tel', placeholder: '(38) 9…' })) +
         (ehCorretorPerfil() ? '' :
           campo('Corretor', seletor('corretorId', sim.corretorId || '', corretores.map((c) => ({ v: c.id, t: c.nome })), 'sem corretor (a casa)'))) +
@@ -353,6 +354,62 @@ TELAS.lote = function (id) {
       document.getElementById('sim-total').textContent = fmt.brl(totalDoPlano(sim, reaj));
     });
   });
+  // ── autocomplete do cliente: organizado, sem despejar o banco inteiro ──
+  const caixaSug = document.getElementById('cli-sugestoes');
+  const inpCli = document.getElementById('cli-busca');
+  if (caixaSug && inpCli) {
+    const norm = (s2) => String(s2 || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toUpperCase().trim();
+    const pintaVinculo = () => {
+      const el2 = document.getElementById('cli-vinculo');
+      if (el2) el2.textContent = sim.clienteId ? '✓ ' + (achar('cliente', sim.clienteId) || {}).nome + ' — do cadastro' : '';
+    };
+    const abreSugestoes = () => {
+      const q2 = norm(inpCli.value);
+      if (q2.length < 2) { caixaSug.style.display = 'none'; return; }
+      const achados = lista('cliente')
+        .filter((c2) => norm(c2.nome).includes(q2) || (c2.cpf || '').includes(q2))
+        .slice(0, 6);
+      const exato = achados.some((c2) => norm(c2.nome) === q2);
+      caixaSug.innerHTML =
+        achados.map((c2) => '<div class="ac-item" data-id="' + esc(c2.id) + '"><b>' + esc(c2.nome) + '</b>' +
+          '<span class="sub">' + (c2.cpf ? fmt.doc(c2.cpf) + ' · ' : '') + (fmt.telefone(c2.whatsapp || c2.celular) || 'sem telefone') + '</span></div>').join('') +
+        (!exato ? '<div class="ac-item novo">➕ Cadastrar novo cliente' + (inpCli.value.trim() ? ': "' + esc(inpCli.value.trim()) + '"' : '') + '</div>' : '');
+      caixaSug.style.display = 'block';
+      // mousedown (não click): dispara antes do blur fechar a lista
+      caixaSug.querySelectorAll('.ac-item[data-id]').forEach((it) => {
+        it.addEventListener('mousedown', (ev) => {
+          ev.preventDefault();
+          const c2 = achar('cliente', it.dataset.id);
+          sim.nome = c2.nome; sim.clienteId = c2.id;
+          inpCli.value = c2.nome;
+          if (!sim.telefone && (c2.whatsapp || c2.celular)) {
+            sim.telefone = c2.whatsapp || c2.celular;
+            const elTel = raiz.querySelector('[data-campo="telefone"]');
+            if (elTel) elTel.value = sim.telefone;
+          }
+          caixaSug.style.display = 'none';
+          pintaVinculo();
+        });
+      });
+      const itNovo = caixaSug.querySelector('.ac-item.novo');
+      if (itNovo) itNovo.addEventListener('mousedown', (ev) => {
+        ev.preventDefault();
+        caixaSug.style.display = 'none';
+        abrirFichaPessoa('cliente', null, {
+          prefill: { nome: inpCli.value.trim(), whatsapp: sim.telefone || '' },
+          aoSalvar: (c2) => {
+            sim.nome = c2.nome; sim.clienteId = c2.id;
+            if (!sim.telefone) sim.telefone = c2.whatsapp || c2.celular || '';
+            TELAS.lote(id);
+          },
+        });
+      });
+    };
+    inpCli.addEventListener('input', abreSugestoes);
+    inpCli.addEventListener('focus', abreSugestoes);
+    inpCli.addEventListener('blur', () => { setTimeout(() => { caixaSug.style.display = 'none'; pintaVinculo(); }, 150); });
+  }
+
   const btPdf = document.getElementById('bt-pdf-prop');
   if (btPdf) btPdf.onclick = () => baixarPdfProposta(l, sim);
   const btP = document.getElementById('bt-proposta');
