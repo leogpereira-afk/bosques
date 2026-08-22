@@ -18,6 +18,44 @@ function resumoVenda(v) {
   return CARNE.resumo(v, cfgReajuste(), recsDaVenda(v.id));
 }
 
+/* ── Cobrança pelo WhatsApp ──────────────────────────────────────────────────
+   A mensagem sai PRONTA: parcelas vencidas, valor total e os dados de
+   pagamento das Configurações. Sem atraso, vira lembrete da próxima parcela.
+   Cobrar deixa de ser redigir — vira um clique. */
+function telDaVenda(v) {
+  const c = v.clienteId ? achar('cliente', v.clienteId) : null;
+  return c ? (c.whatsapp || c.celular || '') : '';
+}
+function msgCobranca(v, r) {
+  const nome = (v.clienteNome || '').trim().split(' ')[0] || 'tudo bem';
+  const loteTxt = 'Q' + v.quadra + '-L' + v.lote;
+  const atrasadas = r.carne.filter((l) => l.situacao === 'atrasada');
+  const conta = ((S.cfg && S.cfg.empresa && S.cfg.empresa.contaBancaria) || '').trim();
+  let corpo;
+  if (atrasadas.length) {
+    const soma = atrasadas.reduce((s, l) => s + (l.valor - Math.min(l.pago, l.valor)), 0);
+    const detalhe = atrasadas.slice(0, 3).map((l) => l.rotulo + ' (venceu ' + fmt.data(l.venc) + ')').join(', ') +
+      (atrasadas.length > 3 ? ' e mais ' + (atrasadas.length - 3) : '');
+    corpo = 'passando para lembrar que constam em aberto no seu lote ' + loteTxt + ': ' + detalhe +
+      ', somando ' + fmt.brl(soma) + '.';
+  } else if (r.proxima) {
+    corpo = 'lembrando que a próxima parcela do seu lote ' + loteTxt + ' (' + r.proxima.rotulo +
+      ', ' + fmt.brl(r.proxima.valor - r.proxima.pago) + ') vence em ' + fmt.data(r.proxima.venc) + '.';
+  } else {
+    corpo = 'sobre o seu lote ' + loteTxt + '.';
+  }
+  return 'Olá, ' + nome + '! Tudo bem? Aqui é do Portal dos Bosques 🌳 — ' + corpo +
+    (conta ? '\n\nDados para pagamento:\n' + conta : '') +
+    '\n\nSe já pagou, desconsidere e nos mande o comprovante. Qualquer coisa é só responder por aqui. Obrigado!';
+}
+function botaoCobranca(v, r, mini) {
+  const tel = telDaVenda(v);
+  if (!tel || !['ativa', 'conferir'].includes(v.situacao || 'ativa')) return '';
+  const rot = r.qtdAtraso > 0 ? (mini ? '📱 cobrar' : '📱 Cobrar no WhatsApp') : (mini ? '📱 lembrar' : '📱 Lembrete da próxima parcela');
+  return '<a class="btn ' + (mini ? 'mini ' : '') + 'whats" target="_blank" rel="noopener" ' +
+    'onclick="event.stopPropagation()" href="' + esc(linkWhats(tel, msgCobranca(v, r))) + '">' + rot + '</a>';
+}
+
 /* ── Tela: lista de vendas ─────────────────────────────────────────────────── */
 TELAS.vendas = function () {
   const app = document.getElementById('app');
@@ -58,7 +96,7 @@ TELAS.vendas = function () {
       '<span class="sub">' + esc(v.codigo || '') + (v.corretorNome ? ' · ' + esc(v.corretorNome) : '') +
         ' · pagou ' + pct + '% (' + fmt.brl(r.pago) + ' de ' + fmt.brl(r.total) + ')</span></div>' +
       (r.qtdAtraso > 0 && ['ativa', 'conferir'].includes(v.situacao || 'ativa')
-        ? '<span class="etiqueta et-atrasada">' + r.qtdAtraso + ' atrasada' + (r.qtdAtraso > 1 ? 's' : '') + ' · ' + fmt.brl(r.emAtraso) + '</span>'
+        ? botaoCobranca(v, r, true) + '<span class="etiqueta et-atrasada">' + r.qtdAtraso + ' atrasada' + (r.qtdAtraso > 1 ? 's' : '') + ' · ' + fmt.brl(r.emAtraso) + '</span>'
         : etiqueta(v.situacao || 'ativa')) +
       '</div>';
   };
@@ -182,6 +220,7 @@ TELAS.venda = function (id) {
     '</div>' +
     '<div class="acoes-linha">' +
       (viva ? '<button class="btn primario" id="bt-baixa">💰 Dar baixa</button>' : '') +
+      (viva ? botaoCobranca(v, r, false) : '') +
       (viva && r.quitada ? '<button class="btn" id="bt-quitar">✅ Marcar quitada</button>' : '') +
       (viva ? '<button class="btn perigo" id="bt-distrato">Distratar…</button>' : '') +
       (sit === 'distratada' && S.perfil === 'direcao' ? '<button class="btn" id="bt-reabrir">Reabrir venda</button>' : '') +

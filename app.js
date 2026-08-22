@@ -179,6 +179,7 @@ TELAS.home = function () {
         '<div class="lin venda-lin" data-id="' + esc(v.id) + '">' +
         '<div class="cresce"><b>Q' + v.quadra + '-L' + v.lote + ' · ' + esc(v.clienteNome || '?') + '</b>' +
         '<span class="sub">' + r.qtdAtraso + ' parcela(s) vencida(s)</span></div>' +
+        botaoCobranca(v, r, true) +
         '<span class="dinheiro" style="color:var(--ruim)">' + fmt.brl(r.emAtraso) + '</span></div>').join('') ||
         '<p class="nota">🎉 Ninguém em atraso.</p>') + '</div>' +
     '<div class="cartao"><h2>Últimos recebimentos</h2>' +

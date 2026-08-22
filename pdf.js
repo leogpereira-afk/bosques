@@ -453,12 +453,14 @@ const PDF = (() => {
     cabecalho(doc, cfg, 'ESPELHO · ' + hojeTxt);
 
     let y = 40;
-    const disp = ls.filter((l) => l.status === 'Disponível').length;
+    const disponiveis2 = ls.filter((l) => l.status === 'Disponível');
+    const disp = disponiveis2.length;
+    const estoque2 = disponiveis2.reduce((s, l) => s + (Number(l.preco) || 0), 0);
     const vend = ls.filter((l) => l.status === 'Vendido').length;
     doc.setFont('helvetica', 'bold'); doc.setFontSize(11);
     doc.setTextColor(30, 43, 33);
-    doc.text(ls.length + ' lotes · ' + disp + ' disponíveis · ' + vend + ' vendidos (' +
-      Math.round(vend / Math.max(1, ls.length) * 100) + '%)', 14, y);
+    doc.text(ls.length + ' lotes · ' + disp + ' disponíveis (' + brl(estoque2) + ' em tabela) · ' +
+      vend + ' vendidos (' + Math.round(vend / Math.max(1, ls.length) * 100) + '%)', 14, y);
     doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5);
     doc.setTextColor(...CINZA);
     doc.text('cinza = vendido · branco = disponível (com o preço) · ! = parcela em atraso', 196, y, { align: 'right' });

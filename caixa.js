@@ -159,21 +159,14 @@ TELAS.caixa = function () {
   // ── Previsibilidade: o que os contratos vivos AINDA vão trazer, mês a mês.
   // Custo estimado = média das saídas dos últimos 3 meses com movimento (é
   // estimativa de referência, não promessa — e o papel diz isso).
-  const hoje = hojeISO();
-  const mesAtual = mesDe(hoje);
-  const porMesPrev = {};
-  let vencidoAberto = 0, aReceberTotal = 0, parcelasAbertas = 0;
-  for (const v of vendasVivas()) {
-    const r = CARNE.resumo(v, cfgReajuste(), recsDaVenda(v.id));
-    for (const l of r.carne) {
-      const falta = Math.round((l.valor - Math.min(l.pago, l.valor)) * 100) / 100;
-      if (falta <= 0.004) continue;
-      aReceberTotal += falta; parcelasAbertas++;
-      if (l.venc && l.venc < hoje) { vencidoAberto += falta; continue; }
-      const m = mesDe(l.venc);
-      if (/^\d{4}-\d{2}$/.test(m)) porMesPrev[m] = (porMesPrev[m] || 0) + falta;
-    }
-  }
+  const mesAtual = mesDe(hojeISO());
+  // A MESMA conta dos Relatórios (aReceberPorMes) — a previsão tinha uma
+  // cópia própria desta soma, e conta copiada é divergência esperando dia.
+  const arCaixa = aReceberPorMes();
+  const porMesPrev = arCaixa.porMes;
+  const vencidoAberto = arCaixa.vencido;
+  const aReceberTotal = arCaixa.total;
+  const parcelasAbertas = arCaixa.parcelas;
   const mesesFechados = meses.filter((m) => m < mesAtual).slice(-3);
   const custoMedio = mesesFechados.length
     ? mesesFechados.reduce((s, m) => s + totaisDoMes(m).saidas, 0) / mesesFechados.length : 0;

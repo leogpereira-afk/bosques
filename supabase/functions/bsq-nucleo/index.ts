@@ -564,6 +564,15 @@ Deno.serve(async (req) => {
                 if (antigo.situacao) novo.situacao = antigo.situacao;
                 if (antigo.distrato) novo.distrato = antigo.distrato;
               }
+              // Lançamento de caixa: o que foi ORGANIZADO no app sobrevive à
+              // reimportação — o vínculo com a etapa do cronograma, a categoria
+              // reclassificada e a data posta num sem-data. Sem isto, rodar a
+              // planilha de novo desfazia horas de classificação em silêncio.
+              if (col === "cx") {
+                if (antigo.etapaId) novo.etapaId = antigo.etapaId;
+                if (antigo.categoria) novo.categoria = antigo.categoria;
+                if (!novo.data && antigo.data) novo.data = antigo.data;
+              }
               if (antigo.apagadoEm) {
                 if (antigo.apagadoPor === MARCA_PRUNE) { ressuscitados++; } // voltou à planilha
                 else { novo.apagadoEm = antigo.apagadoEm; novo.apagadoPor = antigo.apagadoPor; } // apagado no app segue apagado
