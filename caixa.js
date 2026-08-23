@@ -118,9 +118,9 @@ TELAS.caixa = function () {
   const mes = TELAS._mesCaixa || mesDe(hojeISO());
   TELAS._mesCaixa = mes;
   const t = totaisDoMes(mes);
-  const movs = movimentosDoMes(mes);
+  const ac = totaisAcumulados();
 
-  // Projeção do mês: o que os carnês vivos deveriam trazer.
+  // O que os carnês previam trazer neste mês (referência do painel).
   let projecao = 0;
   for (const v of vendasVivas()) {
     for (const l of CARNE.gerarParcelas(v, cfgReajuste())) {
@@ -128,6 +128,36 @@ TELAS.caixa = function () {
     }
   }
 
+  // ── Vínculos pendentes: o sistema APONTA o que falta amarrar ──────────────
+  // (categoria genérica, comissão sem dono, gasto de obra sem etapa). Cada
+  // linha leva direto ao lugar de resolver.
+  const vivos = cxVivos();
+  const semCategoria = vivos.filter((c) => c.tipo === 'saida' && (!c.categoria || c.categoria === 'Outros')).length;
+  const comSemCor = vivos.filter((c) => c.tipo === 'saida' && c.categoria === 'Comissão' &&
+    !c.corretorId && !(c.rateio && c.rateio.length)).length;
+  const obraSemEtapa = vivos.filter((c) => c.tipo === 'saida' && c.categoria === 'Obra / infraestrutura' && !c.etapaId).length;
+  const pendencias = [];
+  if (semCategoria) pendencias.push({ n: semCategoria, txt: 'saída(s) na categoria "Outros" — classifique para o DRE dizer a verdade', acao: 'outros' });
+  if (comSemCor) pendencias.push({ n: comSemCor, txt: 'comissão(ões) paga(s) sem corretor — associe em Corretores', acao: 'corretores' });
+  if (obraSemEtapa) pendencias.push({ n: obraSemEtapa, txt: 'gasto(s) de obra sem etapa do cronograma', acao: 'cronograma' });
+  const blocoVinculos = pendencias.length
+    ? '<div class="cartao" style="border-color:#f0ddb5"><h2>🔗 Vínculos pendentes <span class="nota">— amarre e os números contam a história certa</span></h2>' +
+      pendencias.map((x) => '<div class="lin vinc-lin" data-acao="' + x.acao + '">' +
+        '<span class="etiqueta et-hoje" style="min-width:34px;text-align:center">' + x.n + '</span>' +
+        '<div class="cresce"><b>' + x.txt + '</b></div><span class="nota">resolver →</span></div>').join('') + '</div>'
+    : '';
+
+  // ── Sem data: fora de todos os meses até alguém datar ─────────────────────
+  const semData = vivos.filter((c) => !c.data);
+  const avisoSemData = semData.length
+    ? '<div class="cartao" style="border-color:#f0ddb5"><h2>⚠ ' + semData.length + ' lançamento(s) sem data</h2>' +
+      semData.map((c) => '<div class="lin" style="cursor:default"><div class="cresce"><b>' + esc(c.descricao || '—') + '</b>' +
+        '<span class="sub">' + (c.tipo === 'entrada' ? 'entrada' : 'saída') + ' · ' + esc(c.categoria || '') + '</span></div>' +
+        '<span class="dinheiro">' + fmt.brl(c.valor) + '</span>' +
+        '<button class="btn mini cx-datar" data-id="' + esc(c.id) + '">datar</button></div>').join('') + '</div>'
+    : '';
+
+  // ── Ano mês a mês ──────────────────────────────────────────────────────────
   const ano = mes.slice(0, 4);
   const tabelaAno = meses.filter((m) => m.startsWith(ano)).map((m) => {
     const tm = totaisDoMes(m);
@@ -142,143 +172,90 @@ TELAS.caixa = function () {
     return { e: s.e + tm.entradas, s2: s.s2 + tm.saidas };
   }, { e: 0, s2: 0 });
 
-  // Lançamento sem data não aparece em mês nenhum — melhor gritar do que sumir
-  // (a planilha tinha 2 despesas assim, e o Totalizador dela as perdia calado).
-  const semData = cxVivos().filter((c) => !c.data);
-  const avisoSemData = semData.length
-    ? '<div class="cartao" style="border-color:#f0ddb5"><h2>⚠ ' + semData.length + ' lançamento(s) sem data <span class="nota">— fora de todos os meses até você datar</span></h2>' +
-      semData.map((c) => '<div class="lin" style="cursor:default"><div class="cresce"><b>' + esc(c.descricao || '—') + '</b>' +
-        '<span class="sub">' + (c.tipo === 'entrada' ? 'entrada' : 'saída') + ' · ' + esc(c.categoria || '') + '</span></div>' +
-        '<span class="dinheiro">' + fmt.brl(c.valor) + '</span>' +
-        '<button class="btn mini cx-datar" data-id="' + esc(c.id) + '">datar</button></div>').join('') + '</div>'
-    : '';
-
-  const ac = totaisAcumulados();
-  const dre = dreDados(mes);
-
-  // ── Previsibilidade: o que os contratos vivos AINDA vão trazer, mês a mês.
-  // Custo estimado = média das saídas dos últimos 3 meses com movimento (é
-  // estimativa de referência, não promessa — e o papel diz isso).
-  const mesAtual = mesDe(hojeISO());
-  // A MESMA conta dos Relatórios (aReceberPorMes) — a previsão tinha uma
-  // cópia própria desta soma, e conta copiada é divergência esperando dia.
+  // ── Previsão em UMA linha (o detalhe mora nos Relatórios) ─────────────────
   const arCaixa = aReceberPorMes();
-  const porMesPrev = arCaixa.porMes;
-  const vencidoAberto = arCaixa.vencido;
-  const aReceberTotal = arCaixa.total;
-  const parcelasAbertas = arCaixa.parcelas;
-  const mesesFechados = meses.filter((m) => m < mesAtual).slice(-3);
-  const custoMedio = mesesFechados.length
-    ? mesesFechados.reduce((s, m) => s + totaisDoMes(m).saidas, 0) / mesesFechados.length : 0;
-  const mesesPrev = Object.keys(porMesPrev).sort().filter((m) => m >= mesAtual).slice(0, 12);
-  const blocoPrevisao =
-    '<div class="cartao"><h2>Previsibilidade <span class="nota">— o que os contratos vivos ainda vão trazer</span></h2>' +
-    '<div class="paineis" style="margin:0 0 10px">' +
-      '<div class="painel"><div class="rot">A receber dos contratos</div><div class="num pos">' + fmt.brl(aReceberTotal) + '</div>' +
-        '<div class="sub">' + parcelasAbertas + ' parcela(s) em aberto</div></div>' +
-      '<div class="painel"><div class="rot">Já vencido (cobrar)</div><div class="num' + (vencidoAberto ? ' neg' : '') + '">' + fmt.brl(vencidoAberto) + '</div></div>' +
-      '<div class="painel"><div class="rot">Custo típico por mês</div><div class="num">' + fmt.brl(custoMedio) + '</div>' +
-        '<div class="sub">média dos últimos ' + mesesFechados.length + ' meses</div></div>' +
-    '</div>' +
-    (mesesPrev.length
-      ? '<div class="rolagem"><table class="tabela"><thead><tr><th>Mês</th><th class="num">A receber (carnês)</th>' +
-        '<th class="num">Custo estimado</th><th class="num">Saldo projetado</th></tr></thead><tbody>' +
-        mesesPrev.map((m) => {
-          const rec2 = porMesPrev[m];
-          const saldo = rec2 - custoMedio;
-          return '<tr><td>' + nomeMes(m) + '</td><td class="num">' + fmt.brl(rec2) + '</td>' +
-            '<td class="num">' + fmt.brl(custoMedio) + '</td>' +
-            '<td class="num" style="color:' + (saldo >= 0 ? 'var(--verde)' : 'var(--ruim)') + '">' + fmt.brl(saldo) + '</td></tr>';
-        }).join('') + '</tbody></table></div>' +
-        '<p class="nota" style="margin-top:8px">A coluna de custo é a MÉDIA dos últimos meses — estimativa de referência, não compromisso. O recebimento supõe as parcelas pagas em dia.</p>'
-      : '<p class="nota">Nenhuma parcela futura em aberto.</p>') +
-    '</div>';
+  const doze = Object.keys(arCaixa.porMes).sort().filter((m) => m >= mes).slice(0, 12)
+    .reduce((s, m) => s + arCaixa.porMes[m], 0);
 
-  // "Para onde o dinheiro está indo": saídas por categoria, mês × acumulado,
-  // com barra proporcional ao acumulado.
+  // ── DRE com as barras embutidas (um cartão só responde "para onde foi") ──
+  const dre = dreDados(mes);
   const maiorDesp = Math.max(1, ...dre.catsDesp.map((c) => dre.total.desp[c]));
-  const blocoDestino = dre.catsDesp.length
-    ? '<div class="cartao"><h2>Para onde o dinheiro está indo <span class="nota">— saídas por categoria · clique num lançamento abaixo para reclassificar</span></h2>' +
-      '<div class="rolagem"><table class="tabela"><thead><tr><th>Categoria</th><th></th>' +
-      '<th class="num">' + nomeMes(mes) + '</th><th class="num">Desde o início</th><th class="num">% do total</th></tr></thead><tbody>' +
-      dre.catsDesp.map((c) => {
-        const vTot = dre.total.desp[c];
-        const pct = Math.round(vTot / Math.max(1, dre.total.somaDesp) * 100);
-        return '<tr><td>' + esc(c) + '</td>' +
-          '<td style="width:34%"><div style="background:var(--verde-palido);border-radius:6px;height:12px;overflow:hidden">' +
-            '<div style="width:' + Math.round(vTot / maiorDesp * 100) + '%;height:100%;background:var(--verde)"></div></div></td>' +
-          '<td class="num">' + (dre.mes.desp[c] ? fmt.brl(dre.mes.desp[c]) : '—') + '</td>' +
-          '<td class="num">' + fmt.brl(vTot) + '</td>' +
-          '<td class="num">' + pct + '%</td></tr>';
-      }).join('') +
-      '<tr style="font-weight:800"><td>TOTAL</td><td></td><td class="num">' + fmt.brl(dre.mes.somaDesp) + '</td>' +
-      '<td class="num">' + fmt.brl(dre.total.somaDesp) + '</td><td class="num">100%</td></tr>' +
-      '</tbody></table></div></div>'
-    : '';
-
-  // O DRE do empreendimento (mês · ano · desde o início), com PDF.
   const linhaDre = (rotulo, vMes, vAno, vTot, opts = {}) =>
     '<tr' + (opts.forte ? ' style="font-weight:800;border-top:2px solid var(--borda)"' : '') + '>' +
-    '<td' + (opts.recuo ? ' style="padding-left:22px;color:var(--tinta-fraca)"' : '') + '>' + rotulo + '</td>' +
+    '<td' + (opts.recuo ? ' style="padding-left:22px;color:var(--tinta-fraca)"' : '') + '>' + rotulo +
+    (opts.barra != null ? '<span style="display:block;max-width:180px;background:var(--verde-palido);border-radius:5px;height:7px;overflow:hidden;margin-top:3px">' +
+      '<span style="display:block;width:' + opts.barra + '%;height:100%;background:var(--verde)"></span></span>' : '') + '</td>' +
     [vMes, vAno, vTot].map((v) => '<td class="num"' +
       (opts.cor ? ' style="color:' + (v >= 0 ? 'var(--verde)' : 'var(--ruim)') + '"' : '') + '>' +
       (v === 0 && opts.recuo ? '—' : fmt.brl(v)) + '</td>').join('') + '</tr>';
   const blocoDre =
-    '<div class="cartao"><h2>DRE do empreendimento <span class="nota">— regime de caixa (o que de fato entrou e saiu)</span>' +
-      ' <button class="btn mini" id="dre-pdf" style="float:right">📄 PDF do DRE</button></h2>' +
+    '<div class="cartao"><h2>DRE — para onde o dinheiro está indo <span class="nota">— regime de caixa · clique num lançamento para reclassificar</span>' +
+      ' <button class="btn mini" id="dre-pdf" style="float:right">📄 PDF</button></h2>' +
     '<div class="rolagem"><table class="tabela"><thead><tr><th></th>' +
       '<th class="num">' + nomeMes(mes) + '</th><th class="num">' + dre.anoRotulo + '</th><th class="num">Desde o início</th></tr></thead><tbody>' +
     linhaDre('Recebimentos de vendas (entradas e parcelas)', dre.mes.recVendas, dre.ano.recVendas, dre.total.recVendas) +
     dre.catsOutras.map((c) => linhaDre(esc(c), dre.mes.outras[c] || 0, dre.ano.outras[c] || 0, dre.total.outras[c], { recuo: true })).join('') +
     linhaDre('(=) Receita', dre.mes.receita, dre.ano.receita, dre.total.receita, { forte: true }) +
-    dre.catsDesp.map((c) => linhaDre(esc(c), dre.mes.desp[c] || 0, dre.ano.desp[c] || 0, dre.total.desp[c], { recuo: true })).join('') +
-    linhaDre('(−) Despesas', dre.mes.somaDesp, dre.ano.somaDesp, dre.total.somaDesp, { forte: true }) +
+    dre.catsDesp.map((c) => linhaDre(esc(c), dre.mes.desp[c] || 0, dre.ano.desp[c] || 0, dre.total.desp[c],
+      { recuo: true, barra: Math.round(dre.total.desp[c] / maiorDesp * 100) })).join('') +
+    linhaDre('(-) Despesas', dre.mes.somaDesp, dre.ano.somaDesp, dre.total.somaDesp, { forte: true }) +
     linhaDre('(=) Resultado', dre.mes.resultado, dre.ano.resultado, dre.total.resultado, { forte: true, cor: true }) +
     '</tbody></table></div></div>';
 
   app.innerHTML =
     '<div class="filtros"><div class="chips">' +
       meses.map((m) => '<button class="chip' + (m === mes ? ' on' : '') + '" data-m="' + m + '">' + nomeMes(m) + '</button>').join('') +
-    '</div></div>' + avisoSemData +
+    '</div>' +
+      '<button class="btn primario" id="cx-desp">− Despesa</button>' +
+      '<button class="btn" id="cx-rece">+ Receita</button>' +
+    '</div>' +
+    avisoSemData + blocoVinculos +
     '<div class="paineis">' +
       '<div class="painel clicavel" data-lanc="entrada"><div class="rot">Entradas · ' + nomeMes(mes) + '</div><div class="num pos">' + fmt.brl(t.entradas) + '</div>' +
         '<div class="sub">carnês previam ' + fmt.brl(projecao) + '</div></div>' +
-      '<div class="painel clicavel" data-lanc="saida"><div class="rot">Saídas</div><div class="num neg">' + fmt.brl(t.saidas) + '</div></div>' +
-      '<div class="painel clicavel" data-lanc=""><div class="rot">Resultado</div><div class="num ' + (t.resultado >= 0 ? 'pos' : 'neg') + '">' + fmt.brl(t.resultado) + '</div></div>' +
-    '</div>' +
-    '<div class="paineis">' +
-      '<div class="painel"><div class="rot">Total entradas · desde o início</div><div class="num pos">' + fmt.brl(ac.entradas) + '</div></div>' +
-      '<div class="painel"><div class="rot">Total saídas</div><div class="num neg">' + fmt.brl(ac.saidas) + '</div></div>' +
-      '<div class="painel"><div class="rot">Resultado do empreendimento</div><div class="num ' + (ac.resultado >= 0 ? 'pos' : 'neg') + '">' + fmt.brl(ac.resultado) + '</div></div>' +
-    '</div>' +
-    '<div class="acoes-linha" style="margin:0 0 14px">' +
-      '<button class="btn primario" id="cx-desp">− Nova despesa</button>' +
-      '<button class="btn" id="cx-rece">+ Outra receita</button>' +
+      '<div class="painel clicavel" data-lanc="saida"><div class="rot">Saídas · ' + nomeMes(mes) + '</div><div class="num neg">' + fmt.brl(t.saidas) + '</div></div>' +
+      '<div class="painel clicavel" data-lanc=""><div class="rot">Resultado do mês</div><div class="num ' + (t.resultado >= 0 ? 'pos' : 'neg') + '">' + fmt.brl(t.resultado) + '</div></div>' +
+      '<div class="painel clicavel" id="pn-acum"><div class="rot">Caixa do empreendimento</div>' +
+        '<div class="num ' + (ac.resultado >= 0 ? 'pos' : 'neg') + '">' + fmt.brl(ac.resultado) + '</div>' +
+        '<div class="sub">' + fmt.brl(ac.entradas) + ' entraram · ' + fmt.brl(ac.saidas) + ' saíram</div></div>' +
     '</div>' +
     '<div class="cartao"><h2>' + ano + ' mês a mês</h2><div class="rolagem"><table class="tabela">' +
       '<thead><tr><th>Mês</th><th class="num">Entradas</th><th class="num">Saídas</th><th class="num">Resultado</th></tr></thead>' +
       '<tbody>' + tabelaAno + '<tr style="border-top:2px solid var(--borda);font-weight:800"><td>TOTAL</td>' +
       '<td class="num">' + fmt.brl(tAno.e) + '</td><td class="num">' + fmt.brl(tAno.s2) + '</td>' +
       '<td class="num">' + fmt.brl(tAno.e - tAno.s2) + '</td></tr></tbody></table></div></div>' +
-    blocoPrevisao + blocoDestino + blocoDre +
-    '<div class="cartao"><h2>Lançamentos de ' + nomeMes(mes) + ' <span class="nota">— ' + movs.length + ' · clique para editar/reclassificar</span></h2>' +
-      (movs.map((m) => '<div class="lin" ' + (m.col === 'cx' ? 'data-cx="' + esc(m.id) + '"' :
-          (m.vendaId ? 'data-venda="' + esc(m.vendaId) + '"' : 'style="cursor:default"')) + '>' +
-        '<div class="cresce"><b>' + esc(m.descricao) + '</b>' +
-        '<span class="sub">' + fmt.data(m.data) + ' · ' + esc(m.categoria) + (m.forma ? ' · ' + esc(m.forma) : '') + '</span></div>' +
-        '<span class="dinheiro" style="color:' + (m.entrada ? 'var(--verde)' : 'var(--ruim)') + '">' +
-          (m.entrada ? '+' : '−') + fmt.brl(m.valor) + '</span>' +
-        '</div>').join('') || '<p class="nota">Nenhum lançamento neste mês.</p>') +
-    '</div>';
+    '<div class="cartao clicavel" id="pn-prev" style="cursor:pointer"><h2 style="margin:0">🔭 Previsibilidade ' +
+      '<span class="nota">— próximos 12 meses: <b>' + fmt.brl(doze) + '</b> a receber dos carnês · vencido a cobrar <b style="color:var(--ruim)">' +
+      fmt.brl(arCaixa.vencido) + '</b> · o detalhe está nos Relatórios →</span></h2></div>' +
+    blocoDre +
+    '<div class="cartao clicavel" id="ver-lanc" style="cursor:pointer"><h2 style="margin:0">🧾 Lançamentos de ' + nomeMes(mes) +
+      ' <span class="nota">— ' + movimentosDoMes(mes).length + ' movimento(s) · ver, editar e reclassificar →</span></h2></div>';
 
+  /* ── handlers ── */
+  app.querySelectorAll('.chip[data-m], .mes-link').forEach((el) => {
+    el.onclick = (e) => { e.preventDefault(); TELAS._mesCaixa = el.dataset.m; TELAS.caixa(); };
+  });
+  document.getElementById('cx-desp').onclick = () => abrirLancamento('saida');
+  document.getElementById('cx-rece').onclick = () => abrirLancamento('entrada');
   app.querySelectorAll('.painel[data-lanc]').forEach((el) => {
     el.onclick = () => {
       TELAS._fLanc = { q: '', tipo: el.dataset.lanc, cat: '', mes };
       location.hash = '#/lancamentos';
     };
   });
-  app.querySelectorAll('.chip[data-m], .mes-link').forEach((el) => {
-    el.onclick = (e) => { e.preventDefault(); TELAS._mesCaixa = el.dataset.m; TELAS.caixa(); };
+  const pAc = document.getElementById('pn-acum');
+  if (pAc) pAc.onclick = () => { location.hash = '#/relatorios'; };
+  const pPrev = document.getElementById('pn-prev');
+  if (pPrev) pPrev.onclick = () => { location.hash = '#/relatorios'; };
+  const vLanc = document.getElementById('ver-lanc');
+  if (vLanc) vLanc.onclick = () => { TELAS._fLanc = { q: '', tipo: '', cat: '', mes }; location.hash = '#/lancamentos'; };
+  app.querySelectorAll('.vinc-lin').forEach((el) => {
+    el.onclick = () => {
+      const acao = el.dataset.acao;
+      if (acao === 'outros') { TELAS._fLanc = { q: '', tipo: 'saida', cat: 'Outros', mes: 'todos' }; location.hash = '#/lancamentos'; }
+      else if (acao === 'corretores') location.hash = '#/corretores';
+      else if (acao === 'cronograma') location.hash = '#/cronograma';
+    };
   });
   app.querySelectorAll('.cx-datar').forEach((b) => {
     b.onclick = async () => {
@@ -287,14 +264,6 @@ TELAS.caixa = function () {
       const d = await perguntarData('Quando foi "' + (c.descricao || '') + '" (' + fmt.brl(c.valor) + ')?');
       if (d) { salvar('cx', { id: c.id, data: d }); TELAS.caixa(); }
     };
-  });
-  document.getElementById('cx-desp').onclick = () => abrirLancamento('saida');
-  document.getElementById('cx-rece').onclick = () => abrirLancamento('entrada');
-  app.querySelectorAll('.lin[data-venda]').forEach((el) => {
-    el.onclick = () => { location.hash = '#/venda/' + el.dataset.venda; };
-  });
-  app.querySelectorAll('.lin[data-cx]').forEach((el) => {
-    el.onclick = () => abrirEdicaoLancamento(el.dataset.cx);
   });
   const bDre = document.getElementById('dre-pdf');
   if (bDre) bDre.onclick = () => { PDF.dre(dre, S.cfg || {}); toast('DRE em PDF gerado'); };
@@ -328,11 +297,15 @@ function abrirEdicaoLancamento(id, aoTerminar) {
     '</div>' +
     campo('Categoria', seletor('categoria', c.categoria || 'Outros', listaCats), 'é o que separa o DRE — estrutura, funcionário, comissão…') +
     (c.tipo === 'saida'
-      ? campo('Etapa do cronograma', seletor('etapaId', c.etapaId || '',
+      ? '<div id="le-cor" style="display:' + ((c.categoria || '') === 'Comissão' ? 'block' : 'none') + '">' +
+        campo('Corretor da comissão', seletor('corretorId', c.corretorId || '',
+          lista('corretor').map((c2) => ({ v: c2.id, t: c2.nome })), '— escolher —'),
+          (c.rateio && c.rateio.length ? 'este pagamento está DIVIDIDO (rateio) — mexa em Corretores' : 'vincula direto na conta dele')) + '</div>' +
+        campo('Etapa do cronograma', seletor('etapaId', c.etapaId || '',
           lista('etapa').map((e2) => ({ v: e2.id, t: e2.nome })), 'nenhuma'), 'soma no "pago" da etapa')
       : '') +
     campo('Observação', entrada('obs', c.obs || '')) + trilha;
-  abrirModal({
+  const fundoEd = abrirModal({
     titulo: (c.tipo === 'saida' ? 'Saída' : 'Receita') + ' — editar',
     corpo,
     acoes: [
@@ -368,10 +341,15 @@ function abrirEdicaoLancamento(id, aoTerminar) {
           const nomeEt = (achar('etapa', etapaNova) || {}).nome || 'nenhuma';
           mud.push('etapa → ' + nomeEt);
         }
+        const corNovo = (c.rateio && c.rateio.length) ? (c.corretorId || '')
+          : (v.categoria === 'Comissão' ? (v.corretorId != null ? v.corretorId : (c.corretorId || '')) : '');
+        if (corNovo !== (c.corretorId || '')) {
+          mud.push('corretor → ' + ((lista('corretor').find((x2) => x2.id === corNovo) || {}).nome || 'nenhum'));
+        }
         if (!mud.length) { fecharSilencioso(fundo); return; }
         salvar('cx', {
           id: c.id, valor, data: v.data, forma: v.forma, categoria: v.categoria,
-          etapaId: etapaNova,
+          etapaId: etapaNova, corretorId: corNovo,
           descricao: desc, obs: String(v.obs || '').slice(0, 300),
           historico: historiar(c, 'Editou: ' + mud.join('; ')),
         });
@@ -380,6 +358,11 @@ function abrirEdicaoLancamento(id, aoTerminar) {
         depois();
       } },
     ],
+  });
+  const selCatEd = fundoEd.querySelector('[data-campo="categoria"]');
+  const divCorEd = fundoEd.querySelector('#le-cor');
+  if (selCatEd && divCorEd) selCatEd.addEventListener('input', () => {
+    divCorEd.style.display = selCatEd.value === 'Comissão' ? 'block' : 'none';
   });
 }
 
@@ -397,11 +380,16 @@ function abrirLancamento(tipo, aoTerminar, etapaPre) {
       campo('Forma', seletor('forma', 'PIX', (S.cfg && S.cfg.formasPg) || ['PIX'])) +
     '</div>' +
     campo('Categoria', seletor('categoria', cats[0], cats)) +
+    (tipo === 'saida'
+      ? '<div id="lc-cor" style="display:' + (cats[0] === 'Comissão' ? 'block' : 'none') + '">' +
+        campo('Corretor da comissão', seletor('corretorId', '', lista('corretor').map((c2) => ({ v: c2.id, t: c2.nome })), '— escolher —'),
+          'vincula direto na conta dele') + '</div>'
+      : '') +
     (etapasVivas.length
       ? campo('Etapa do cronograma', seletor('etapaId', etapaPre || '', etapasVivas.map((e) => ({ v: e.id, t: e.nome })), 'nenhuma'), 'soma no "pago" da etapa')
       : '') +
     campo('Observação', entrada('obs', ''));
-  abrirModal({
+  const fundoNv = abrirModal({
     titulo: tipo === 'saida' ? 'Nova despesa' : 'Outra receita',
     corpo,
     acoes: [
@@ -414,6 +402,7 @@ function abrirLancamento(tipo, aoTerminar, etapaPre) {
         salvar('cx', {
           tipo, valor, data: c.data, forma: c.forma, categoria: c.categoria,
           etapaId: c.etapaId || '',
+          corretorId: c.categoria === 'Comissão' ? (c.corretorId || '') : '',
           descricao: c.descricao.trim().slice(0, 200), obs: String(c.obs || '').slice(0, 300),
         });
         fecharSilencioso(fundo);
@@ -421,6 +410,12 @@ function abrirLancamento(tipo, aoTerminar, etapaPre) {
         depois();
       } },
     ],
+  });
+  // categoria Comissão → mostra o corretor (vínculo na origem, não depois)
+  const selCatNv = fundoNv.querySelector('[data-campo="categoria"]');
+  const divCorNv = fundoNv.querySelector('#lc-cor');
+  if (selCatNv && divCorNv) selCatNv.addEventListener('input', () => {
+    divCorNv.style.display = selCatNv.value === 'Comissão' ? 'block' : 'none';
   });
 }
 
