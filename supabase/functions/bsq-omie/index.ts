@@ -369,9 +369,22 @@ Deno.serve(async (req) => {
         const pendAntes: any[] = (body.pagina && body.pagina > 1 && meta?.pendenciasParciais) || [];
         const pendTotal = [...pendAntes, ...pendNovas];
         if (terminou) {
+          // Pendência não pode morrer calada: a rodada COMPLETA revê tudo e
+          // substitui a lista; a incremental só ACRESCENTA (união por título).
+          // Some a que já virou lançamento (o cxomie- dela existe vivo).
+          let pendFinal = pendTotal;
+          if (!completa) {
+            const antigas = (meta?.pendencias || []).filter((a: any) =>
+              !pendTotal.some((n: any) => n.titulo === a.titulo));
+            pendFinal = [...antigas, ...pendTotal];
+          }
+          pendFinal = pendFinal.filter((pnd: any) => {
+            const cx = cxPorId.get("cxomie-" + pnd.titulo);
+            return !cx || cx.apagadoEm;
+          });
           await gravarMeta("omie_sync", {
             quando: agora(), por, completa, corte, contagens: cont,
-            pendencias: pendTotal.slice(0, 60),
+            pendencias: pendFinal.slice(0, 60),
           });
           await registrarLog({ acao: "sincronizou com o Omie", por, ...cont });
         } else {
