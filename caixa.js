@@ -228,6 +228,8 @@ TELAS.caixa = function () {
       '<tbody>' + tabelaAno + '<tr style="border-top:2px solid var(--borda);font-weight:800"><td>TOTAL</td>' +
       '<td class="num">' + fmt.brl(tAno.e) + '</td><td class="num">' + fmt.brl(tAno.s2) + '</td>' +
       '<td class="num">' + fmt.brl(tAno.e - tAno.s2) + '</td></tr></tbody></table></div></div>' +
+    '<div class="cartao clicavel" id="pn-conf" style="cursor:pointer"><h2 style="margin:0">🔁 Conferência ' +
+      '<span class="nota">— sistema × Omie lado a lado: entradas, saídas, clientes e carnês. O que não bate aparece →</span></h2></div>' +
     '<div class="cartao clicavel" id="pn-prev" style="cursor:pointer"><h2 style="margin:0">🔭 Previsibilidade ' +
       '<span class="nota">— próximos 12 meses: <b>' + fmt.brl(doze) + '</b> a receber dos carnês · vencido a cobrar <b style="color:var(--ruim)">' +
       fmt.brl(arCaixa.vencido) + '</b> · o detalhe está nos Relatórios →</span></h2></div>' +
@@ -265,6 +267,8 @@ TELAS.caixa = function () {
   })();
   const pPrev = document.getElementById('pn-prev');
   if (pPrev) pPrev.onclick = () => { location.hash = '#/relatorios'; };
+  const pConf = document.getElementById('pn-conf');
+  if (pConf) pConf.onclick = () => { location.hash = '#/conferencia'; };
   const vLanc = document.getElementById('ver-lanc');
   if (vLanc) vLanc.onclick = () => { TELAS._fLanc = { q: '', tipo: '', cat: '', mes }; location.hash = '#/lancamentos'; };
   app.querySelectorAll('.vinc-lin').forEach((el) => {
@@ -499,7 +503,9 @@ TELAS.lancamentos = function () {
       (x.col === 'rec' ? ' data-venda="' + esc(x.vendaId) + '"' : '') + ' style="cursor:pointer">' +
     '<td style="white-space:nowrap;color:var(--tinta-fraca)">' + (x.data ? fmt.data(x.data).slice(0, 5) : '⚠ s/data') + '</td>' +
     '<td><b>' + esc(x.descricao) + '</b>' + (x.codigo ? ' <span class="nota">' + esc(x.codigo) + '</span>' : '') +
-      '<br><span class="nota">' + esc(x.categoria) + (x.origem === 'omie' && x.criadoPor !== 'omie' ? ' · <b>omie</b>' : '') + (x.forma ? ' · ' + esc(x.forma) : '') +
+      '<br><span class="nota">' + esc(x.categoria) +
+      (x.origem === 'omie' && x.criadoPor !== 'omie' ? ' · <b>omie</b>' : x.origem === 'planilha' ? ' · 📄 planilha' : '') +
+      (x.forma ? ' · ' + esc(x.forma) : '') +
       ' · ' + esc(x.criadoPor) + (x.nHist ? ' · ✏️' + x.nHist : '') +
       (x.obs ? ' · ' + esc(x.obs) : '') + '</span></td>' +
     '<td class="num" style="font-weight:700;color:' + (x.entrada ? 'var(--verde)' : 'var(--ruim)') + '">' +

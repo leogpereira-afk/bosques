@@ -376,6 +376,71 @@ Deno.serve(async (req) => {
           pendencias: terminou ? pendTotal.slice(0, 60) : undefined });
       }
 
+      /* ── conferência: o retrato agregado do Omie para bater com o sistema ── */
+      // Varre TODOS os movimentos (paginado entre chamadas, como a sync) e
+      // agrega: entradas/saídas por mês, recebido por cliente e o desenho do
+      // carnê de cada CPF (valor típico, dia, futuras, vencido em aberto).
+      // Fica 12h no cache — a tela mostra o guardado e pede rodada nova quando
+      // envelhece. O corpo viaja em `parcial` entre as chamadas.
+      case "conferencia": {
+        const meta = await lerMeta("omie_conferencia");
+        if (!body.forcar && !body.pagina && meta?.quando &&
+            Date.now() - new Date(meta.quando).getTime() < 12 * 3600e3) {
+          return json({ ok: true, ...meta, cache: true });
+        }
+        const hoje = agora().slice(0, 10);
+        const ag = body.parcial || { porMes: {}, porCliente: {}, carnes: {} };
+        const POR_CHAMADA = 15;
+        let pagina = Number(body.pagina) || 1;
+        let totPaginas = pagina;
+        const fim = pagina + POR_CHAMADA;
+        while (pagina < fim) {
+          const r = await omie("financas/mf", "ListarMovimentos", { nPagina: pagina, nRegPorPagina: 100 });
+          totPaginas = r.nTotPaginas || 1;
+          for (const mov of r.movimentos || []) {
+            const d = mov.detalhes || {}; const res = mov.resumo || {};
+            const grupo = d.cGrupo || "";
+            if (grupo === "CONTA_A_PAGAR" && d.cStatus === "PAGO" && res.cLiquidado === "S") {
+              const mes = brParaISO(d.dDtPagamento).slice(0, 7);
+              if (!ag.porMes[mes]) ag.porMes[mes] = { cr: 0, cp: 0 };
+              ag.porMes[mes].cp += Number(res.nValPago) || 0;
+              continue;
+            }
+            if (grupo !== "CONTA_A_RECEBER" || d.cStatus === "CANCELADO") continue;
+            const cpf = soDigitos(d.cCPFCNPJCliente);
+            if (d.cStatus === "RECEBIDO" && res.cLiquidado === "S") {
+              const mes = brParaISO(d.dDtPagamento).slice(0, 7);
+              if (!ag.porMes[mes]) ag.porMes[mes] = { cr: 0, cp: 0 };
+              ag.porMes[mes].cr += Number(res.nValPago) || 0;
+              ag.porCliente[cpf] = (ag.porCliente[cpf] || 0) + (Number(res.nValPago) || 0);
+              continue;
+            }
+            // título vivo em aberto: desenha o carnê real do cliente
+            const venc = brParaISO(d.dDtVenc);
+            const valor = Math.round((Number(d.nValorTitulo) || 0) * 100) / 100;
+            if (!ag.carnes[cpf]) ag.carnes[cpf] = { valores: {}, dias: {}, futuros: 0, vencidoAberto: 0 };
+            const c = ag.carnes[cpf];
+            if (venc >= hoje) {
+              c.futuros += 1;
+              c.valores[valor] = (c.valores[valor] || 0) + 1;
+              c.dias[venc.slice(8, 10)] = (c.dias[venc.slice(8, 10)] || 0) + 1;
+            } else {
+              c.vencidoAberto += Number(res.nValAberto) || valor;
+            }
+          }
+          if (pagina >= totPaginas) { pagina = 0; break; }
+          pagina += 1;
+        }
+        if (pagina !== 0) return json({ ok: true, continua: pagina, parcial: ag });
+        // arredonda e guarda
+        for (const m of Object.values(ag.porMes) as any[]) { m.cr = Math.round(m.cr * 100) / 100; m.cp = Math.round(m.cp * 100) / 100; }
+        for (const k of Object.keys(ag.porCliente)) ag.porCliente[k] = Math.round(ag.porCliente[k] * 100) / 100;
+        for (const c of Object.values(ag.carnes) as any[]) c.vencidoAberto = Math.round(c.vencidoAberto * 100) / 100;
+        const novo = { quando: agora(), ...ag };
+        await gravarMeta("omie_conferencia", novo);
+        return json({ ok: true, ...novo });
+      }
+
       /* ── saldos: quanto tem em cada conta, segundo o Omie ────────────────── */
       // O saldo vem do extrato do dia (nSaldoAtual). Carência de 30 minutos no
       // servidor para o Caixa poder perguntar sempre sem martelar o Omie.

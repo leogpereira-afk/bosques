@@ -12,6 +12,8 @@ const ROTAS = {
   propostas:  { titulo: 'Propostas',     ic: '📨' },
   caixa:      { titulo: 'Caixa',         ic: '💰' },
   lancamentos: { titulo: 'Lançamentos',  ic: '🧾' },
+  conferencia: { titulo: 'Conferência',  ic: '🔁' },
+  simulacao:  { titulo: 'Simulação',     ic: '🧮', oculta: true }, // vive dentro de Vendas
   relatorios: { titulo: 'Relatórios',   ic: '📊' },
   cronograma: { titulo: 'Cronograma',   ic: '🏗️' },
   apresentacao: { titulo: 'Apresentação', ic: '🏞️' },
@@ -25,8 +27,8 @@ const ROTAS = {
 // oferecer o que a pessoa não pode abrir.
 function rotasDoPerfil() {
   if (S.perfil === 'corretor') return ['espelho', 'propostas', 'apresentacao'];
-  if (S.perfil === 'escritorio') return ['home', 'espelho', 'vendas', 'propostas', 'caixa', 'lancamentos', 'relatorios', 'cronograma', 'clientes', 'corretores', 'apresentacao'];
-  return ['home', 'espelho', 'vendas', 'propostas', 'caixa', 'lancamentos', 'relatorios', 'cronograma', 'clientes', 'corretores', 'apresentacao', 'config'];
+  if (S.perfil === 'escritorio') return ['home', 'espelho', 'vendas', 'propostas', 'caixa', 'lancamentos', 'conferencia', 'relatorios', 'cronograma', 'clientes', 'corretores', 'apresentacao'];
+  return ['home', 'espelho', 'vendas', 'propostas', 'caixa', 'lancamentos', 'conferencia', 'relatorios', 'cronograma', 'clientes', 'corretores', 'apresentacao', 'config'];
 }
 
 function rotaAtual() {
@@ -93,7 +95,7 @@ function render() {
   const { nome, id } = rotaAtual();
   renderLateral();
   renderTopo();
-  const rotas = rotasDoPerfil().concat(['lote', 'venda', 'comissoes']);
+  const rotas = rotasDoPerfil().concat(['lote', 'venda', 'comissoes', 'simulacao']);
   const tela = rotas.includes(nome) && TELAS[nome] ? TELAS[nome] : null;
   if (tela) tela(id);
   else location.hash = '#/' + rotasDoPerfil()[0];

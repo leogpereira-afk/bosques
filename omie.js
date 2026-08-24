@@ -177,3 +177,169 @@ function abrirSaldosOmie(dados, caixaSistema) {
     acoes: [{ texto: 'Fechar', aoClicar: () => fecharModal() }],
   });
 }
+
+/* ── Conferência: sistema × Omie, lado a lado ─────────────────────────────────
+   O comparativo pesado: entradas e saídas mês a mês, recebido por cliente e o
+   desenho de cada carnê × o contrato que está no Omie. O agregado do Omie vem
+   da função (cache de 12h no servidor); o lado do sistema é calculado aqui. */
+const K_OMIE_CONF = 'bsq_omie_conf';
+
+async function conferenciaOmie(forcar) {
+  let body = forcar ? { forcar: true } : {};
+  let r = null;
+  for (let volta = 0; volta < 15; volta++) {
+    r = await apiOmie('conferencia', body, { prazoMs: 280000 });
+    if (!r.ok) throw new Error(r.error || 'o Omie não respondeu');
+    if (!r.continua) break;
+    body = { pagina: r.continua, parcial: r.parcial };
+    const el = document.getElementById('cf-omie-progresso');
+    if (el) el.textContent = 'conferindo o Omie… (parte ' + Math.ceil(r.continua / 15) + ')';
+  }
+  const dados = { quando: r.quando, porMes: r.porMes, porCliente: r.porCliente, carnes: r.carnes };
+  localStorage.setItem(K_OMIE_CONF, JSON.stringify(dados));
+  return dados;
+}
+
+TELAS.conferencia = function () {
+  const app = document.getElementById('app');
+  let dados = null;
+  try { dados = JSON.parse(localStorage.getItem(K_OMIE_CONF) || 'null'); } catch { dados = null; }
+
+  const desenhar = (d) => {
+    if (!d) {
+      app.innerHTML = '<div class="cartao"><h2>🔁 Conferência sistema × Omie</h2>' +
+        '<p class="nota" id="cf-omie-progresso">buscando o retrato do Omie — a primeira vez varre tudo e demora uns minutos…</p></div>';
+      return;
+    }
+    const so = (x) => String(x || '').replace(/\D/g, '');
+
+    // ── lado do sistema ──────────────────────────────────────────────────────
+    const sisMes = {};   // mes → {e, s}
+    const marca = (mes, campo, v) => {
+      if (!/^\d{4}-\d{2}$/.test(mes)) return;
+      if (!sisMes[mes]) sisMes[mes] = { e: 0, s: 0 };
+      sisMes[mes][campo] += v;
+    };
+    const DESDE = '2026-03';   // quando o Omie começou
+    const sisCli = {};
+    const vendasPorCpf = {};
+    for (const v of lista('venda')) {
+      const cpf = so(v.clienteId);
+      (vendasPorCpf[cpf] = vendasPorCpf[cpf] || []).push(v);
+    }
+    for (const r of lista('rec')) {
+      marca(mesDe(r.data), 'e', Number(r.valor) || 0);
+      const v = achar('venda', r.vendaId);
+      if (v && (r.data || '') >= DESDE + '-01') {
+        const cpf = so(v.clienteId);
+        sisCli[cpf] = (sisCli[cpf] || 0) + (Number(r.valor) || 0);
+      }
+    }
+    for (const c of lista('cx')) {
+      marca(mesDe(c.data), c.tipo === 'entrada' ? 'e' : 's', Number(c.valor) || 0);
+      if (c.tipo === 'entrada' && c.vendaId && (c.data || '') >= DESDE + '-01') {
+        const v = achar('venda', c.vendaId);
+        if (v) { const cpf = so(v.clienteId); sisCli[cpf] = (sisCli[cpf] || 0) + (Number(c.valor) || 0); }
+      }
+    }
+
+    // ── mês a mês ────────────────────────────────────────────────────────────
+    const meses = [...new Set([...Object.keys(d.porMes || {}), ...Object.keys(sisMes).filter((m) => m >= DESDE)])].sort();
+    const linhaMes = (mes, sis, om) => {
+      const dif = Math.round((om - sis) * 100) / 100;
+      const cor = Math.abs(dif) < 1 ? 'var(--tinta-fraca)' : dif > 0 ? 'var(--ruim)' : 'var(--verde)';
+      return '<tr><td>' + nomeMes(mes) + '</td><td class="num">' + fmt.brl(sis) + '</td>' +
+        '<td class="num">' + fmt.brl(om) + '</td>' +
+        '<td class="num" style="font-weight:700;color:' + cor + '">' + (dif > 0 ? '+' : '') + fmt.brl(dif) + '</td></tr>';
+    };
+    const tabelaMes = (rot, campo, omCampo) =>
+      '<div class="cartao"><h2>' + rot + ' <span class="nota">— sistema × Omie, mês a mês</span></h2>' +
+      '<div class="rolagem"><table class="tabela"><thead><tr><th>Mês</th><th class="num">Sistema</th><th class="num">Omie</th><th class="num">Diferença</th></tr></thead><tbody>' +
+      meses.map((m) => linhaMes(m, (sisMes[m] || { e: 0, s: 0 })[campo], ((d.porMes || {})[m] || { cr: 0, cp: 0 })[omCampo])).join('') +
+      (() => {
+        const ts = meses.reduce((s, m) => s + (sisMes[m] || { e: 0, s: 0 })[campo], 0);
+        const to = meses.reduce((s, m) => s + (((d.porMes || {})[m] || { cr: 0, cp: 0 })[omCampo]), 0);
+        return '<tr style="border-top:2px solid var(--borda);font-weight:800"><td>TOTAL</td><td class="num">' + fmt.brl(ts) +
+          '</td><td class="num">' + fmt.brl(to) + '</td><td class="num">' + (to - ts > 0 ? '+' : '') + fmt.brl(Math.round((to - ts) * 100) / 100) + '</td></tr>';
+      })() + '</tbody></table></div>' +
+      '<p class="nota">Diferença <b style="color:var(--ruim)">vermelha</b>: o Omie viu dinheiro que o sistema não tem (falta registrar aqui). ' +
+      '<b style="color:var(--verde)">Verde</b>: o sistema tem além do Omie (dinheiro fora do banco — PIX direto, espécie — ou registro dobrado).</p></div>';
+
+    // ── por cliente ──────────────────────────────────────────────────────────
+    const cpfs = [...new Set([...Object.keys(d.porCliente || {}), ...Object.keys(sisCli)])];
+    const divCli = cpfs.map((cpf) => {
+      const sis = Math.round((sisCli[cpf] || 0) * 100) / 100;
+      const om = (d.porCliente || {})[cpf] || 0;
+      const vs = vendasPorCpf[cpf] || [];
+      const nome = (vs[0] && vs[0].clienteNome) || (achar('cliente', cpf) || {}).nome || 'CPF ' + cpf;
+      return { cpf, nome, sis, om, dif: Math.round((om - sis) * 100) / 100, vendas: vs };
+    }).filter((x) => Math.abs(x.dif) > 1).sort((a, b) => Math.abs(b.dif) - Math.abs(a.dif));
+    const blocoCli =
+      '<div class="cartao"><h2>Recebido por cliente <span class="nota">— desde março, ' + divCli.length + ' divergência(s)</span></h2>' +
+      (divCli.length ? '<div class="rolagem"><table class="tabela"><thead><tr><th>Cliente</th><th class="num">Sistema</th><th class="num">Omie</th><th class="num">Diferença</th></tr></thead><tbody>' +
+        divCli.map((x) =>
+          '<tr class="cfc-lin" data-venda="' + esc(x.vendas.length === 1 ? x.vendas[0].id : '') + '" style="cursor:' + (x.vendas.length ? 'pointer' : 'default') + '">' +
+          '<td><b>' + esc(x.nome) + '</b>' + (x.vendas.length ? ' <span class="nota">' + x.vendas.map((v) => v.codigo).join(' ') + '</span>' : ' <span class="nota">sem venda no sistema!</span>') + '</td>' +
+          '<td class="num">' + fmt.brl(x.sis) + '</td><td class="num">' + fmt.brl(x.om) + '</td>' +
+          '<td class="num" style="font-weight:700;color:' + (x.dif > 0 ? 'var(--ruim)' : 'var(--verde)') + '">' + (x.dif > 0 ? '+' : '') + fmt.brl(x.dif) + '</td></tr>').join('') +
+        '</tbody></table></div>' : '<p class="nota">Tudo batendo, centavo a centavo.</p>') + '</div>';
+
+    // ── carnê × contrato ─────────────────────────────────────────────────────
+    const modal = (obj) => {
+      let melhor = null, n = -1;
+      for (const [k, v] of Object.entries(obj || {})) if (v > n) { n = v; melhor = k; }
+      return melhor;
+    };
+    const divCarne = [];
+    for (const [cpf, om] of Object.entries(d.carnes || {})) {
+      const vs = (vendasPorCpf[cpf] || []).filter((v) => ['ativa', 'conferir'].includes(v.situacao || 'ativa'));
+      if (!vs.length) continue;
+      const fut = [];
+      for (const v of vs) for (const l of CARNE.gerarParcelas(v, cfgReajuste())) {
+        if (l.n > 0 && l.venc >= hojeISO()) fut.push(l);
+      }
+      const contag = {};
+      for (const l of fut) { const k = String(Math.round(l.valor * 100) / 100); contag[k] = (contag[k] || 0) + 1; }
+      const valSis = Number(modal(contag)) || 0;
+      const valOm = Number(modal(om.valores)) || 0;
+      const diaSis = modal(fut.reduce((o, l) => { const k = l.venc.slice(8, 10); o[k] = (o[k] || 0) + 1; return o; }, {}));
+      const diaOm = modal(om.dias);
+      const probs = [];
+      if (valOm && Math.abs(valSis - valOm) > 0.02) probs.push('parcela: sistema ' + fmt.brl(valSis) + ' × Omie ' + fmt.brl(valOm));
+      if (diaOm && diaSis !== diaOm) probs.push('vence dia ' + diaSis + ' aqui, dia ' + diaOm + ' no Omie');
+      if (Math.abs(fut.length - om.futuros) > 2) probs.push('faltam ' + fut.length + ' parcelas aqui, ' + om.futuros + ' lá');
+      if (probs.length) divCarne.push({ nome: vs[0].clienteNome || '', vendas: vs, probs });
+    }
+    const blocoCarne =
+      '<div class="cartao"><h2>Carnê × contrato no Omie <span class="nota">— ' + divCarne.length + ' venda(s) com o desenho diferente</span></h2>' +
+      (divCarne.length ? '<p class="nota">O boleto que o cliente paga é o do Omie. Se o valor de lá é outro, o carnê daqui ' +
+        '(que veio da planilha) está desatualizado — corrija a venda ou me avise qual regra vale.</p>' +
+        divCarne.map((x) =>
+          '<div class="lin cfc-lin" data-venda="' + esc(x.vendas.length === 1 ? x.vendas[0].id : '') + '">' +
+          '<div class="cresce"><b>' + esc(x.nome) + '</b> <span class="nota">' + x.vendas.map((v) => v.codigo).join(' ') + '</span>' +
+          '<span class="sub">' + x.probs.map(esc).join(' · ') + '</span></div><span class="nota">abrir →</span></div>').join('')
+        : '<p class="nota">Todos os carnês batem com os contratos do Omie.</p>') + '</div>';
+
+    app.innerHTML =
+      '<div class="cartao"><h2>🔁 Conferência sistema × Omie</h2>' +
+      '<p class="nota">Conferido ' + fmt.quando(d.quando) + ' · <b>sistema</b> = planilha importada + lançamentos daqui · ' +
+      '<b>Omie</b> = o que de fato passou pelos boletos e contas. ' +
+      '<a href="#" id="cf-omie-atualizar">atualizar agora</a> <span id="cf-omie-progresso"></span></p></div>' +
+      tabelaMes('↑ Entradas', 'e', 'cr') + tabelaMes('↓ Saídas', 's', 'cp') + blocoCli + blocoCarne;
+
+    const at = document.getElementById('cf-omie-atualizar');
+    if (at) at.onclick = async (ev) => {
+      ev.preventDefault();
+      at.textContent = 'atualizando…';
+      try { desenhar(await conferenciaOmie(true)); } catch (e) { toast(e.message || 'Não deu agora', 'ruim'); }
+    };
+    app.querySelectorAll('.cfc-lin').forEach((el) => {
+      el.onclick = () => { if (el.dataset.venda) location.hash = '#/venda/' + el.dataset.venda; };
+    });
+  };
+
+  desenhar(dados);
+  // Busca (ou renova) em segundo plano e redesenha por cima.
+  conferenciaOmie(false).then((d) => { if (location.hash.includes('conferencia')) desenhar(d); })
+    .catch(() => { if (!dados) desenhar(null); });
+};

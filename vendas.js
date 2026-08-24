@@ -200,12 +200,14 @@ TELAS.vendas = function () {
           .map(([v2, t]) => '<option value="' + v2 + '"' + (filtro.sit === v2 ? ' selected' : '') + '>' + t + '</option>').join('') + '</select>' +
       '<button class="chip' + (filtro.so === 'atraso' ? ' on' : '') + '" id="vd-atraso">só atraso</button>' +
       '<button class="btn mini" id="vd-pdf" title="baixa o retrato do que está na tela — filtrou, sai só o filtrado">📄 PDF</button>' +
+      '<button class="btn mini" id="vd-sim" title="e se eu vender mais X chácaras?">🧮 Simulação</button>' +
       (emAtraso.length ? '<button class="btn mini primario" id="vd-fila">📣 Cobrar em série (' + emAtraso.length + ')</button>' : '') +
     '</div>' +
     ((filtro.q || filtro.sit || filtro.so)
       ? (filtradas.map(linhaVenda).join('') || vazio('🔍', 'Nada com esse filtro'))
       : cartaoMensal);
 
+  document.getElementById('vd-sim').onclick = () => { location.hash = '#/simulacao'; };
   document.getElementById('vd-pdf').onclick = () => {
     // O recorte sai ESCRITO no papel: um PDF filtrado sem dizer o filtro
     // viraria "o total" na reunião.
@@ -367,7 +369,8 @@ TELAS.venda = function (id) {
       '<div class="cresce"><b>' + fmt.brl(rc.valor) + ' <span class="nota">' + esc(rc.codigo || '') + '</span></b>' +
       '<span class="sub">' + fmt.data(rc.data) + ' · ' + esc(rc.forma || '') +
         (rc.tipo === 'entrada' ? ' · entrada' : rc.parcelaN ? ' · parcela ' + rc.parcelaN : '') +
-        (rc.obs ? ' · ' + esc(rc.obs) : '') + ' · por ' + esc(rc.criadoPor || rc.atualizadoPor || '—') + '</span></div>' +
+        (rc.obs ? ' · ' + esc(rc.obs) : '') + ' · por ' + esc(rc.criadoPor || rc.atualizadoPor || '—') +
+        (rc.origem === 'omie' ? ' · <b>🔗 omie</b>' : rc.origem === 'planilha' ? ' · 📄 planilha' : ' · ✍️ manual') + '</span></div>' +
       '<button class="btn mini bt-recibo" data-id="' + esc(rc.id) + '">recibo</button>' +
       (viva ? '<button class="btn mini perigo bt-estorno" data-id="' + esc(rc.id) + '">estornar</button>' : '') +
     '</div>').join('');
@@ -725,3 +728,116 @@ function abrirFichaProposta(id) {
   }
   abrirModal({ titulo: 'Proposta ' + (p.codigo || ''), corpo, acoes });
 }
+
+/* ── Simulação de vendas: "e se eu vender mais X chácaras?" ──────────────────
+   Cenário por cima do que já existe: quantas a mais, por quanto, em que ritmo
+   — e o fluxo projetado soma os carnês ATUAIS com as vendas imaginadas.
+   Projeção de contrato, não promessa: inadimplência não entra aqui. */
+TELAS.simulacao = function () {
+  const app = document.getElementById('app');
+  const disp = lista('lote').filter((l) => l.status === 'Disponível');
+  const mediaPreco = disp.length ? Math.round(disp.reduce((s, l) => s + (Number(l.preco) || 0), 0) / disp.length) : 45000;
+  const mediaParc = disp.length ? Math.round(disp.reduce((s, l) => s + (Number(l.parcFixa) || 0), 0) / disp.length * 100) / 100 : 450;
+
+  const f = TELAS._sim || {
+    qtde: 5, preco: mediaPreco, entrada: (S.cfg && S.cfg.entradaPadrao) || 3000,
+    parcelas: 150, parcela: mediaParc, porMes: 1, tipo: 'Fixa', horizonte: 12,
+  };
+  TELAS._sim = f;
+
+  // ── o cenário ─────────────────────────────────────────────────────────────
+  const n = Math.max(0, Math.round(numeroBR(f.qtde)));
+  const preco = numeroBR(f.preco), entradaV = numeroBR(f.entrada);
+  const nParc = Math.max(1, Math.round(numeroBR(f.parcelas)));
+  const valParc = numeroBR(f.parcela);
+  const porMes = Math.max(1, Math.round(numeroBR(f.porMes)));
+  const H = Number(f.horizonte) || 12;
+  const reaj = cfgReajuste();
+
+  // fluxo novo: entrada no mês da venda, parcelas nos seguintes (com degraus se Reajustada)
+  const novoPorMes = new Array(H).fill(0);
+  let vgvNovo = 0;
+  for (let i = 0; i < n; i++) {
+    const mesVenda = Math.floor(i / porMes);          // 0 = mês que vem
+    if (mesVenda < H) novoPorMes[mesVenda] += entradaV;
+    vgvNovo += entradaV;
+    for (let pnum = 1; pnum <= nParc; pnum++) {
+      const degrau = f.tipo === 'Reajustada' ? Math.floor((pnum - 1) / (reaj.aCada || 12)) : 0;
+      const v = Math.round(valParc * Math.pow(1 + (reaj.pct || 6) / 100, degrau) * 100) / 100;
+      vgvNovo += v;
+      const m = mesVenda + pnum;
+      if (m < H) novoPorMes[m] += v;
+    }
+  }
+
+  // fluxo atual: o que os carnês vivos já prometem, mês a mês
+  const ar = aReceberPorMes();
+  const mesesH = [];
+  {
+    const d = new Date(hojeISO() + 'T12:00:00');
+    for (let i = 0; i < H; i++) {
+      const dt = new Date(d.getFullYear(), d.getMonth() + 1 + i, 1);
+      mesesH.push(dt.getFullYear() + '-' + String(dt.getMonth() + 1).padStart(2, '0'));
+    }
+  }
+  const atualH = mesesH.map((m) => ar.porMes[m] || 0);
+  const somaAtual = atualH.reduce((s, v) => s + v, 0);
+  const somaNovo = novoPorMes.reduce((s, v) => s + v, 0);
+  const recebNovoH = somaNovo;
+
+  const linhas = mesesH.map((m, i) =>
+    '<tr><td>' + nomeMes(m) + '</td><td class="num">' + fmt.brl(atualH[i]) + '</td>' +
+    '<td class="num" style="color:var(--verde)">' + (novoPorMes[i] ? '+' + fmt.brl(novoPorMes[i]) : '—') + '</td>' +
+    '<td class="num" style="font-weight:700">' + fmt.brl(atualH[i] + novoPorMes[i]) + '</td></tr>').join('');
+
+  const campoSim = (rot, nome, valor, dica) =>
+    '<div class="campo"><label>' + esc(rot) + '</label>' +
+    '<input id="sm-' + nome + '" value="' + esc(String(valor)) + '" inputmode="decimal">' +
+    (dica ? '<div class="dica">' + dica + '</div>' : '') + '</div>';
+
+  app.innerHTML =
+    '<a class="nota" href="#/vendas">← vendas</a>' +
+    '<div class="cartao"><h2>🧮 Simulação de vendas <span class="nota">— e se eu vender mais…</span></h2>' +
+    '<div class="colunas-3">' +
+      campoSim('Quantas chácaras a mais', 'qtde', f.qtde, disp.length + ' disponíveis no espelho') +
+      campoSim('Preço médio (R$)', 'preco', f.preco, 'média dos disponíveis: ' + fmt.brl(mediaPreco)) +
+      campoSim('Vendendo quantas por mês', 'porMes', f.porMes, '1 = uma por mês, a partir do mês que vem') +
+    '</div><div class="colunas-3">' +
+      campoSim('Entrada por venda (R$)', 'entrada', f.entrada) +
+      campoSim('Parcelas', 'parcelas', f.parcelas) +
+      campoSim('Valor da parcela (R$)', 'parcela', f.parcela, 'média de tabela dos disponíveis: ' + fmt.brl(mediaParc)) +
+    '</div><div class="colunas-3">' +
+      '<div class="campo"><label>Tipo de parcela</label><select id="sm-tipo">' +
+        ['Fixa', 'Reajustada'].map((t) => '<option' + (f.tipo === t ? ' selected' : '') + '>' + t + '</option>').join('') +
+      '</select><div class="dica">Reajustada: +' + (reaj.pct || 6) + '% a cada ' + (reaj.aCada || 12) + ' parcelas</div></div>' +
+      '<div class="campo"><label>Horizonte</label><select id="sm-horizonte">' +
+        [[12, '12 meses'], [24, '24 meses'], [36, '36 meses']].map(([v, t]) =>
+          '<option value="' + v + '"' + (H === v ? ' selected' : '') + '>' + t + '</option>').join('') +
+      '</select></div>' +
+    '</div></div>' +
+
+    '<div class="paineis">' +
+      '<div class="painel"><div class="rot">Faturamento das vendas novas (VGV)</div><div class="num pos">' + fmt.brl(vgvNovo) + '</div>' +
+        '<div class="sub">' + n + ' venda(s) · contratos completos</div></div>' +
+      '<div class="painel"><div class="rot">Entra no caixa em ' + H + ' meses</div><div class="num pos">+' + fmt.brl(recebNovoH) + '</div>' +
+        '<div class="sub">só das vendas novas</div></div>' +
+      '<div class="painel"><div class="rot">Recebimento total no horizonte</div><div class="num">' + fmt.brl(somaAtual + somaNovo) + '</div>' +
+        '<div class="sub">carnês atuais ' + fmt.brl(somaAtual) + ' + novas</div></div>' +
+    '</div>' +
+
+    '<div class="cartao"><h2>Mês a mês</h2><div class="rolagem"><table class="tabela">' +
+      '<thead><tr><th>Mês</th><th class="num">Carnês atuais</th><th class="num">Vendas novas</th><th class="num">Total</th></tr></thead>' +
+      '<tbody>' + linhas +
+      '<tr style="border-top:2px solid var(--borda);font-weight:800"><td>TOTAL</td><td class="num">' + fmt.brl(somaAtual) +
+      '</td><td class="num" style="color:var(--verde)">+' + fmt.brl(somaNovo) + '</td><td class="num">' + fmt.brl(somaAtual + somaNovo) + '</td></tr>' +
+      '</tbody></table></div>' +
+    '<p class="nota">Projeção de contrato: mostra o que os carnês prometem se todo mundo pagar em dia — inadimplência e antecipação não entram. ' +
+    'O vencido de hoje (' + fmt.brl(ar.vencido) + ') também fica de fora; ele aparece nos Relatórios.</p></div>';
+
+  // Recalcula ao mudar qualquer campo — a tela É a resposta.
+  for (const nome of ['qtde', 'preco', 'porMes', 'entrada', 'parcelas', 'parcela']) {
+    document.getElementById('sm-' + nome).onchange = (e) => { f[nome] = e.target.value; TELAS.simulacao(); };
+  }
+  document.getElementById('sm-tipo').onchange = (e) => { f.tipo = e.target.value; TELAS.simulacao(); };
+  document.getElementById('sm-horizonte').onchange = (e) => { f.horizonte = Number(e.target.value); TELAS.simulacao(); };
+};
