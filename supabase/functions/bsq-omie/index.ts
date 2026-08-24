@@ -376,6 +376,39 @@ Deno.serve(async (req) => {
           pendencias: terminou ? pendTotal.slice(0, 60) : undefined });
       }
 
+      /* ── saldos: quanto tem em cada conta, segundo o Omie ────────────────── */
+      // O saldo vem do extrato do dia (nSaldoAtual). Carência de 30 minutos no
+      // servidor para o Caixa poder perguntar sempre sem martelar o Omie.
+      case "saldos": {
+        const meta = await lerMeta("omie_saldos");
+        if (!body.forcar && meta?.quando &&
+            Date.now() - new Date(meta.quando).getTime() < 30 * 60e3) {
+          return json({ ok: true, ...meta, cache: true });
+        }
+        const hojeBR = isoParaBR(agora().slice(0, 10));
+        const r = await omie("geral/contacorrente", "ListarContasCorrentes",
+          { pagina: 1, registros_por_pagina: 50 });
+        const contas: any[] = [];
+        for (const cc of (r.ListarContasCorrentes || [])) {
+          if (cc.inativo === "S") continue;
+          try {
+            const ex = await omie("financas/extrato", "ListarExtrato",
+              { nCodCC: cc.nCodCC, dPeriodoInicial: hojeBR, dPeriodoFinal: hojeBR });
+            contas.push({ nome: cc.descricao || "", tipo: cc.tipo || "", saldo: Number(ex.nSaldoAtual) || 0 });
+          } catch {
+            contas.push({ nome: cc.descricao || "", tipo: cc.tipo || "", saldo: null });
+          }
+        }
+        // O número do painel: só conta bancária de verdade (tipo CC), viva de
+        // nome e de fato. "Caixinha" e afins ficam no detalhe, não no painel.
+        const bancario = contas
+          .filter((c) => c.tipo === "CC" && !/inativ/i.test(c.nome) && c.saldo != null)
+          .reduce((soma, c) => soma + c.saldo, 0);
+        const novo = { quando: agora(), contas, bancario };
+        await gravarMeta("omie_saldos", novo);
+        return json({ ok: true, ...novo });
+      }
+
       /* ── boleto: os títulos em aberto de um cliente, na hora ─────────────── */
       case "boleto": {
         const cpf = soDigitos(body.cpf);

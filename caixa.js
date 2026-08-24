@@ -220,6 +220,8 @@ TELAS.caixa = function () {
       '<div class="painel clicavel" id="pn-acum"><div class="rot">Caixa do empreendimento</div>' +
         '<div class="num ' + (ac.resultado >= 0 ? 'pos' : 'neg') + '">' + fmt.brl(ac.resultado) + '</div>' +
         '<div class="sub">' + fmt.brl(ac.entradas) + ' entraram · ' + fmt.brl(ac.saidas) + ' saíram</div></div>' +
+      '<div class="painel clicavel" id="pn-banco" style="display:none"><div class="rot">🏦 No banco (Omie)</div>' +
+        '<div class="num" id="pn-banco-num">…</div><div class="sub" id="pn-banco-sub"></div></div>' +
     '</div>' +
     '<div class="cartao"><h2>' + ano + ' mês a mês</h2><div class="rolagem"><table class="tabela">' +
       '<thead><tr><th>Mês</th><th class="num">Entradas</th><th class="num">Saídas</th><th class="num">Resultado</th></tr></thead>' +
@@ -247,6 +249,20 @@ TELAS.caixa = function () {
   });
   const pAc = document.getElementById('pn-acum');
   if (pAc) pAc.onclick = () => { location.hash = '#/relatorios'; };
+  // O saldo real do banco chega do Omie sem segurar a tela: o painel aparece
+  // quando a resposta vem (cache de 30 min faz isso ser quase sempre imediato).
+  (async () => {
+    const dados = await saldoBancosOmie();
+    const pn = document.getElementById('pn-banco');
+    if (!dados || !pn || !document.body.contains(pn)) return;
+    document.getElementById('pn-banco-num').textContent = fmt.brl(dados.bancario || 0);
+    document.getElementById('pn-banco-num').className = 'num ' + ((dados.bancario || 0) >= 0 ? 'pos' : 'neg');
+    const bancarias = (dados.contas || []).filter((c) => c.tipo === 'CC' && !/inativ/i.test(c.nome) && c.saldo != null);
+    document.getElementById('pn-banco-sub').textContent =
+      bancarias.map((c) => c.nome).join(' + ') + ' · conferido ' + fmt.quando(dados.quando);
+    pn.style.display = '';
+    pn.onclick = () => abrirSaldosOmie(dados, ac.resultado);
+  })();
   const pPrev = document.getElementById('pn-prev');
   if (pPrev) pPrev.onclick = () => { location.hash = '#/relatorios'; };
   const vLanc = document.getElementById('ver-lanc');

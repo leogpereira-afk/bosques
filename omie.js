@@ -140,3 +140,40 @@ function vincularRecsOmie(aoTerminar) {
     };
   });
 }
+
+/* ── saldo das contas, segundo o Omie ──────────────────────────────────────── */
+const K_OMIE_SALDOS = 'bsq_omie_saldos';
+
+// Cache local de 30 min: o painel do Caixa aparece na hora e atualiza quando
+// a resposta fresca chega. Devolve { quando, contas, bancario } ou null.
+async function saldoBancosOmie() {
+  try {
+    const guardado = JSON.parse(localStorage.getItem(K_OMIE_SALDOS) || 'null');
+    if (guardado && Date.now() - new Date(guardado.quando).getTime() < 30 * 60e3) return guardado;
+    const r = await apiOmie('saldos');
+    if (!r.ok) throw new Error(r.error || '');
+    const novo = { quando: r.quando, contas: r.contas || [], bancario: r.bancario };
+    localStorage.setItem(K_OMIE_SALDOS, JSON.stringify(novo));
+    return novo;
+  } catch (e) {
+    // Sem rede, o último visto ainda serve — velho e dito é melhor que nada.
+    try { return JSON.parse(localStorage.getItem(K_OMIE_SALDOS) || 'null'); } catch { return null; }
+  }
+}
+
+function abrirSaldosOmie(dados, caixaSistema) {
+  const linhas = (dados.contas || []).map((c) =>
+    '<div class="lin" style="cursor:default"><div class="cresce"><b>' + esc(c.nome) + '</b>' +
+    '<span class="sub">' + (c.tipo === 'CX' ? 'caixinha (dinheiro em espécie)' : 'conta bancária') + '</span></div>' +
+    '<span class="dinheiro" style="font-weight:700;color:' + ((c.saldo || 0) >= 0 ? 'var(--verde)' : 'var(--ruim)') + '">' +
+      (c.saldo == null ? '—' : fmt.brl(c.saldo)) + '</span></div>').join('');
+  abrirModal({
+    titulo: '🏦 Saldos no Omie',
+    corpo: linhas +
+      '<p class="nota" style="margin-top:8px">Conferido ' + fmt.quando(dados.quando) + ', direto do extrato do Omie. ' +
+      'O <b>Caixa do empreendimento</b> (' + fmt.brl(caixaSistema) + ') soma a vida inteira registrada no sistema — ' +
+      'os dois não têm obrigação de bater no centavo (dinheiro que não passou pelo banco, história anterior ao Omie), ' +
+      'mas diferença grande merece investigação.</p>',
+    acoes: [{ texto: 'Fechar', aoClicar: () => fecharModal() }],
+  });
+}
