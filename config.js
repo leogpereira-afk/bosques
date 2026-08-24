@@ -11,6 +11,7 @@ window.TOKEN = 'bsq-6f4e21c9a48d503b7e19d2c6b0a58f37';
 window.API_BASE = 'https://reoghclxripktzpdwhiy.supabase.co/functions/v1';
 window.API = window.API_BASE + '/bsq-nucleo';
 window.API_ARQ = window.API_BASE + '/bsq-acervo';
+window.API_OMIE = window.API_BASE + '/bsq-omie';
 window.P_URL = window.API_BASE + '/bsq-p'; // landing pública da proposta
 
-window.VERSAO = '24'; // suba a cada publicação, junto com o CACHE do sw.js
+window.VERSAO = '25'; // suba a cada publicação, junto com o CACHE do sw.js

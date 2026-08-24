@@ -54,13 +54,19 @@ function ultimaCobranca(v) {
 }
 function botaoCobranca(v, r, mini) {
   const tel = telDaVenda(v);
-  if (!tel || !['ativa', 'conferir'].includes(v.situacao || 'ativa')) return '';
+  // O boleto do Omie não depende de telefone: a linha digitável se copia
+  // e paga em qualquer banco. Cliente sem WhatsApp ainda tem boleto.
+  const btBoleto = (S.perfil !== 'corretor' && ['ativa', 'conferir'].includes(v.situacao || 'ativa'))
+    ? '<button class="btn ' + (mini ? 'mini ' : '') + 'bt-boleto" data-venda="' + esc(v.id) + '" title="boletos em aberto no Omie, com linha digitável">📄' + (mini ? '' : ' Boleto') + '</button>'
+    : '';
+  if (!tel || !['ativa', 'conferir'].includes(v.situacao || 'ativa')) return btBoleto;
   const rot = r.qtdAtraso > 0 ? (mini ? '📱 cobrar' : '📱 Cobrar no WhatsApp') : (mini ? '📱 lembrar' : '📱 Lembrete da próxima parcela');
   const ult = ultimaCobranca(v);
   const cobradoHoje = ult && ult.slice(0, 10) === hojeISO();
   return (cobradoHoje ? '<span class="etiqueta et-quitada" title="cobrança registrada hoje">✓ cobrado hoje</span> ' : '') +
     '<a class="btn ' + (mini ? 'mini ' : '') + 'whats bt-cobrar" data-venda="' + esc(v.id) + '" target="_blank" rel="noopener" ' +
-    'href="' + esc(linkWhats(tel, msgCobranca(v, r))) + '">' + rot + '</a>';
+    'href="' + esc(linkWhats(tel, msgCobranca(v, r))) + '">' + rot + '</a>' +
+    (btBoleto ? ' ' + btBoleto : '');
 }
 // Cada clique de cobrança FICA ESCRITO na venda (quem, quando, quanto estava
 // em atraso) — é o que evita dois cobrando o mesmo cliente no mesmo dia.
@@ -86,6 +92,13 @@ function ligarBotoesCobranca(raiz) {
     a.addEventListener('click', (e) => {
       e.stopPropagation();
       registrarCobranca(a.dataset.venda);
+    });
+  });
+  raiz.querySelectorAll('.bt-boleto').forEach((b) => {
+    b.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const v = achar('venda', b.dataset.venda);
+      if (v) abrirBoletosVenda(v);
     });
   });
 }

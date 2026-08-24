@@ -140,6 +140,8 @@ TELAS.caixa = function () {
   if (semCategoria) pendencias.push({ n: semCategoria, txt: 'saída(s) na categoria "Outros" — classifique para o DRE dizer a verdade', acao: 'outros' });
   if (comSemCor) pendencias.push({ n: comSemCor, txt: 'comissão(ões) paga(s) sem corretor — associe em Corretores', acao: 'corretores' });
   if (obraSemEtapa) pendencias.push({ n: obraSemEtapa, txt: 'gasto(s) de obra sem etapa do cronograma', acao: 'cronograma' });
+  const recsSoltos = lista('rec').filter((r) => !r.vendaId).length;
+  if (recsSoltos) pendencias.push({ n: recsSoltos, txt: 'recebimento(s) do Omie sem venda — o caixa conta, o carnê não', acao: 'rec-omie' });
   const blocoVinculos = pendencias.length
     ? '<div class="cartao" style="border-color:#f0ddb5"><h2>🔗 Vínculos pendentes <span class="nota">— amarre e os números contam a história certa</span></h2>' +
       pendencias.map((x) => '<div class="lin vinc-lin" data-acao="' + x.acao + '">' +
@@ -255,6 +257,7 @@ TELAS.caixa = function () {
       if (acao === 'outros') { TELAS._fLanc = { q: '', tipo: 'saida', cat: 'Outros', mes: 'todos' }; location.hash = '#/lancamentos'; }
       else if (acao === 'corretores') location.hash = '#/corretores';
       else if (acao === 'cronograma') location.hash = '#/cronograma';
+      else if (acao === 'rec-omie') vincularRecsOmie(TELAS.caixa);
     };
   });
   app.querySelectorAll('.cx-datar').forEach((b) => {
@@ -441,7 +444,7 @@ TELAS.lancamentos = function () {
         (r.tipo === 'entrada' ? ' (entrada)' : r.parcelaN ? ' (parc. ' + r.parcelaN + ')' : ''),
       codigo: r.codigo || '', criadoPor: r.criadoPor || '—', criadoEm: r.criadoEm,
       atualizadoPor: r.atualizadoPor, vendaId: r.vendaId, obs: r.obs || '',
-      nHist: 0,
+      origem: r.origem || '', nHist: 0,
     });
   }
   for (const c of cxVivos()) {
@@ -451,7 +454,7 @@ TELAS.lancamentos = function () {
       categoria: c.categoria || 'Outros', descricao: c.descricao || '—',
       codigo: '', criadoPor: c.criadoPor || '—', criadoEm: c.criadoEm,
       atualizadoPor: c.atualizadoPor, obs: c.obs || '',
-      nHist: (c.historico || []).length,
+      origem: c.origem || '', nHist: (c.historico || []).length,
     });
   }
 
@@ -480,7 +483,7 @@ TELAS.lancamentos = function () {
       (x.col === 'rec' ? ' data-venda="' + esc(x.vendaId) + '"' : '') + ' style="cursor:pointer">' +
     '<td style="white-space:nowrap;color:var(--tinta-fraca)">' + (x.data ? fmt.data(x.data).slice(0, 5) : '⚠ s/data') + '</td>' +
     '<td><b>' + esc(x.descricao) + '</b>' + (x.codigo ? ' <span class="nota">' + esc(x.codigo) + '</span>' : '') +
-      '<br><span class="nota">' + esc(x.categoria) + (x.forma ? ' · ' + esc(x.forma) : '') +
+      '<br><span class="nota">' + esc(x.categoria) + (x.origem === 'omie' && x.criadoPor !== 'omie' ? ' · <b>omie</b>' : '') + (x.forma ? ' · ' + esc(x.forma) : '') +
       ' · ' + esc(x.criadoPor) + (x.nHist ? ' · ✏️' + x.nHist : '') +
       (x.obs ? ' · ' + esc(x.obs) : '') + '</span></td>' +
     '<td class="num" style="font-weight:700;color:' + (x.entrada ? 'var(--verde)' : 'var(--ruim)') + '">' +
@@ -533,7 +536,8 @@ TELAS.lancamentos = function () {
   app.querySelectorAll('.ln-row').forEach((el) => {
     el.onclick = () => {
       if (el.dataset.col === 'cx') abrirEdicaoLancamento(el.dataset.id, TELAS.lancamentos);
-      else location.hash = '#/venda/' + el.dataset.venda;
+      else if (el.dataset.venda) location.hash = '#/venda/' + el.dataset.venda;
+      else vincularRecsOmie(TELAS.lancamentos);   // recebimento do Omie ainda solto
     };
   });
 };

@@ -199,6 +199,16 @@ async function prepararItem(quem: Quem, col: string, registro: any, atual: any):
       // VALOR e a venda de destino não mudam por edição — estorna (lixeira,
       // com log) e lança de novo. Corrigir apagando é auditável; editar não.
       const r = { ...registro, valor: atual.valor, vendaId: atual.vendaId };
+      // Exceção única: recebimento que chegou SEM venda (baixa do Omie cujo
+      // CPF não casou sozinho) pode GANHAR a venda agora — definir não é trocar.
+      if (!atual.vendaId && txt(registro.vendaId, 40)) {
+        const vId = txt(registro.vendaId, 40);
+        const venda = await lerUm("venda", vId);
+        if (!venda || venda.apagadoEm) return { erro: "venda não encontrada" };
+        if (venda.situacao === "distratada") return { erro: "a venda " + (venda.codigo || "") + " está distratada" };
+        r.vendaId = vId;
+        r.conferir = false;
+      }
       return { registro: r };
     }
     const vendaId = txt(registro.vendaId, 40);

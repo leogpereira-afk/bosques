@@ -1,0 +1,418 @@
+// bsq-omie — a ponte com o ERP Omie (app.omie.com.br).
+//
+// O Omie é onde os boletos dos carnês vivem e onde os pagamentos caem
+// conciliados. Esta função puxa de lá o que aconteceu de verdade:
+//   • conta a RECEBER baixada  → vira 'rec' (aparece no carnê e no caixa);
+//   • conta a PAGAR paga       → vira 'cx' saída com categoria mapeada;
+//   • cadastro de cliente      → completa os campos vazios do nosso;
+//   • boleto em aberto         → consultado na hora para a cobrança.
+//
+// Regras duras aprendidas na análise dos dados reais (24/08/2026):
+//   1. ListarMovimentos duplica cada baixa (título + espelho CONTA_CORRENTE_*).
+//      Só os grupos CONTA_A_RECEBER / CONTA_A_PAGAR contam.
+//   2. Entradas da planilha NÃO casam linha a linha com o Omie (a planilha
+//      agrega por venda/mês; 200 de 302 sem par). Por isso recebimento do
+//      Omie só entra a partir da DATA DE CORTE (cfg.omie.corteEntradas) —
+//      o passado continua sendo o da planilha.
+//   3. Saídas casam bem (85% dia+valor). Despesa do Omie com par exato na
+//      planilha é pulada; par no mesmo mês com dia diferente vira PENDÊNCIA
+//      listada (nunca lançamento automático — dois gastos iguais no mesmo
+//      mês existem de verdade).
+//   4. Filtros exóticos da API mentem em silêncio (devolvem "500"). Os dois
+//      confiáveis, validados contra o dump completo: dDtAltDe no
+//      ListarMovimentos e nCodCliente no PesquisarLancamentos.
+
+import { json, preflight } from "../_shared/cors.ts";
+import {
+  agora, db, gravarCfg, gravarVarios, guardarIndiceNumero, lerCfgBruta,
+  lerColecaoBruta, marcarMudanca, proximoNumero, registrarLog,
+} from "../_shared/dados.ts";
+import { identificar, perfilDe, type Quem } from "../_shared/acesso.ts";
+
+/* ── conversa com o Omie ───────────────────────────────────────────────────── */
+const OMIE_URL = "https://app.omie.com.br/api/v1/";
+
+async function omie(modulo: string, call: string, param: Record<string, unknown>) {
+  const APP_KEY = Deno.env.get("BSQ_OMIE_APP_KEY");
+  const APP_SECRET = Deno.env.get("BSQ_OMIE_APP_SECRET");
+  if (!APP_KEY || !APP_SECRET) throw new Error("Faltam os segredos BSQ_OMIE_APP_KEY / BSQ_OMIE_APP_SECRET.");
+  const resp = await fetch(OMIE_URL + modulo + "/", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ call, app_key: APP_KEY, app_secret: APP_SECRET, param: [param] }),
+  });
+  const corpo = await resp.json().catch(() => ({}));
+  if (!resp.ok) throw new Error("Omie " + call + ": " + (corpo.faultstring || resp.status));
+  return corpo;
+}
+
+/* ── miudezas ──────────────────────────────────────────────────────────────── */
+const soDigitos = (s: unknown) => String(s || "").replace(/\D/g, "");
+const centavos = (v: unknown) => Math.round((Number(v) || 0) * 100);
+
+// "21/08/2026" → "2026-08-21"; qualquer outra coisa → "".
+function brParaISO(d: unknown): string {
+  const p = String(d || "").split("/");
+  return p.length === 3 ? p[2] + "-" + p[1] + "-" + p[0] : "";
+}
+// "2026-08-21" → "21/08/2026" (formato que os filtros do Omie exigem).
+function isoParaBR(d: string): string {
+  const p = d.slice(0, 10).split("-");
+  return p.length === 3 ? p[2] + "/" + p[1] + "/" + p[0] : "";
+}
+
+// Categoria do Omie → nossa categoria de despesa. Prefixo mais específico
+// primeiro; o que não casar vira "Outros" e o cartão de vínculos pendentes
+// do Caixa cobra a classificação.
+const MAPA_CATEGORIA: [string, string][] = [
+  ["2.02.01", "Comissão"],
+  ["2.02.02", "Marketing"],
+  ["2.04.10", "Contabilidade"],
+  ["2.07.01", "Obra / infraestrutura"],   // máquinas e equipamentos
+  ["2.07.04", "Administrativo"],          // informática
+  ["2.07.06", "Telefone / internet"],
+  ["2.01", "Obra / infraestrutura"],      // matéria prima, serviços, mercadorias
+  ["2.03", "Funcionários"],               // salários, adiantamentos
+  ["2.04", "Administrativo"],
+  ["2.05", "Tarifas bancárias"],
+  ["2.06", "Impostos e taxas"],
+];
+function categoriaLocal(codOmie: string): string {
+  for (const [prefixo, nossa] of MAPA_CATEGORIA) {
+    if ((codOmie || "").startsWith(prefixo)) return nossa;
+  }
+  return "Outros";
+}
+
+async function lerMeta(chave: string): Promise<any | null> {
+  const { data } = await db.from("bsq_meta").select("valor").eq("chave", chave).maybeSingle();
+  return data ? data.valor : null;
+}
+async function gravarMeta(chave: string, valor: unknown): Promise<void> {
+  const { error } = await db.from("bsq_meta").upsert({ chave, valor, atualizado_em: agora() });
+  if (error) throw new Error("meta " + chave + ": " + error.message);
+}
+
+/* ── cadastro de clientes do Omie (também é o mapa CPF → código) ───────────── */
+async function clientesDoOmie(): Promise<any[]> {
+  const todos: any[] = [];
+  let pagina = 1;
+  while (pagina <= 5) {                       // 117 hoje; 5 páginas = teto de 1.500
+    const r = await omie("geral/clientes", "ListarClientes", { pagina, registros_por_pagina: 300 });
+    todos.push(...(r.clientes_cadastro || []));
+    if (pagina >= (r.total_de_paginas || 1)) break;
+    pagina += 1;
+  }
+  return todos;
+}
+
+/* ── o casamento título → venda ────────────────────────────────────────────── */
+// Entre as vendas vivas do cliente, qual bate com o valor do título?
+// Confere o valor da parcela e, na Reajustada, cada degrau possível.
+// Só aceita quando EXATAMENTE UMA venda casa — ambiguidade vai para conferência.
+function casarVenda(vendas: any[], valorTitulo: number, cfg: any): string {
+  if (vendas.length === 1) return vendas[0].id;
+  const alvo = centavos(valorTitulo);
+  const pct = Number(cfg?.reajuste?.pct ?? 6);
+  const casam = vendas.filter((v) => {
+    const base = Number(v.valorParcela) || 0;
+    if (!base) return false;
+    if (centavos(base) === alvo) return true;
+    if (v.tipoParcela === "Reajustada") {
+      for (let degrau = 1; degrau <= 14; degrau++) {
+        if (centavos(base * Math.pow(1 + pct / 100, degrau)) === alvo) return true;
+      }
+    }
+    return false;
+  });
+  return casam.length === 1 ? casam[0].id : "";
+}
+
+/* ══════════════════════════════════════════════════════════════════════════ */
+Deno.serve(async (req) => {
+  const pre = preflight(req);
+  if (pre) return pre;
+  if (req.method !== "POST") return json({ error: "Method not allowed" }, 405);
+
+  let body: any;
+  try { body = await req.json(); } catch { return json({ error: "JSON inválido" }, 400); }
+
+  const h = Object.fromEntries(req.headers);
+  const token = h["x-token"] || body.token;
+  const TOKEN = Deno.env.get("BSQ_TOKEN");
+  if (!TOKEN || token !== TOKEN) return json({ error: "Não autorizado" }, 401);
+
+  const cfg = await lerCfgBruta();
+  const quem: Quem | null = await identificar(cfg, h["x-senha"] || body.senha || "");
+  if (!quem) return json({ error: "Senha inválida", semSenha: true }, 403);
+  const perfil = perfilDe(quem);
+  // Corretor não mexe com o financeiro — nem para ler boleto de cliente.
+  if (perfil === "corretor") return json({ error: "Seu acesso não permite isso." }, 403);
+  const por = (quem.proprio && quem.nome) || "—";
+
+  const { action } = body;
+
+  try {
+    switch (action) {
+
+      /* ── saúde: a última sincronização, para o indicador da tela ─────────── */
+      case "saude": {
+        const meta = await lerMeta("omie_sync");
+        return json({ ok: true, sync: meta || null, corte: cfg.omie?.corteEntradas || null });
+      }
+
+      /* ── sincronizar: puxa do Omie o que mudou e espelha aqui ────────────── */
+      // Paginado entre chamadas: devolve { continua: N } enquanto houver página;
+      // o painel chama de novo com { pagina: N, parcial } até vir continua: null.
+      case "sincronizar": {
+        if (perfil !== "direcao" && perfil !== "escritorio") {
+          return json({ error: "Só direção e escritório sincronizam." }, 403);
+        }
+        const meta = await lerMeta("omie_sync");
+
+        // Primeira sincronização crava o corte: recebimento do Omie só vale
+        // daqui em diante. A direção pode recuar a data nas Configurações.
+        let corte = cfg.omie?.corteEntradas || "";
+        if (!corte) {
+          corte = agora().slice(0, 10);
+          await gravarCfg({ ...cfg, omie: { ...(cfg.omie || {}), corteEntradas: corte }, atualizadoEm: agora() });
+          await marcarMudanca("cfg");
+        }
+
+        // Janela incremental: só o que o Omie alterou desde a última rodada
+        // completa (3 dias de carência). Sem meta — ou a pedido — vem tudo.
+        const completa = !!body.completa || !meta?.quando;
+        const janela: Record<string, unknown> = {};
+        if (!completa) {
+          const de = new Date(new Date(meta.quando).getTime() - 3 * 86400e3);
+          janela.dDtAltDe = isoParaBR(de.toISOString());
+        }
+
+        // Estado local, uma leitura por chamada.
+        // lerColecaoBruta devolve linhas { id, registro } — aqui só o registro importa.
+        const [vendas, clientesLocais, corretores, recs, cxs] = (await Promise.all([
+          lerColecaoBruta("venda"), lerColecaoBruta("cliente"),
+          lerColecaoBruta("corretor"), lerColecaoBruta("rec"), lerColecaoBruta("cx"),
+        ])).map((linhas) => linhas.map((l: any) => l.registro));
+        const vendasPorCpf = new Map<string, any[]>();
+        for (const v of vendas) {
+          if (v.apagadoEm || v.situacao === "distratada") continue;
+          const cpf = soDigitos(v.clienteId);
+          if (!vendasPorCpf.has(cpf)) vendasPorCpf.set(cpf, []);
+          vendasPorCpf.get(cpf)!.push(v);
+        }
+        const recPorId = new Map(recs.map((r: any) => [r.id, r]));
+        const cxPorId = new Map(cxs.map((c: any) => [c.id, c]));
+        // Baixa manual já lançada: chave venda|valor|data.
+        const baixasManuais = new Set(recs.filter((r: any) => !r.apagadoEm && !String(r.id).startsWith("rbomie-"))
+          .map((r: any) => (r.vendaId || "") + "|" + centavos(r.valor) + "|" + String(r.data || "").slice(0, 10)));
+        // Saída já registrada (planilha ou à mão): dia+valor e mês+valor.
+        const saidasDia = new Set(); const saidasMes = new Set();
+        for (const c of cxs) {
+          if (c.apagadoEm || c.tipo !== "saida" || String(c.id).startsWith("cxomie-")) continue;
+          saidasDia.add(centavos(c.valor) + "|" + String(c.data || "").slice(0, 10));
+          saidasMes.add(centavos(c.valor) + "|" + String(c.data || "").slice(0, 7));
+        }
+        const corretorPorDoc = new Map<string, string>();
+        for (const c of corretores) {
+          if (c.apagadoEm) continue;
+          if (soDigitos(c.cpf)) corretorPorDoc.set(soDigitos(c.cpf), c.id);
+          if (soDigitos(c.chavePix).length >= 11) corretorPorDoc.set(soDigitos(c.chavePix), c.id);
+        }
+
+        // Cadastro do Omie (na 1ª chamada da rodada): mapa de códigos + enriquecimento.
+        const cont: Record<string, number> = { ...(body.parcial || {}) };
+        const soma = (k: string, n = 1) => { cont[k] = (cont[k] || 0) + n; };
+        const gravar: { colecao: string; id: string; registro: any }[] = [];
+
+        if (!body.pagina || body.pagina === 1) {
+          const doOmie = await clientesDoOmie();
+          const mapaCpf: Record<string, number> = {};
+          const porCpfLocal = new Map(clientesLocais.map((c: any) => [soDigitos(c.cpf || c.id), c]));
+          for (const oc of doOmie) {
+            const cpf = soDigitos(oc.cnpj_cpf);
+            if (!cpf) continue;
+            mapaCpf[cpf] = oc.codigo_cliente_omie;
+            const local = porCpfLocal.get(cpf);
+            if (!local || local.apagadoEm) continue;
+            // Completa SÓ campo vazio — o que o escritório digitou, fica.
+            const tel = [oc.telefone1_ddd, oc.telefone1_numero].filter(Boolean).join(" ");
+            const cand: Record<string, string> = {
+              email: oc.email || "", telefone: tel, endereco: oc.endereco || "",
+              bairro: oc.bairro || "", cidade: (oc.cidade || "").replace(/\s*\(.+\)\s*$/, ""),
+              uf: oc.estado || "", cep: oc.cep || "",
+            };
+            let mudou = false;
+            const novo = { ...local };
+            for (const [campo, valor] of Object.entries(cand)) {
+              if (valor && !String(novo[campo] || "").trim()) { novo[campo] = valor; mudou = true; }
+            }
+            if (mudou) {
+              novo.atualizadoEm = agora();
+              novo.historico = [...(local.historico || []),
+                { em: agora(), por: "omie", acao: "completou cadastro com dados do Omie" }];
+              gravar.push({ colecao: "cliente", id: novo.id, registro: novo });
+              soma("clientesCompletados");
+            }
+          }
+          await gravarMeta("omie_clientes", { quando: agora(), mapaCpf });
+        }
+
+        // As páginas de movimentos desta chamada.
+        const POR_CHAMADA = 15;
+        let pagina = Number(body.pagina) || 1;
+        let totPaginas = pagina;
+        const fim = pagina + POR_CHAMADA;
+        const pendNovas: any[] = [];
+
+        while (pagina < fim) {
+          const r = await omie("financas/mf", "ListarMovimentos",
+            { nPagina: pagina, nRegPorPagina: 100, ...janela });
+          totPaginas = r.nTotPaginas || 1;
+          for (const mov of r.movimentos || []) {
+            const d = mov.detalhes || {}; const res = mov.resumo || {};
+            const grupo = d.cGrupo || "";
+
+            /* recebimento de venda baixado */
+            if (grupo === "CONTA_A_RECEBER") {
+              const id = "rbomie-" + d.nCodTitulo;
+              const existente = recPorId.get(id);
+              if (d.cStatus === "RECEBIDO" && res.cLiquidado === "S") {
+                const dataPagto = brParaISO(d.dDtPagamento);
+                if (!dataPagto || dataPagto < corte) { soma("recAntesDoCorte"); continue; }
+                if (existente && !existente.apagadoEm) { soma("recJaEspelhado"); continue; }
+                const cpf = soDigitos(d.cCPFCNPJCliente);
+                const minhas = vendasPorCpf.get(cpf) || [];
+                const valor = Number(res.nValPago) || Number(d.nValorTitulo) || 0;
+                const vendaId = casarVenda(minhas, valor, cfg);
+                if (vendaId && baixasManuais.has(vendaId + "|" + centavos(valor) + "|" + dataPagto)) {
+                  soma("recBaixadoAMao"); continue;
+                }
+                const numero = await proximoNumero("rec");
+                const registro: any = {
+                  id, origem: "omie", numero, codigo: "RB-" + String(numero).padStart(4, "0"),
+                  vendaId, tipo: "parcela", parcelaN: null, valor, data: dataPagto,
+                  forma: "Boleto", obs: "baixa automática do Omie" +
+                    (d.cNumBoleto ? " · boleto " + d.cNumBoleto : ""),
+                  conferir: !vendaId || undefined,
+                  omie: { titulo: d.nCodTitulo, venc: brParaISO(d.dDtVenc), cpf, parcela: d.cNumParcela || "" },
+                  criadoEm: agora(), criadoPor: "omie",
+                };
+                if (!vendaId) registro.obsConferir = "não achei a venda deste CPF — vincular à mão";
+                await guardarIndiceNumero("rec", numero, id);
+                gravar.push({ colecao: "rec", id, registro });
+                recPorId.set(id, registro);
+                soma(vendaId ? "recNovos" : "recParaConferir");
+              } else if (existente && !existente.apagadoEm) {
+                // O título deixou de estar RECEBIDO (estorno/cancelamento lá).
+                const morto = {
+                  ...existente, apagadoEm: agora(), apagadoPor: "omie",
+                  historico: [...(existente.historico || []),
+                    { em: agora(), por: "omie", acao: "estornado no Omie (título " + d.cStatus + ")" }],
+                };
+                gravar.push({ colecao: "rec", id, registro: morto });
+                soma("recEstornados");
+              }
+              continue;
+            }
+
+            /* despesa paga */
+            if (grupo === "CONTA_A_PAGAR" && d.cStatus === "PAGO" && res.cLiquidado === "S") {
+              const id = "cxomie-" + d.nCodTitulo;
+              if (cxPorId.get(id) && !cxPorId.get(id).apagadoEm) { soma("cxJaEspelhado"); continue; }
+              const valor = Number(res.nValPago) || Number(d.nValorTitulo) || 0;
+              const dataPagto = brParaISO(d.dDtPagamento);
+              const chaveDia = centavos(valor) + "|" + dataPagto;
+              const chaveMes = centavos(valor) + "|" + dataPagto.slice(0, 7);
+              if (saidasDia.has(chaveDia)) { soma("cxJaNaPlanilha"); continue; }
+              const categoria = categoriaLocal(d.cCodCateg || "");
+              const fornecedorCpf = soDigitos(d.cCPFCNPJCliente);
+              if (saidasMes.has(chaveMes)) {
+                // Mesmo valor no mesmo mês com outro dia: pode ser o mesmo gasto
+                // anotado noutra data OU um gasto irmão. Ninguém decide no escuro.
+                pendNovas.push({ titulo: d.nCodTitulo, valor, data: dataPagto, categoria,
+                  categoriaOmie: d.cCodCateg || "" });
+                soma("cxDuvidosos");
+                continue;
+              }
+              const registro: any = {
+                id, origem: "omie", tipo: "saida", valor, data: dataPagto,
+                forma: d.cTipo === "BOL" ? "Boleto" : "Transferência",
+                categoria, descricao: "despesa do Omie (" + (d.cCodCateg || "sem categoria") + ")",
+                omie: { titulo: d.nCodTitulo, categoria: d.cCodCateg || "" },
+                criadoEm: agora(), criadoPor: "omie",
+              };
+              const corretorId = categoria === "Comissão" ? corretorPorDoc.get(fornecedorCpf) : "";
+              if (corretorId) registro.corretorId = corretorId;
+              gravar.push({ colecao: "cx", id, registro });
+              cxPorId.set(id, registro);
+              saidasDia.add(chaveDia);
+              soma("cxNovos");
+            }
+          }
+          if (pagina >= totPaginas) { pagina = 0; break; }   // acabou
+          pagina += 1;
+        }
+
+        if (gravar.length) {
+          await gravarVarios(gravar);
+          await marcarMudanca([...new Set(gravar.map((g) => g.colecao))]);
+        }
+
+        const terminou = pagina === 0;
+        const pendAntes: any[] = (body.pagina && body.pagina > 1 && meta?.pendenciasParciais) || [];
+        const pendTotal = [...pendAntes, ...pendNovas];
+        if (terminou) {
+          await gravarMeta("omie_sync", {
+            quando: agora(), por, completa, corte, contagens: cont,
+            pendencias: pendTotal.slice(0, 60),
+          });
+          await registrarLog({ acao: "sincronizou com o Omie", por, ...cont });
+        } else {
+          // Rodada no meio: pendências parciais viajam pela meta para não se perderem.
+          await gravarMeta("omie_sync", { ...(meta || {}), pendenciasParciais: pendTotal.slice(0, 60) });
+        }
+        return json({ ok: true, continua: terminou ? null : pagina, contagens: cont,
+          pendencias: terminou ? pendTotal.slice(0, 60) : undefined });
+      }
+
+      /* ── boleto: os títulos em aberto de um cliente, na hora ─────────────── */
+      case "boleto": {
+        const cpf = soDigitos(body.cpf);
+        if (cpf.length < 11) return json({ error: "CPF inválido" }, 400);
+        const mapa = (await lerMeta("omie_clientes"))?.mapaCpf || {};
+        const codigo = mapa[cpf];
+        if (!codigo) return json({ ok: true, titulos: [], aviso: "Cliente sem cadastro no Omie (ou sincronize primeiro)." });
+        const abertos: any[] = [];
+        let pagina = 1;
+        while (pagina <= 3) {
+          const r = await omie("financas/pesquisartitulos", "PesquisarLancamentos",
+            { nPagina: pagina, nRegPorPagina: 100, nCodCliente: codigo, cNatureza: "R" });
+          for (const t of r.titulosEncontrados || []) {
+            const cab = t.cabecTitulo || {}; const res = t.resumo || {};
+            // Cinto e suspensório: mesmo filtrado, confere o dono.
+            if (cab.nCodCliente !== codigo) continue;
+            if (res.cLiquidado === "S" || cab.cStatus === "CANCELADO") continue;
+            if (!(Number(res.nValAberto) > 0)) continue;
+            abertos.push({
+              venc: brParaISO(cab.dDtVenc), valor: Number(cab.nValorTitulo) || 0,
+              aberto: Number(res.nValAberto) || 0, status: cab.cStatus || "",
+              parcela: cab.cNumParcela || "", boleto: cab.cNumBoleto || "",
+              linhaDigitavel: cab.cCodigoBarras || "",
+            });
+          }
+          if (pagina >= (r.nTotPaginas || 1)) break;
+          pagina += 1;
+        }
+        abertos.sort((a, b) => a.venc.localeCompare(b.venc));
+        return json({ ok: true, titulos: abertos.slice(0, 8) });
+      }
+
+      default:
+        return json({ error: "Ação desconhecida: " + action }, 400);
+    }
+  } catch (e) {
+    console.error("bsq-omie", action, e);
+    return json({ error: String((e as Error).message || e) }, 500);
+  }
+});

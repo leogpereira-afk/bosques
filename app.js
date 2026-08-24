@@ -234,6 +234,14 @@ TELAS.config = function () {
       '<div class="acoes-linha"><button class="btn primario" id="cf-novo-acesso">+ Acesso</button>' +
       '<button class="btn" id="cf-senha-equipe">Trocar a senha da equipe</button></div></div>' +
 
+    '<div class="cartao"><h2>Omie (ERP) <span class="nota">— boletos, pagamentos e cadastros entram sozinhos</span></h2>' +
+    '<div class="colunas-3">' +
+      campo('Recebimentos valem a partir de', entrada('omieCorte', (cfg.omie && cfg.omie.corteEntradas) || '', { tipo: 'date' }),
+        'antes disso, o que vale é a planilha — recuar duplica se o mês já foi digitado') +
+    '</div><div class="acoes-linha">' +
+      '<button class="btn primario" id="cf-omie-sync">↻ Sincronizar agora</button>' +
+    '</div><div class="nota" id="cf-omie-saude" style="margin-top:8px">conferindo a última sincronização…</div></div>' +
+
     '<div class="cartao"><h2>Manutenção</h2><div class="acoes-linha">' +
       '<button class="btn" id="cf-backup">⬇ Baixar backup</button>' +
       '<button class="btn" id="cf-log">📜 Últimas ações</button>' +
@@ -270,11 +278,41 @@ TELAS.config = function () {
         reajuste: { pct: numeroBR(v.reajuste.pct), aCada: Math.max(1, Math.round(numeroBR(v.reajuste.aCada))) },
         validadeProposta: Math.max(1, Math.round(numeroBR(v.validadeProposta))),
         entradaPadrao: Math.max(0, numeroBR(v.entradaPadrao)) || 3000,
+        omie: { ...(cfg.omie || {}), corteEntradas: v.omieCorte || (cfg.omie && cfg.omie.corteEntradas) || '' },
       } });
       S.cfg = { ...S.cfg, ...r.cfg };
       gravarCache();
       toast('Configurações salvas');
     } catch (e) { toast(e.message || 'Não salvou', 'ruim'); }
+  };
+  // A saúde da ponte com o Omie: quando rodou, o que trouxe, o que ficou
+  // de fora por parecer repetido (esses saem daqui para a mão, nunca sozinhos).
+  (async () => {
+    const el = document.getElementById('cf-omie-saude');
+    try {
+      const r = await apiOmie('saude');
+      if (!r.sync || !r.sync.quando) { el.innerHTML = 'Nunca sincronizou — o primeiro ↻ confere tudo.'; return; }
+      const horas = (Date.now() - new Date(r.sync.quando).getTime()) / 3600e3;
+      const pend = r.sync.pendencias || [];
+      el.innerHTML = (horas < 26 ? '🟢' : '🔴') + ' Última sincronização ' + fmt.quando(r.sync.quando) +
+        (r.sync.por && r.sync.por !== '—' ? ' por ' + esc(r.sync.por) : '') + ' — ' + resumoOmie(r.sync.contagens) + '.' +
+        (pend.length ? '<br>⚠ <b>' + pend.length + ' despesa(s) do Omie ficaram de fora por parecerem repetidas</b> ' +
+          '(mesmo valor no mesmo mês da planilha). As que forem reais, lance à mão no Caixa:<br>' +
+          pend.slice(0, 12).map((p) => '· ' + fmt.data(p.data) + ' — ' + fmt.brl(p.valor) + ' (' + esc(p.categoria || '') + ')').join('<br>') +
+          (pend.length > 12 ? '<br>… e mais ' + (pend.length - 12) : '') : '');
+    } catch (e) { el.textContent = '⚠ Não consegui falar com o Omie agora: ' + (e.message || 'sem resposta'); }
+  })();
+  document.getElementById('cf-omie-sync').onclick = async () => {
+    const b = document.getElementById('cf-omie-sync');
+    b.disabled = true; b.textContent = 'sincronizando…';
+    try {
+      const r = await sincronizarOmie(true);
+      toast('Omie: ' + resumoOmie(r && r.contagens));
+      TELAS.config();
+    } catch (e) {
+      toast(e.message || 'Não sincronizou', 'ruim');
+      b.disabled = false; b.textContent = '↻ Sincronizar agora';
+    }
   };
   document.getElementById('cf-novo-acesso').onclick = () => abrirAcesso(null);
   app.querySelectorAll('.us-lin').forEach((el) => { el.onclick = () => abrirAcesso(el.dataset.id); });
@@ -393,5 +431,5 @@ window.addEventListener('hashchange', render);
   lerCache();
   if ('serviceWorker' in navigator) { navigator.serviceWorker.register('sw.js').catch(() => {}); }
   render();
-  if (S.senhaHash) puxar();
+  if (S.senhaHash) { puxar(); talvezSincronizarOmie(); }
 })();
