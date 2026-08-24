@@ -110,6 +110,12 @@ async function clientesDoOmie(): Promise<any[]> {
 // Entre as vendas vivas do cliente, qual bate com o valor do título?
 // Confere o valor da parcela e, na Reajustada, cada degrau possível.
 // Só aceita quando EXATAMENTE UMA venda casa — ambiguidade vai para conferência.
+// O boleto sai pelo valor CHEIO e tem ~20% de desconto de pontualidade — o
+// valorParcela do sistema é o valor COM desconto. Um pagamento pode chegar
+// pelos dois valores (pagou em dia ou não), então os dois casam, com uma
+// tolerância pequena (arredondamentos do banco).
+const aproxima = (aCent: number, bCent: number) =>
+  Math.abs(aCent - bCent) <= Math.max(2, Math.round(bCent * 0.015));
 function casarVenda(vendas: any[], valorTitulo: number, cfg: any): string {
   if (vendas.length === 1) return vendas[0].id;
   const alvo = centavos(valorTitulo);
@@ -117,11 +123,10 @@ function casarVenda(vendas: any[], valorTitulo: number, cfg: any): string {
   const casam = vendas.filter((v) => {
     const base = Number(v.valorParcela) || 0;
     if (!base) return false;
-    if (centavos(base) === alvo) return true;
-    if (v.tipoParcela === "Reajustada") {
-      for (let degrau = 1; degrau <= 14; degrau++) {
-        if (centavos(base * Math.pow(1 + pct / 100, degrau)) === alvo) return true;
-      }
+    for (let degrau = 0; degrau <= 14; degrau++) {
+      const c = centavos(base * Math.pow(1 + pct / 100, degrau));
+      if (aproxima(alvo, c) || aproxima(alvo, Math.round(c / 0.8))) return true;
+      if (v.tipoParcela !== "Reajustada") break;
     }
     return false;
   });
@@ -237,8 +242,9 @@ Deno.serve(async (req) => {
             if (!local || local.apagadoEm) continue;
             // Completa SÓ campo vazio — o que o escritório digitou, fica.
             const tel = [oc.telefone1_ddd, oc.telefone1_numero].filter(Boolean).join(" ");
+            // O campo que o cadastro (e o botão de cobrança) usa é o whatsapp.
             const cand: Record<string, string> = {
-              email: oc.email || "", telefone: tel, endereco: oc.endereco || "",
+              email: oc.email || "", whatsapp: tel, endereco: oc.endereco || "",
               bairro: oc.bairro || "", cidade: (oc.cidade || "").replace(/\s*\(.+\)\s*$/, ""),
               uf: oc.estado || "", cep: oc.cep || "",
             };

@@ -290,30 +290,52 @@ TELAS.conferencia = function () {
       for (const [k, v] of Object.entries(obj || {})) if (v > n) { n = v; melhor = k; }
       return melhor;
     };
+    // As regras da casa, aprendidas na auditoria: o boleto sai pelo valor CHEIO
+    // e tem ~20% de desconto até o vencimento (o sistema guarda o valor COM
+    // desconto); cliente com vários lotes pode ter séries separadas OU um
+    // boleto somado. Divergência de verdade é a venda que não casa com NADA.
+    const perto = (a2, b2) => Math.abs(a2 - b2) <= Math.max(0.02, b2 * 0.015);
+    const casaSerie = (parcela, tipo, alvo) => {
+      const reaj2 = cfgReajuste();
+      for (let deg = 0; deg <= 14; deg++) {
+        const v = parcela * Math.pow(1 + (reaj2.pct || 6) / 100, deg);
+        if (perto(v, alvo) || perto(v, alvo * 0.8)) return true;
+        if (tipo !== 'Reajustada') break;
+      }
+      return false;
+    };
     const divCarne = [];
     for (const [cpf, om] of Object.entries(d.carnes || {})) {
       const vs = (vendasPorCpf[cpf] || []).filter((v) => ['ativa', 'conferir'].includes(v.situacao || 'ativa'));
       if (!vs.length) continue;
+      const series = Object.entries(om.valores || {}).filter(([, n]) => n >= 3).map(([v]) => Number(v));
+      const somaCliente = vs.reduce((s2, v) => s2 + (Number(v.valorParcela) || 0), 0);
+      const probs = [];
+      if (series.length) {
+        for (const v of vs) {
+          const p2 = Number(v.valorParcela) || 0;
+          const casa = series.some((s2) => casaSerie(p2, v.tipoParcela, s2)) ||
+            series.some((s2) => casaSerie(somaCliente, 'Fixa', s2));
+          if (!casa) probs.push(v.codigo + ': parcela ' + fmt.brl(p2) + ' não casa com o boleto (' +
+            series.map((s2) => fmt.brl(s2) + ' cheio / ' + fmt.brl(s2 * 0.8) + ' c/ desconto').join(' · ') + ')');
+        }
+      }
       const fut = [];
       for (const v of vs) for (const l of CARNE.gerarParcelas(v, cfgReajuste())) {
         if (l.n > 0 && l.venc >= hojeISO()) fut.push(l);
       }
-      const contag = {};
-      for (const l of fut) { const k = String(Math.round(l.valor * 100) / 100); contag[k] = (contag[k] || 0) + 1; }
-      const valSis = Number(modal(contag)) || 0;
-      const valOm = Number(modal(om.valores)) || 0;
       const diaSis = modal(fut.reduce((o, l) => { const k = l.venc.slice(8, 10); o[k] = (o[k] || 0) + 1; return o; }, {}));
       const diaOm = modal(om.dias);
-      const probs = [];
-      if (valOm && Math.abs(valSis - valOm) > 0.02) probs.push('parcela: sistema ' + fmt.brl(valSis) + ' × Omie ' + fmt.brl(valOm));
       if (diaOm && diaSis !== diaOm) probs.push('vence dia ' + diaSis + ' aqui, dia ' + diaOm + ' no Omie');
-      if (Math.abs(fut.length - om.futuros) > 2) probs.push('faltam ' + fut.length + ' parcelas aqui, ' + om.futuros + ' lá');
+      if (vs.length === 1 && series.length === 1 && Math.abs(fut.length - om.futuros) > 2) {
+        probs.push('faltam ' + fut.length + ' parcelas aqui, ' + om.futuros + ' lá');
+      }
       if (probs.length) divCarne.push({ nome: vs[0].clienteNome || '', vendas: vs, probs });
     }
     const blocoCarne =
       '<div class="cartao"><h2>Carnê × contrato no Omie <span class="nota">— ' + divCarne.length + ' venda(s) com o desenho diferente</span></h2>' +
-      (divCarne.length ? '<p class="nota">O boleto que o cliente paga é o do Omie. Se o valor de lá é outro, o carnê daqui ' +
-        '(que veio da planilha) está desatualizado — corrija a venda ou me avise qual regra vale.</p>' +
+      (divCarne.length ? '<p class="nota">O boleto sai pelo valor cheio e tem ~20% de desconto até o vencimento — o sistema guarda o valor com desconto, ' +
+        'e isso NÃO conta como divergência. O que aparece aqui é o que nem com essa regra fecha.</p>' +
         divCarne.map((x) =>
           '<div class="lin cfc-lin" data-venda="' + esc(x.vendas.length === 1 ? x.vendas[0].id : '') + '">' +
           '<div class="cresce"><b>' + esc(x.nome) + '</b> <span class="nota">' + x.vendas.map((v) => v.codigo).join(' ') + '</span>' +
