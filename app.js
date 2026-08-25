@@ -8,6 +8,8 @@ const ROTAS = {
   espelho:    { titulo: 'Espelho',       ic: '🗺️' },
   lote:       { titulo: 'Lote',          ic: '🗺️', oculta: true },
   vendas:     { titulo: 'Vendas',        ic: '📋' },
+  simulador:  { titulo: 'Simulador',     ic: '🏷️' },
+  contratos:  { titulo: 'Contratos',     ic: '📜' },
   venda:      { titulo: 'Venda',         ic: '📋', oculta: true },
   propostas:  { titulo: 'Propostas',     ic: '📨' },
   caixa:      { titulo: 'Caixa',         ic: '💰' },
@@ -25,9 +27,9 @@ const ROTAS = {
 // O menu é um espelho do servidor: esconder botão não protege nada, só evita
 // oferecer o que a pessoa não pode abrir.
 function rotasDoPerfil() {
-  if (S.perfil === 'corretor') return ['espelho', 'propostas', 'apresentacao'];
-  if (S.perfil === 'escritorio') return ['home', 'espelho', 'vendas', 'propostas', 'caixa', 'lancamentos', 'relatorios', 'cronograma', 'clientes', 'corretores', 'apresentacao'];
-  return ['home', 'espelho', 'vendas', 'propostas', 'caixa', 'lancamentos', 'relatorios', 'cronograma', 'clientes', 'corretores', 'apresentacao', 'config'];
+  if (S.perfil === 'corretor') return ['espelho', 'simulador', 'propostas', 'apresentacao'];
+  if (S.perfil === 'escritorio') return ['home', 'espelho', 'simulador', 'vendas', 'contratos', 'propostas', 'caixa', 'lancamentos', 'relatorios', 'cronograma', 'clientes', 'corretores', 'apresentacao'];
+  return ['home', 'espelho', 'simulador', 'vendas', 'contratos', 'propostas', 'caixa', 'lancamentos', 'relatorios', 'cronograma', 'clientes', 'corretores', 'apresentacao', 'config'];
 }
 
 function rotaAtual() {

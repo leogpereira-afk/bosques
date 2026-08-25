@@ -465,7 +465,10 @@ function totalDoPlano(sim, reaj) {
 // A régua da tabela veio da planilha e é LINEAR no preço (conferida lote a
 // lote): parcela = preço × fator. Digitou o preço, as 4 parcelas se sugerem —
 // e continuam editáveis, porque tabela é política, não lei.
-const RAZAO_PARC = { parcFixa: 0.0109063, parcFixaDesc: 0.0087251, parcReaj: 0.0084063, parcReajDesc: 0.0067250 };
+// As razões EXATAS da tabela oficial (Simulador de Parcelas de Lotes.xlsx):
+// valor do lote = m² × R$ 40; parcela = valor × razão; desconto = ×0,8.
+const PRECO_POR_M2 = 40;
+const RAZAO_PARC = { parcFixa: 0.01090625, parcFixaDesc: 0.008725, parcReaj: 0.00840625, parcReajDesc: 0.006725 };
 
 function abrirCadastroLote(id) {
   const l = id ? (achar('lote', id) || {}) : {};
@@ -521,6 +524,16 @@ function abrirCadastroLote(id) {
   // preço digitado → sugere as 4 parcelas (só preenche campo que está vazio
   // ou que ainda segue a régua — o que foi mexido à mão fica quieto)
   const campoPreco = fundo.querySelector('[data-campo="preco"]');
+  // área digitada → sugere o preço pela régua oficial (m² × R$ 40); o preço
+  // digitado à mão fica quieto (dataset.mexido).
+  const campoArea = fundo.querySelector('[data-campo="areaM2"]');
+  if (campoArea) campoArea.addEventListener('input', () => {
+    const m2 = numeroBR(campoArea.value);
+    if (!(m2 > 0) || campoPreco.dataset.mexido) return;
+    campoPreco.value = (m2 * PRECO_POR_M2).toFixed(2);
+    campoPreco.dispatchEvent(new Event('input'));
+  });
+  campoPreco.addEventListener('keydown', () => { campoPreco.dataset.mexido = '1'; });
   campoPreco.addEventListener('input', () => {
     const preco = numeroBR(campoPreco.value);
     if (!(preco > 0)) return;
@@ -772,3 +785,67 @@ function abrirNovaVenda(l, sim) {
     ],
   });
 }
+
+
+/* ── Tela: Simulador (aba livre) ────────────────────────────────────────────
+   A inteligência da tabela oficial, solta: escolhe um lote (ou digita a
+   metragem) e vê as 4 parcelas — Fixa e Reajustada 6%, cheias e com o
+   desconto de pontualidade. NÃO grava nada: nem orçamento, nem reserva. */
+TELAS.simulador = function () {
+  const app = document.getElementById('app');
+  const f = TELAS._fSimLivre || { loteId: '', m2: '', preco: '' };
+  TELAS._fSimLivre = f;
+  const disponiveis = lista('lote').filter((x) => x.status === 'Disponível')
+    .sort((a, b) => (a.quadra - b.quadra) || (a.lote - b.lote));
+
+  const l = f.loteId ? achar('lote', f.loteId) : null;
+  const m2 = l ? Number(l.areaM2) || 0 : numeroBR(f.m2);
+  const preco = f.preco !== '' && !l ? numeroBR(f.preco)
+    : (l && l.preco ? Number(l.preco) : m2 * PRECO_POR_M2);
+  const entradaP = (S.cfg && S.cfg.entradaPadrao) || 3000;
+  const parc = (razao) => Math.round(preco * razao * 100) / 100;
+  const nParc = 150;
+  const linha = (rot, cheia, desc) =>
+    '<tr><td><b>' + rot + '</b></td>' +
+    '<td class="num">' + fmt.brl(cheia) + '</td>' +
+    '<td class="num" style="font-weight:700;color:var(--verde)">' + fmt.brl(desc) + '</td>' +
+    '<td class="num">' + fmt.brl(entradaP + desc * nParc) + '</td></tr>';
+
+  app.innerHTML =
+    '<div class="cartao"><h2>🏷️ Simulador <span class="nota">— a tabela oficial na mão; nada é gravado</span></h2>' +
+    '<div class="colunas-3">' +
+      '<div class="campo"><label>Lote do espelho</label><select id="sl-lote"><option value="">— digitar metragem —</option>' +
+        disponiveis.map((x) => '<option value="' + esc(x.id) + '"' + (f.loteId === x.id ? ' selected' : '') + '>Q' +
+          x.quadra + '-L' + x.lote + ' · ' + (Number(x.areaM2) || 0).toLocaleString('pt-BR') + ' m²</option>').join('') +
+      '</select><div class="dica">' + disponiveis.length + ' disponíveis</div></div>' +
+      campo('Metragem (m²)', entrada('m2', l ? (l.areaM2 || '') : f.m2, { inputmode: 'decimal', somenteLeitura: !!l }),
+        'régua oficial: R$ ' + PRECO_POR_M2 + '/m²') +
+      campo('Valor do lote (R$)', entrada('preco', preco ? preco.toFixed(2) : '', { inputmode: 'decimal' }),
+        'sugerido pela régua — pode ajustar') +
+    '</div></div>' +
+    (preco > 0
+      ? '<div class="paineis">' +
+          '<div class="painel"><div class="rot">Valor do lote</div><div class="num">' + fmt.brl(preco) + '</div>' +
+            (m2 ? '<div class="sub">' + m2.toLocaleString('pt-BR') + ' m² × R$ ' + PRECO_POR_M2 + '</div>' : '') + '</div>' +
+          '<div class="painel"><div class="rot">Entrada</div><div class="num">' + fmt.brl(entradaP) + '</div>' +
+            '<div class="sub">padrão da casa · ' + nParc + ' parcelas</div></div>' +
+        '</div>' +
+        '<div class="cartao"><h2>O plano, nas duas réguas</h2>' +
+        '<div class="rolagem"><table class="tabela">' +
+        '<thead><tr><th>Tipo</th><th class="num">Boleto (cheio)</th><th class="num">Pagando em dia (−20%)</th><th class="num">Total do plano em dia</th></tr></thead><tbody>' +
+        linha('Fixa', parc(RAZAO_PARC.parcFixa), parc(RAZAO_PARC.parcFixaDesc)) +
+        linha('Reajustada 6%', parc(RAZAO_PARC.parcReaj), parc(RAZAO_PARC.parcReajDesc)) +
+        '</tbody></table></div>' +
+        '<p class="nota">Reajustada: +6% a cada 12 parcelas sobre o valor da parcela — começa menor e sobe com o tempo. ' +
+        'Simulação de tabela: não cria orçamento, não reserva e não fica registrada. ' +
+        'Para propor de verdade, use o simulador de venda dentro do lote, no Espelho.</p></div>'
+      : '<div class="cartao"><p class="nota">Escolha um lote ou digite a metragem para ver as parcelas.</p></div>');
+
+  document.getElementById('sl-lote').onchange = (e) => {
+    f.loteId = e.target.value; f.m2 = ''; f.preco = ''; TELAS.simulador();
+  };
+  const cm2 = app.querySelector('[data-campo="m2"]');
+  if (cm2) cm2.oninput = (e) => { f.m2 = e.target.value; f.loteId = ''; f.preco = ''; TELAS.simulador(); };
+  const cpr = app.querySelector('[data-campo="preco"]');
+  if (cpr) cpr.onchange = (e) => { f.preco = e.target.value; TELAS.simulador(); };
+};
