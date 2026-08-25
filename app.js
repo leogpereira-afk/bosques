@@ -12,7 +12,6 @@ const ROTAS = {
   propostas:  { titulo: 'Propostas',     ic: '📨' },
   caixa:      { titulo: 'Caixa',         ic: '💰' },
   lancamentos: { titulo: 'Lançamentos',  ic: '🧾' },
-  conferencia: { titulo: 'Conferência',  ic: '🔁' },
   simulacao:  { titulo: 'Simulação',     ic: '🧮', oculta: true }, // vive dentro de Vendas
   relatorios: { titulo: 'Relatórios',   ic: '📊' },
   cronograma: { titulo: 'Cronograma',   ic: '🏗️' },
@@ -27,8 +26,8 @@ const ROTAS = {
 // oferecer o que a pessoa não pode abrir.
 function rotasDoPerfil() {
   if (S.perfil === 'corretor') return ['espelho', 'propostas', 'apresentacao'];
-  if (S.perfil === 'escritorio') return ['home', 'espelho', 'vendas', 'propostas', 'caixa', 'lancamentos', 'conferencia', 'relatorios', 'cronograma', 'clientes', 'corretores', 'apresentacao'];
-  return ['home', 'espelho', 'vendas', 'propostas', 'caixa', 'lancamentos', 'conferencia', 'relatorios', 'cronograma', 'clientes', 'corretores', 'apresentacao', 'config'];
+  if (S.perfil === 'escritorio') return ['home', 'espelho', 'vendas', 'propostas', 'caixa', 'lancamentos', 'relatorios', 'cronograma', 'clientes', 'corretores', 'apresentacao'];
+  return ['home', 'espelho', 'vendas', 'propostas', 'caixa', 'lancamentos', 'relatorios', 'cronograma', 'clientes', 'corretores', 'apresentacao', 'config'];
 }
 
 function rotaAtual() {
@@ -190,8 +189,13 @@ TELAS.home = function () {
         return '<div class="lin venda-lin" data-id="' + esc(rc.vendaId) + '">' +
           '<div class="cresce"><b>' + fmt.brl(rc.valor) + '</b>' +
           '<span class="sub">' + fmt.data(rc.data) + ' · ' + (v ? 'Q' + v.quadra + '-L' + v.lote + ' · ' + esc(v.clienteNome || '') : '—') + '</span></div></div>';
-      }).join('') || '<p class="nota">Nenhum dinheiro lançado ainda.</p>') + '</div>';
+      }).join('') || '<p class="nota">Nenhum dinheiro lançado ainda.</p>') + '</div>' +
+    // O pulso da ponte com o Omie: quando sincronizou e se deu certo.
+    (S.perfil !== 'corretor'
+      ? '<p class="nota" id="home-omie" style="margin:6px 2px">consultando a sincronização do Omie…</p>'
+      : '');
 
+  if (S.perfil !== 'corretor') statusOmieHome(document.getElementById('home-omie'));
   ligarBotoesCobranca(app);
   app.querySelectorAll('[data-vai]').forEach((el) => { el.onclick = () => { location.hash = '#/' + el.dataset.vai; }; });
   app.querySelectorAll('.venda-lin').forEach((el) => { el.onclick = () => { location.hash = '#/venda/' + el.dataset.id; }; });
