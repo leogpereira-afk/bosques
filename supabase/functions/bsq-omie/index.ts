@@ -244,8 +244,9 @@ Deno.serve(async (req) => {
             // da planilha — sobrescreve quando o Omie tem o dado. Só recua para
             // "completar vazios" quando uma PESSOA editou o registro no app
             // (aí o que ela digitou fica).
-            const automaticos = ["importação da planilha", "omie", "auditoria Omie", "—", ""];
-            const editadoPorPessoa = !automaticos.includes(String(local.atualizadoPor || ""));
+            const autor = String(local.atualizadoPor || "");
+            const editadoPorPessoa = !["omie", "auditoria Omie", "—", ""].includes(autor) &&
+              !autor.startsWith("importação");
             const tel = [oc.telefone1_ddd, oc.telefone1_numero].filter(Boolean).join(" ");
             // O campo que o cadastro (e o botão de cobrança) usa é o whatsapp.
             const cand: Record<string, string> = {
