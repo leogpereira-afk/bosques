@@ -81,6 +81,17 @@ const PDF = (() => {
       ' · válida por ' + (p.validadeDias || 7) + ' dias' +
       (p.donoNome ? ' · corretor: ' + p.donoNome : ''), 14, y);
 
+    // Dados do proponente: proposta séria leva os dados de quem propõe.
+    const cli = p.cliente || {};
+    const docCli = [];
+    if (cli.cpf) docCli.push('CPF ' + cli.cpf);
+    if (cli.whatsapp || cli.telefone || cli.celular) docCli.push('WhatsApp ' + (cli.whatsapp || cli.telefone || cli.celular));
+    if (cli.email) docCli.push(cli.email);
+    const endCli = [cli.endereco, cli.bairro, cli.cidade && (cli.cidade + (cli.uf ? '/' + cli.uf : '')), cli.cep && 'CEP ' + cli.cep]
+      .filter(Boolean).join(' · ');
+    if (docCli.length) { y += 5; doc.text(docCli.join('  ·  '), 14, y); }
+    if (endCli) { y += 5; doc.text(doc.splitTextToSize(endCli, 182), 14, y); }
+
     // O lote
     y += 12;
     doc.setFillColor(232, 243, 233);
@@ -101,43 +112,58 @@ const PDF = (() => {
     doc.setTextColor(30, 43, 33);
     doc.text('Plano de pagamento', 14, y);
     y += 8;
-    doc.setFont('helvetica', 'normal'); doc.setFontSize(11);
-    // O plano REDUZIDO para o cliente: na parcela reajustada, os degraus dos
-    // primeiros anos (1–12, 13–24…) em vez de uma linha vaga — é o que o
-    // comprador quer saber: "quanto pago em cada fase".
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(10);
+    // O QUADRO COMPLETO, do jeito que a cobrança funciona de verdade: o boleto
+    // sai pelo valor cheio e tem 20% de desconto pagando até o vencimento.
+    // Toda faixa de parcela aparece — nada de "… e segue".
     const avista = (p.tipoParcela === 'À vista') || !(p.qtdeParcelas > 0);
-    const linhas = avista ? [['Pagamento à vista', brl(p.entrada)]] : [['Entrada', brl(p.entrada)]];
-    if (!avista && p.entradaDetalhe) linhas.push(['   · condição da entrada', String(p.entradaDetalhe)]);
     const nParc = avista ? 0 : (p.qtdeParcelas || 0);
+    const linhas = avista ? [['Pagamento à vista', '', brl(p.entrada)]] : [['Entrada', '', brl(p.entrada)]];
+    if (!avista && p.entradaDetalhe) linhas.push(['   · condição da entrada', '', String(p.entradaDetalhe)]);
+    let totalCheio = Number(p.entrada) || 0;
     if (nParc > 0) {
-      if (p.tipoParcela === 'Reajustada') {
-        const pct = ((cfg.reajuste || {}).pct) || 6;
-        const aCada = ((cfg.reajuste || {}).aCada) || 12;
-        const degraus = Math.ceil(nParc / aCada);
-        const mostrar = Math.min(degraus, 4);
-        for (let d = 0; d < mostrar; d++) {
-          const ini = d * aCada + 1;
-          const fim = Math.min(nParc, (d + 1) * aCada);
-          linhas.push(['Parcelas ' + ini + ' a ' + fim, brl(p.valorParcela * Math.pow(1 + pct / 100, d)) + ' /mês']);
-        }
-        if (degraus > mostrar) {
-          linhas.push(['… e segue +' + pct + '% a cada ' + aCada + ' parcelas',
-            'última (' + nParc + 'ª): ' + brl(p.valorParcela * Math.pow(1 + pct / 100, degraus - 1))]);
-        }
-      } else {
-        linhas.push([nParc + ' parcelas mensais fixas', brl(p.valorParcela) + ' /mês']);
+      const pct = ((cfg.reajuste || {}).pct) || 6;
+      const aCada = ((cfg.reajuste || {}).aCada) || 12;
+      const degraus = p.tipoParcela === 'Reajustada' ? Math.ceil(nParc / aCada) : 1;
+      for (let d = 0; d < degraus; d++) {
+        const ini = d * (p.tipoParcela === 'Reajustada' ? aCada : nParc) + 1;
+        const fim = p.tipoParcela === 'Reajustada' ? Math.min(nParc, (d + 1) * aCada) : nParc;
+        const emDia = p.valorParcela * (p.tipoParcela === 'Reajustada' ? Math.pow(1 + pct / 100, d) : 1);
+        totalCheio += (emDia / 0.8) * (fim - ini + 1);
+        linhas.push(['Parcelas ' + ini + ' a ' + fim, brl(emDia / 0.8), brl(emDia)]);
       }
     }
-    if (p.formaPg) linhas.push(['Forma de pagamento', String(p.formaPg)]);
-    linhas.push(['Total do plano', brl(p.valor)]);
-    for (const [a, b] of linhas) {
-      doc.setTextColor(...CINZA); doc.text(a, 14, y);
+    if (p.formaPg) linhas.push(['Forma de pagamento', '', String(p.formaPg)]);
+    linhas.push(['TOTAL pagando sempre em dia', nParc > 0 ? brl(totalCheio) : '', brl(p.valor)]);
+
+    // cabeçalho do quadro (só quando é parcelado)
+    if (nParc > 0) {
+      doc.setFillColor(240, 246, 240);
+      doc.rect(14, y - 4.5, 182, 6.5, 'F');
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(8.5); doc.setTextColor(...VERDE);
+      doc.text('PARCELAS', 14.5, y);
+      doc.text('VALOR DO BOLETO', 152, y, { align: 'right' });
+      doc.text('PAGANDO EM DIA*', 196, y, { align: 'right' });
+      y += 6.5;
+    }
+    doc.setFontSize(10);
+    for (const [a, cheio, emDia] of linhas) {
+      const total = a.indexOf('TOTAL') === 0;
+      doc.setFont('helvetica', total ? 'bold' : 'normal');
+      doc.setTextColor(...(total ? [30, 43, 33] : CINZA));
+      doc.text(a, 14, y);
+      if (cheio) { doc.setFont('helvetica', 'normal'); doc.setTextColor(...CINZA); doc.text(String(cheio), 152, y, { align: 'right' }); }
       doc.setTextColor(30, 43, 33); doc.setFont('helvetica', 'bold');
-      doc.text(b, 196, y, { align: 'right' });
+      doc.text(String(emDia), 196, y, { align: 'right' });
       doc.setFont('helvetica', 'normal');
-      y += 7;
+      y += 5.8;
       doc.setDrawColor(220, 231, 221);
-      doc.line(14, y - 4.5, 196, y - 4.5);
+      doc.line(14, y - 3.8, 196, y - 3.8);
+    }
+    if (nParc > 0) {
+      doc.setFontSize(8); doc.setTextColor(...CINZA);
+      doc.text('* desconto de pontualidade de 20% pagando até o vencimento do boleto.', 14, y + 1);
+      y += 5;
     }
 
     const conta = (cfg.empresa && cfg.empresa.contaBancaria || '').trim();

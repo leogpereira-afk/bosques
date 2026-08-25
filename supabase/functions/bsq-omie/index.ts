@@ -240,7 +240,12 @@ Deno.serve(async (req) => {
             mapaCpf[cpf] = oc.codigo_cliente_omie;
             const local = porCpfLocal.get(cpf);
             if (!local || local.apagadoEm) continue;
-            // Completa SÓ campo vazio — o que o escritório digitou, fica.
+            // Decisão do Léo (25/08): o cadastro do Omie MANDA sobre o que veio
+            // da planilha — sobrescreve quando o Omie tem o dado. Só recua para
+            // "completar vazios" quando uma PESSOA editou o registro no app
+            // (aí o que ela digitou fica).
+            const automaticos = ["importação da planilha", "omie", "auditoria Omie", "—", ""];
+            const editadoPorPessoa = !automaticos.includes(String(local.atualizadoPor || ""));
             const tel = [oc.telefone1_ddd, oc.telefone1_numero].filter(Boolean).join(" ");
             // O campo que o cadastro (e o botão de cobrança) usa é o whatsapp.
             const cand: Record<string, string> = {
@@ -251,12 +256,16 @@ Deno.serve(async (req) => {
             let mudou = false;
             const novo = { ...local };
             for (const [campo, valor] of Object.entries(cand)) {
-              if (valor && !String(novo[campo] || "").trim()) { novo[campo] = valor; mudou = true; }
+              if (!valor) continue;
+              const atual2 = String(novo[campo] || "").trim();
+              if (!atual2 || (!editadoPorPessoa && atual2 !== valor)) { novo[campo] = valor; mudou = true; }
             }
             if (mudou) {
               novo.atualizadoEm = agora();
               novo.historico = [...(local.historico || []),
-                { em: agora(), por: "omie", acao: "completou cadastro com dados do Omie" }];
+                { em: agora(), por: "omie", acao: editadoPorPessoa
+                  ? "completou cadastro com dados do Omie"
+                  : "cadastro atualizado pelo Omie (dados da planilha substituídos)" }];
               gravar.push({ colecao: "cliente", id: novo.id, registro: novo });
               soma("clientesCompletados");
             }

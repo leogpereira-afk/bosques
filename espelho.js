@@ -633,7 +633,10 @@ async function baixarPdfProposta(l, sim) {
   try { await subirFila(); } catch (e) { /* offline: segue */ }
   const atual = achar('prop', salva.id) || salva;
   if (!atual.codigo) toast('Sem internet agora: saiu SEM número — ela ganha o PR ao sincronizar', 'ruim');
-  const blob = PDF.proposta(atual, l, S.cfg || {});
+  // A proposta leva os dados COMPLETOS do proponente: o cadastro entra por
+  // baixo, o que foi digitado agora fica por cima.
+  const cadastro = (atual.clienteId && achar('cliente', atual.clienteId)) || {};
+  const blob = PDF.proposta({ ...atual, cliente: { ...cadastro, ...atual.cliente } }, l, S.cfg || {});
   salvarNoAparelho(blob, 'Proposta-Bosques-' + (atual.codigo || 'Q' + l.quadra + 'L' + l.lote) + '-' +
     prop.cliente.nome.split(' ')[0] + '.pdf');
   toast('PDF ' + (atual.codigo || '') + ' baixado e no CRM do lote');
@@ -651,7 +654,8 @@ async function enviarLinkProposta(l, sim, btn) {
     const doServidor = achar('prop', salva.id);
     if (!doServidor || !doServidor.tokenPublico) throw new Error('sem internet agora — o link precisa do servidor (o PDF avulso funciona offline)');
     // 2. PDF com o número carimbado, anexado ao link
-    const pdfBlob = PDF.proposta(doServidor, l, S.cfg || {});
+    const cadastro2 = (doServidor.clienteId && achar('cliente', doServidor.clienteId)) || {};
+    const pdfBlob = PDF.proposta({ ...doServidor, cliente: { ...cadastro2, ...doServidor.cliente } }, l, S.cfg || {});
     const arq = await enviarArquivo(new File([pdfBlob], 'proposta.pdf', { type: 'application/pdf' }));
     salvar('prop', { id: salva.id, arquivoId: arq.id });
     await subirFila();
