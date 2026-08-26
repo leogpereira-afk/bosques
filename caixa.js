@@ -705,8 +705,8 @@ TELAS.relatorios = function () {
         '<button class="chip' + (hz === v ? ' on' : '') + '" data-hz="' + v + '">' + t2 + '</button>').join('') +
     '</div><button class="btn mini" id="rel-pdf">📄 PDF do relatório</button></div>' +
     '<div class="paineis">' +
-      '<div class="painel clicavel" data-acao="vendas"><div class="rot">Lotes vendidos</div><div class="num">' + new Set(vendasDePe.map((v) => v.loteId)).size + '</div>' +
-        (vendasDePe.length !== new Set(vendasDePe.map((v) => v.loteId)).size ? '<div class="sub">' + vendasDePe.length + ' contratos (lote com 2 vendas em conferência)</div>' : '') + '</div>' +
+      '<div class="painel clicavel" data-acao="' + (vendasDePe.length !== new Set(vendasDePe.map((v) => v.loteId)).size ? 'duplicados' : 'vendas') + '"><div class="rot">Lotes vendidos</div><div class="num">' + new Set(vendasDePe.map((v) => v.loteId)).size + '</div>' +
+        (vendasDePe.length !== new Set(vendasDePe.map((v) => v.loteId)).size ? '<div class="sub">⚠ ' + vendasDePe.length + ' contratos — clique e veja os lotes com 2 vendas</div>' : '') + '</div>' +
       '<div class="painel clicavel" data-acao="vendas"><div class="rot">Valor total vendido (VGV)</div><div class="num pos">' + fmt.brl(vgv) + '</div></div>' +
       '<div class="painel clicavel" data-acao="recebido"><div class="rot">Já recebido</div><div class="num pos">' + fmt.brl(ac.entradas) + '</div></div>' +
       '<div class="painel clicavel" data-acao="gasto"><div class="rot">Já gasto</div><div class="num neg">' + fmt.brl(ac.saidas) + '</div></div>' +
@@ -784,6 +784,7 @@ TELAS.relatorios = function () {
     el.onclick = () => {
       const acao = el.dataset.acao;
       if (acao === 'vendas') location.hash = '#/vendas';
+      else if (acao === 'duplicados') abrirLotesDuplicados();
       else if (acao === 'recebido') { TELAS._fLanc = { q: '', tipo: 'entrada', cat: '', mes: 'todos' }; location.hash = '#/lancamentos'; }
       else if (acao === 'gasto') { TELAS._fLanc = { q: '', tipo: 'saida', cat: '', mes: 'todos' }; location.hash = '#/lancamentos'; }
       else if (acao === 'caixa') { const c2 = document.getElementById('rel-tabela'); if (c2) c2.scrollIntoView({ behavior: 'smooth', block: 'start' }); else location.hash = '#/caixa'; }

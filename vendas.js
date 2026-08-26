@@ -187,7 +187,8 @@ TELAS.vendas = function () {
     '<div class="paineis">' +
       '<div class="painel"><div class="rot">VGV vendido</div><div class="num pos">' + fmt.brl(vgv) + '</div>' +
         '<div class="sub">' + naoDistratadas.length + ' contrato(s) de pé</div></div>' +
-      '<div class="painel"><div class="rot">Contratos vivos</div><div class="num">' + vendasVivas().length + '</div></div>' +
+      '<div class="painel' + (lotesDuplicados().length ? ' clicavel" id="vd-duplicados' : '') + '"><div class="rot">Contratos vivos</div><div class="num">' + vendasVivas().length + '</div>' +
+        (lotesDuplicados().length ? '<div class="sub">⚠ ' + lotesDuplicados().length + ' lote(s) com 2 vendas — clique e veja quais</div>' : '') + '</div>' +
       '<div class="painel clicavel" id="pn-atraso"><div class="rot">Em atraso</div><div class="num' + (emAtraso.length ? ' neg' : ' pos') + '">' + emAtraso.length + '</div>' +
         '<div class="sub">' + fmt.brl(totalAtraso) + ' vencidos</div></div>' +
       '<div class="painel"><div class="rot">Recebido de vendas · ' + nomeMes(mesStr) + '</div><div class="num pos">' + fmt.brl(recebidoMes) + '</div>' +
@@ -209,6 +210,8 @@ TELAS.vendas = function () {
       : cartaoMensal);
 
   document.getElementById('vd-sim').onclick = () => { location.hash = '#/simulacao'; };
+  const bDup = document.getElementById('vd-duplicados');
+  if (bDup) bDup.onclick = () => abrirLotesDuplicados();
   document.getElementById('vd-pdf').onclick = () => {
     // O recorte sai ESCRITO no papel: um PDF filtrado sem dizer o filtro
     // viraria "o total" na reunião.
@@ -1038,5 +1041,32 @@ function abrirEditarRec(v, recId) {
         TELAS.venda(v.id);
       } },
     ],
+  });
+}
+
+
+/* ── Os lotes com DUAS vendas vivas: quem são, lado a lado ───────────────────
+   É a diferença entre "99 lotes" e "102 contratos" — o dono clica e vê. */
+function lotesDuplicados() {
+  const porLote = {};
+  for (const v of vendasVivas()) (porLote[v.loteId] = porLote[v.loteId] || []).push(v);
+  return Object.entries(porLote).filter(([, vs]) => vs.length > 1);
+}
+function abrirLotesDuplicados() {
+  const dups = lotesDuplicados();
+  if (!dups.length) { toast('Nenhum lote com venda dupla 🎉'); return; }
+  const corpo = '<p class="nota">O mesmo lote com mais de um contrato vivo: decida quem fica ' +
+    '(o outro se distrata na ficha, ou se realoca para outro lote em ✏ Editar venda).</p>' +
+    dups.map(([loteId, vs]) =>
+      '<div class="cartao" style="margin:6px 0"><b>Q' + vs[0].quadra + '-L' + vs[0].lote + '</b>' +
+      vs.map((v) => '<div class="lin dup-venda" data-id="' + esc(v.id) + '">' +
+        '<div class="cresce"><b>' + esc(v.codigo || '') + ' · ' + esc(v.clienteNome || '—') + '</b>' +
+        '<span class="sub">' + etiqueta(v.situacao || 'ativa') + ' · venda em ' + fmt.data(v.dataVenda) +
+        (v.qtdeParcelas ? ' · ' + v.qtdeParcelas + '× de ' + fmt.brl(v.valorParcela) : '') + '</span></div>' +
+        '<span class="nota">abrir →</span></div>').join('') + '</div>').join('');
+  abrirModal({ titulo: '⚠ Lotes com 2 vendas (' + dups.length + ')', corpo,
+    acoes: [{ texto: 'Fechar', aoClicar: () => fecharModal() }] });
+  document.querySelectorAll('.dup-venda').forEach((el) => {
+    el.onclick = () => { fecharModal(); location.hash = '#/venda/' + el.dataset.id; };
   });
 }
