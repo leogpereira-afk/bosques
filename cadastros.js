@@ -120,9 +120,12 @@ const seloPct = (pct) => {
 /* ── Tela: clientes por letra ──────────────────────────────────────────────── */
 TELAS.clientes = function () {
   const app = document.getElementById('app');
-  const filtro = TELAS._fclientes || { q: '' };
+  const filtro = TELAS._fclientes || { q: '', comp: '' };
   TELAS._fclientes = filtro;
-  const todos = lista('cliente').sort((a, b) => (a.nome || '').localeCompare(b.nome || ''));
+  let todos = lista('cliente').sort((a, b) => (a.nome || '').localeCompare(b.nome || ''));
+  // filtro dos cartões: 100% × incompletos (clicar de novo no total limpa)
+  if (filtro.comp === 'ok') todos = todos.filter((p) => completudeCliente(p).pct === 100);
+  else if (filtro.comp === 'falta') todos = todos.filter((p) => completudeCliente(p).pct < 100);
   const vendas = lista('venda');
 
   const linhaCliente = (p) => {
@@ -163,13 +166,14 @@ TELAS.clientes = function () {
       '<div style="margin-top:10px">' + porLetra[letra].map(linhaCliente).join('') + '</div></details>').join('');
   }
 
-  const completos = todos.filter((p) => completudeCliente(p).pct === 100).length;
+  const base = lista('cliente');
+  const completos = base.filter((p) => completudeCliente(p).pct === 100).length;
   app.innerHTML =
     '<div class="paineis">' +
-      '<div class="painel"><div class="rot">Clientes</div><div class="num">' + todos.length + '</div></div>' +
-      '<div class="painel"><div class="rot">Cadastro 100%</div><div class="num' + (completos === todos.length ? ' pos' : '') + '">' + completos + '</div>' +
+      '<div class="painel clicavel" data-pc=""><div class="rot">Clientes</div><div class="num">' + base.length + '</div></div>' +
+      '<div class="painel clicavel" data-pc="ok"><div class="rot">Cadastro 100%</div><div class="num' + (completos === base.length ? ' pos' : '') + '">' + completos + '</div>' +
         '<div class="sub">' + (todos.length ? Math.round(completos / todos.length * 100) : 0) + '% da carteira</div></div>' +
-      '<div class="painel"><div class="rot">Incompletos</div><div class="num' + (todos.length - completos ? ' neg' : ' pos') + '">' + (todos.length - completos) + '</div>' +
+      '<div class="painel clicavel" data-pc="falta"><div class="rot">Incompletos</div><div class="num' + (base.length - completos ? ' neg' : ' pos') + '">' + (base.length - completos) + '</div>' +
         '<div class="sub">a % de cada um está na lista</div></div>' +
     '</div>' +
     '<div class="filtros">' +
@@ -178,6 +182,9 @@ TELAS.clientes = function () {
     '</div>' + (corpo || vazio('👥', 'Ninguém por aqui ainda', 'Os compradores entram pela importação ou pela venda.'));
 
   document.getElementById('cad-q').oninput = (e) => { filtro.q = e.target.value; TELAS.clientes(); };
+  app.querySelectorAll('.painel[data-pc]').forEach((el) => {
+    el.onclick = () => { filtro.comp = el.dataset.pc; TELAS.clientes(); };
+  });
   document.getElementById('cad-novo').onclick = () => abrirFichaPessoa('cliente', null);
   app.querySelectorAll('.cli-lin').forEach((el) => {
     el.onclick = () => abrirFichaPessoa('cliente', el.dataset.id);
@@ -252,9 +259,9 @@ TELAS.corretores = function () {
 
   app.innerHTML =
     '<div class="paineis">' +
-      '<div class="painel"><div class="rot">Corretores</div><div class="num">' + ficha.length + '</div></div>' +
-      '<div class="painel"><div class="rot">VGV vendido por eles</div><div class="num pos">' + fmt.brl(totalVgv) + '</div></div>' +
-      '<div class="painel"><div class="rot">Comissões a pagar</div><div class="num' + (totalSaldo > 0.01 ? ' neg' : '') + '">' + fmt.brl(totalSaldo) + '</div></div>' +
+      '<div class="painel clicavel" data-pcor="topo"><div class="rot">Corretores</div><div class="num">' + ficha.length + '</div></div>' +
+      '<div class="painel clicavel" data-pcor="topo"><div class="rot">VGV vendido por eles</div><div class="num pos">' + fmt.brl(totalVgv) + '</div></div>' +
+      '<div class="painel clicavel" data-pcor="saldo"><div class="rot">Comissões a pagar</div><div class="num' + (totalSaldo > 0.01 ? ' neg' : '') + '">' + fmt.brl(totalSaldo) + '</div></div>' +
     '</div>' +
     '<div class="filtros"><button class="btn primario" id="cor-novo">+ corretor</button></div>' +
     ficha.map((x, i) =>
@@ -271,9 +278,9 @@ TELAS.corretores = function () {
       '</summary>' +
       '<div style="margin-top:12px">' +
         '<div class="paineis" style="margin:0 0 10px">' +
-          '<div class="painel"><div class="rot">Comissão combinada</div><div class="num">' + fmt.brl(x.devido) + '</div></div>' +
-          '<div class="painel"><div class="rot">Já paga</div><div class="num pos">' + fmt.brl(x.pago) + '</div></div>' +
-          '<div class="painel"><div class="rot">Saldo</div><div class="num' + (x.saldo > 0.01 ? ' neg' : '') + '">' + fmt.brl(x.saldo) + '</div></div>' +
+          '<div class="painel clicavel cor-vendas" data-nome="' + esc(x.cor.nome || '') + '"><div class="rot">Comissão combinada</div><div class="num">' + fmt.brl(x.devido) + '</div></div>' +
+          '<div class="painel clicavel cor-pagas" data-nome="' + esc(x.cor.nome || '') + '"><div class="rot">Já paga</div><div class="num pos">' + fmt.brl(x.pago) + '</div></div>' +
+          '<div class="painel clicavel cor-saldo" data-id="' + esc(x.cor.id) + '" data-nome="' + esc(x.cor.nome || '') + '" data-saldo="' + x.saldo + '"><div class="rot">Saldo</div><div class="num' + (x.saldo > 0.01 ? ' neg' : '') + '">' + fmt.brl(x.saldo) + '</div></div>' +
         '</div>' +
         '<div class="acoes-linha" style="margin:0 0 10px">' +
           (x.saldo > 0.01 ? '<button class="btn primario bt-pagar" data-id="' + esc(x.cor.id) + '" data-nome="' + esc(x.cor.nome) + '" data-saldo="' + x.saldo.toFixed(2) + '">💸 Registrar pagamento</button>' : '') +
@@ -340,6 +347,20 @@ TELAS.corretores = function () {
     b.onclick = (e) => {
       e.stopPropagation();
       abrirPagarComissao(b.dataset.id, b.dataset.nome, Number(b.dataset.saldo));
+    };
+  });
+  app.querySelectorAll('.cor-saldo').forEach((el) => {
+    el.onclick = (e) => { e.stopPropagation(); if (Number(el.dataset.saldo) > 0.01) abrirPagarComissao(el.dataset.id, el.dataset.nome, Number(el.dataset.saldo)); };
+  });
+  app.querySelectorAll('.cor-pagas').forEach((el) => {
+    el.onclick = (e) => { e.stopPropagation(); TELAS._fLanc = { q: (el.dataset.nome || '').split(' ')[0], tipo: 'saida', cat: 'Comissão', mes: 'todos' }; location.hash = '#/lancamentos'; };
+  });
+  app.querySelectorAll('.cor-vendas').forEach((el) => {
+    el.onclick = (e) => { e.stopPropagation(); TELAS._fVendas = { q: (el.dataset.nome || '').split(' ')[0], sit: '', so: '' }; location.hash = '#/vendas'; };
+  });
+  app.querySelectorAll('.painel[data-pcor]').forEach((el) => {
+    el.onclick = () => {
+      if (el.dataset.pcor === 'saldo') { TELAS._fLanc = { q: '', tipo: 'saida', cat: 'Comissão', mes: 'todos' }; location.hash = '#/lancamentos'; }
     };
   });
 };

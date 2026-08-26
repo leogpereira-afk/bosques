@@ -185,15 +185,15 @@ TELAS.vendas = function () {
 
   app.innerHTML =
     '<div class="paineis">' +
-      '<div class="painel"><div class="rot">VGV vendido</div><div class="num pos">' + fmt.brl(vgv) + '</div>' +
+      '<div class="painel clicavel" data-pv="todas"><div class="rot">VGV vendido</div><div class="num pos">' + fmt.brl(vgv) + '</div>' +
         '<div class="sub">' + naoDistratadas.length + ' contrato(s) de pé</div></div>' +
       '<div class="painel' + (lotesDuplicados().length ? ' clicavel" id="vd-duplicados' : '') + '"><div class="rot">Contratos vivos</div><div class="num">' + vendasVivas().length + '</div>' +
         (lotesDuplicados().length ? '<div class="sub">⚠ ' + lotesDuplicados().length + ' lote(s) com 2 vendas — clique e veja quais</div>' : '') + '</div>' +
       '<div class="painel clicavel" id="pn-atraso"><div class="rot">Em atraso</div><div class="num' + (emAtraso.length ? ' neg' : ' pos') + '">' + emAtraso.length + '</div>' +
         '<div class="sub">' + fmt.brl(totalAtraso) + ' vencidos</div></div>' +
-      '<div class="painel"><div class="rot">Recebido de vendas · ' + nomeMes(mesStr) + '</div><div class="num pos">' + fmt.brl(recebidoMes) + '</div>' +
+      '<div class="painel clicavel" data-pv="recebido"><div class="rot">Recebido de vendas · ' + nomeMes(mesStr) + '</div><div class="num pos">' + fmt.brl(recebidoMes) + '</div>' +
         '<div class="sub">só parcelas e entradas; o Caixa soma tudo</div></div>' +
-      '<div class="painel"><div class="rot">Quitadas</div><div class="num">' + todas.filter((v) => v.situacao === 'quitada').length + '</div></div>' +
+      '<div class="painel clicavel" data-pv="quitada"><div class="rot">Quitadas</div><div class="num">' + todas.filter((v) => v.situacao === 'quitada').length + '</div></div>' +
     '</div>' +
     '<div class="filtros">' +
       '<input type="search" id="vd-q" placeholder="cliente, lote, código…" value="' + esc(filtro.q) + '">' +
@@ -212,6 +212,14 @@ TELAS.vendas = function () {
   document.getElementById('vd-sim').onclick = () => { location.hash = '#/simulacao'; };
   const bDup = document.getElementById('vd-duplicados');
   if (bDup) bDup.onclick = () => abrirLotesDuplicados();
+  app.querySelectorAll('.painel[data-pv]').forEach((el) => {
+    el.onclick = () => {
+      const pv = el.dataset.pv;
+      if (pv === 'todas') { TELAS._fVendas = { q: '', sit: '', so: '' }; TELAS.vendas(); }
+      else if (pv === 'quitada') { TELAS._fVendas = { q: '', sit: 'quitada', so: '' }; TELAS.vendas(); }
+      else if (pv === 'recebido') { TELAS._fLanc = { q: '', tipo: 'entrada', cat: '', mes: mesDe(hojeISO()) }; location.hash = '#/lancamentos'; }
+    };
+  });
   document.getElementById('vd-pdf').onclick = () => {
     // O recorte sai ESCRITO no papel: um PDF filtrado sem dizer o filtro
     // viraria "o total" na reunião.
@@ -331,11 +339,11 @@ TELAS.venda = function (id) {
       (v.distrato.motivo ? ' — ' + esc(v.distrato.motivo) : '') +
       (v.distrato.valorDevolvido ? ' · devolvido ' + fmt.brl(v.distrato.valorDevolvido) : '') + '</p>' : '') +
     '<div class="paineis" style="margin:12px 0 0">' +
-      '<div class="painel"><div class="rot">Contrato</div><div class="num">' + fmt.brl(r.total) + '</div></div>' +
-      '<div class="painel"><div class="rot">Pago</div><div class="num pos">' + fmt.brl(r.pago) + '</div>' +
+      '<div class="painel clicavel" data-rola="carne"><div class="rot">Contrato</div><div class="num">' + fmt.brl(r.total) + '</div></div>' +
+      '<div class="painel clicavel" data-rola="recs"><div class="rot">Pago</div><div class="num pos">' + fmt.brl(r.pago) + '</div>' +
         '<div class="sub">' + (r.total ? Math.round(r.pago / r.total * 100) : 0) + '%</div></div>' +
-      '<div class="painel"><div class="rot">Saldo</div><div class="num">' + fmt.brl(r.saldo) + '</div></div>' +
-      '<div class="painel"><div class="rot">Em atraso</div><div class="num' + (r.qtdAtraso ? ' neg' : ' pos') + '">' +
+      '<div class="painel clicavel" data-rola="carne"><div class="rot">Saldo</div><div class="num">' + fmt.brl(r.saldo) + '</div></div>' +
+      '<div class="painel clicavel" data-rola="carne"><div class="rot">Em atraso</div><div class="num' + (r.qtdAtraso ? ' neg' : ' pos') + '">' +
         (r.qtdAtraso ? fmt.brl(r.emAtraso) : 'R$ 0,00') + '</div><div class="sub">' + r.qtdAtraso + ' parcela(s)</div></div>' +
     '</div>' +
     '<div class="acoes-linha">' +
@@ -415,6 +423,14 @@ TELAS.venda = function (id) {
   if (bEV) bEV.onclick = () => abrirEditarVenda(v);
   app.querySelectorAll('.bt-edit-rec').forEach((b2) => {
     b2.onclick = () => abrirEditarRec(v, b2.dataset.id);
+  });
+  app.querySelectorAll('.painel[data-rola]').forEach((el) => {
+    el.onclick = () => {
+      const alvo = el.dataset.rola === 'recs'
+        ? [...app.querySelectorAll('h2')].find((h) => h.textContent.includes('Recebimentos'))
+        : [...app.querySelectorAll('h2')].find((h) => h.textContent.includes('Carnê'));
+      if (alvo) alvo.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    };
   });
   const bB = document.getElementById('bt-baixa');
   if (bB) bB.onclick = () => abrirBaixa(v, r);
@@ -659,9 +675,9 @@ TELAS.propostas = function () {
 
   app.innerHTML =
     '<div class="paineis">' +
-      '<div class="painel"><div class="rot">Enviadas</div><div class="num">' + props.length + '</div></div>' +
-      '<div class="painel"><div class="rot">No ar</div><div class="num">' + abertas.length + '</div></div>' +
-      '<div class="painel"><div class="rot">Viraram venda</div><div class="num pos">' + viradas.length + '</div></div>' +
+      '<div class="painel clicavel" data-pp=""><div class="rot">Enviadas</div><div class="num">' + props.length + '</div></div>' +
+      '<div class="painel clicavel" data-pp="enviada"><div class="rot">No ar</div><div class="num">' + abertas.length + '</div></div>' +
+      '<div class="painel clicavel" data-pp="aceita"><div class="rot">Viraram venda</div><div class="num pos">' + viradas.length + '</div></div>' +
     '</div>' +
     '<div class="filtros"><div class="chips">' +
       chips.map(([v, t2]) => '<button class="chip' + (f.sit === v ? ' on' : '') + '" data-sit="' + v + '">' + t2 + '</button>').join('') +
@@ -684,6 +700,9 @@ TELAS.propostas = function () {
 
   app.querySelectorAll('.chip[data-sit]').forEach((c) => {
     c.onclick = () => { f.sit = c.dataset.sit; sel.clear(); TELAS.propostas(); };
+  });
+  app.querySelectorAll('.painel[data-pp]').forEach((el) => {
+    el.onclick = () => { f.sit = el.dataset.pp || 'todas'; TELAS.propostas(); };
   });
   app.querySelectorAll('.pr-check').forEach((cb) => {
     cb.addEventListener('click', (e) => {
@@ -847,11 +866,11 @@ TELAS.simulacao = function () {
     '</div></div>' +
 
     '<div class="paineis">' +
-      '<div class="painel"><div class="rot">Faturamento das vendas novas (VGV)</div><div class="num pos">' + fmt.brl(vgvNovo) + '</div>' +
+      '<div class="painel clicavel sm-rola"><div class="rot">Faturamento das vendas novas (VGV)</div><div class="num pos">' + fmt.brl(vgvNovo) + '</div>' +
         '<div class="sub">' + n + ' venda(s) · contratos completos</div></div>' +
-      '<div class="painel"><div class="rot">Entra no caixa em ' + H + ' meses</div><div class="num pos">+' + fmt.brl(recebNovoH) + '</div>' +
+      '<div class="painel clicavel sm-rola"><div class="rot">Entra no caixa em ' + H + ' meses</div><div class="num pos">+' + fmt.brl(recebNovoH) + '</div>' +
         '<div class="sub">só das vendas novas</div></div>' +
-      '<div class="painel"><div class="rot">Recebimento total no horizonte</div><div class="num">' + fmt.brl(somaAtual + somaNovo) + '</div>' +
+      '<div class="painel clicavel sm-rola"><div class="rot">Recebimento total no horizonte</div><div class="num">' + fmt.brl(somaAtual + somaNovo) + '</div>' +
         '<div class="sub">carnês atuais ' + fmt.brl(somaAtual) + ' + novas</div></div>' +
     '</div>' +
 
@@ -868,6 +887,9 @@ TELAS.simulacao = function () {
   for (const nome of ['qtde', 'preco', 'porMes', 'entrada', 'parcelas', 'parcela']) {
     document.getElementById('sm-' + nome).onchange = (e) => { f[nome] = e.target.value; TELAS.simulacao(); };
   }
+  app.querySelectorAll('.sm-rola').forEach((el) => {
+    el.onclick = () => { const t2 = [...app.querySelectorAll('h2')].find((h) => h.textContent.includes('Mês a mês')); if (t2) t2.scrollIntoView({ behavior: 'smooth' }); };
+  });
   document.getElementById('sm-tipo').onchange = (e) => { f.tipo = e.target.value; TELAS.simulacao(); };
   document.getElementById('sm-horizonte').onchange = (e) => { f.horizonte = Number(e.target.value); TELAS.simulacao(); };
 };

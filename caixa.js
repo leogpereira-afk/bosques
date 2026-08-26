@@ -530,10 +530,10 @@ TELAS.lancamentos = function () {
 
   app.innerHTML =
     '<div class="paineis">' +
-      '<div class="painel"><div class="rot">Lançamentos no recorte</div><div class="num">' + filtrados.length + '</div></div>' +
-      '<div class="painel"><div class="rot">Entradas</div><div class="num pos">' + fmt.brl(somaE) + '</div></div>' +
-      '<div class="painel"><div class="rot">Saídas</div><div class="num neg">' + fmt.brl(somaS) + '</div></div>' +
-      '<div class="painel"><div class="rot">Diferença</div><div class="num ' + (somaE - somaS >= 0 ? 'pos' : 'neg') + '">' + fmt.brl(somaE - somaS) + '</div></div>' +
+      '<div class="painel clicavel" data-pl=""><div class="rot">Lançamentos no recorte</div><div class="num">' + filtrados.length + '</div></div>' +
+      '<div class="painel clicavel" data-pl="entrada"><div class="rot">Entradas</div><div class="num pos">' + fmt.brl(somaE) + '</div></div>' +
+      '<div class="painel clicavel" data-pl="saida"><div class="rot">Saídas</div><div class="num neg">' + fmt.brl(somaS) + '</div></div>' +
+      '<div class="painel clicavel" data-pl=""><div class="rot">Diferença</div><div class="num ' + (somaE - somaS >= 0 ? 'pos' : 'neg') + '">' + fmt.brl(somaE - somaS) + '</div></div>' +
     '</div>' +
     '<div class="filtros">' +
       '<input type="search" id="ln-q" placeholder="descrição, quem fez, forma…" value="' + esc(f.q) + '">' +
@@ -549,6 +549,9 @@ TELAS.lancamentos = function () {
       '<button class="btn" id="ln-rece">+ Receita</button>' +
     '</div>' + grade;
 
+  app.querySelectorAll('.painel[data-pl]').forEach((el) => {
+    el.onclick = () => { f.tipo = el.dataset.pl; TELAS.lancamentos(); };
+  });
   document.getElementById('ln-q').oninput = (e) => { f.q = e.target.value; TELAS.lancamentos(); };
   document.getElementById('ln-mes').onchange = (e) => { f.mes = e.target.value; TELAS.lancamentos(); };
   document.getElementById('ln-tipo').onchange = (e) => { f.tipo = e.target.value; TELAS.lancamentos(); };

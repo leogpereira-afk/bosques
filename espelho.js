@@ -237,10 +237,10 @@ TELAS.lote = function (id) {
     '<div class="cartao"><h2>' + nomeLote(l) + ' ' + etiqueta(l.status) +
       (venda ? ' <a class="btn mini" href="#/venda/' + esc(venda.id) + '">abrir a venda ' + esc(venda.codigo || '') + '</a>' : '') + '</h2>' +
       '<div class="paineis" style="margin:0">' +
-        '<div class="painel"><div class="rot">Área</div><div class="num">' + fmt.numero(l.areaM2, 2) + '</div><div class="sub">m²</div></div>' +
-        '<div class="painel"><div class="rot">Preço de tabela</div><div class="num pos">' + fmt.brl(l.preco) + '</div></div>' +
-        '<div class="painel"><div class="rot">Parcela fixa</div><div class="num">' + fmt.brl(l.parcFixaDesc) + '</div><div class="sub">com desconto · ' + fmt.brl(l.parcFixa) + ' sem</div></div>' +
-        '<div class="painel"><div class="rot">Parcela reajustada</div><div class="num">' + fmt.brl(l.parcReajDesc) + '</div><div class="sub">+' + reaj.pct + '% a cada ' + reaj.aCada + ' · ' + fmt.brl(l.parcReaj) + ' sem desc.</div></div>' +
+        '<div class="painel clicavel lt-editar"><div class="rot">Área</div><div class="num">' + fmt.numero(l.areaM2, 2) + '</div><div class="sub">m²</div></div>' +
+        '<div class="painel clicavel lt-editar"><div class="rot">Preço de tabela</div><div class="num pos">' + fmt.brl(l.preco) + '</div></div>' +
+        '<div class="painel clicavel lt-editar"><div class="rot">Parcela fixa</div><div class="num">' + fmt.brl(l.parcFixaDesc) + '</div><div class="sub">com desconto · ' + fmt.brl(l.parcFixa) + ' sem</div></div>' +
+        '<div class="painel clicavel lt-editar"><div class="rot">Parcela reajustada</div><div class="num">' + fmt.brl(l.parcReajDesc) + '</div><div class="sub">+' + reaj.pct + '% a cada ' + reaj.aCada + ' · ' + fmt.brl(l.parcReaj) + ' sem desc.</div></div>' +
       '</div></div>';
 
   let simulador = '';
@@ -350,6 +350,10 @@ TELAS.lote = function (id) {
 
   const bEd = document.getElementById('bt-editar-lote');
   if (bEd) bEd.onclick = () => abrirCadastroLote(id);
+  // os cartões de tabela do lote abrem a edição (só quem pode editar)
+  if (!ehCorretorPerfil()) app.querySelectorAll('.lt-editar').forEach((el) => {
+    el.onclick = () => abrirCadastroLote(id);
+  });
   const bRes = document.getElementById('bt-reservar');
   if (bRes) bRes.onclick = () => abrirReservaLote(l);
   const bLib = document.getElementById('bt-liberar');
@@ -887,9 +891,9 @@ TELAS.simulador = function () {
     '</div></div>' +
     (preco > 0
       ? '<div class="paineis">' +
-          '<div class="painel"><div class="rot">Valor do lote</div><div class="num">' + fmt.brl(preco) + '</div>' +
+          '<div class="painel clicavel sl-foca" data-campo-alvo="preco"><div class="rot">Valor do lote</div><div class="num">' + fmt.brl(preco) + '</div>' +
             (m2 ? '<div class="sub">' + m2.toLocaleString('pt-BR') + ' m² × R$ ' + PRECO_POR_M2 + '</div>' : '') + '</div>' +
-          '<div class="painel"><div class="rot">Entrada</div><div class="num">' + fmt.brl(entradaP) + '</div>' +
+          '<div class="painel clicavel sl-foca" data-campo-alvo="m2"><div class="rot">Entrada</div><div class="num">' + fmt.brl(entradaP) + '</div>' +
             '<div class="sub">padrão da casa · ' + nParc + ' parcelas</div></div>' +
         '</div>' +
         '<div class="cartao"><h2>O plano, nas duas réguas</h2>' +
@@ -903,6 +907,9 @@ TELAS.simulador = function () {
         'Para propor de verdade, use o simulador de venda dentro do lote, no Espelho.</p></div>'
       : '<div class="cartao"><p class="nota">Escolha um lote ou digite a metragem para ver as parcelas.</p></div>');
 
+  app.querySelectorAll('.sl-foca').forEach((el) => {
+    el.onclick = () => { const c = app.querySelector('[data-campo="' + el.dataset.campoAlvo + '"]'); if (c) { c.focus(); c.scrollIntoView({ behavior: 'smooth', block: 'center' }); } };
+  });
   document.getElementById('sl-lote').onchange = (e) => {
     f.loteId = e.target.value; f.m2 = ''; f.preco = ''; TELAS.simulador();
   };

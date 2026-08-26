@@ -68,12 +68,12 @@ TELAS.cronograma = function () {
 
   app.innerHTML =
     '<div class="paineis">' +
-      '<div class="painel"><div class="rot">Etapas</div><div class="num">' + ets.length + '</div>' +
+      '<div class="painel clicavel" data-pe="lista"><div class="rot">Etapas</div><div class="num">' + ets.length + '</div>' +
         '<div class="sub">' + concluidas + ' concluída(s)</div></div>' +
-      '<div class="painel"><div class="rot">Previsto da obra</div><div class="num">' + fmt.brl(previstoTotal) + '</div></div>' +
-      '<div class="painel"><div class="rot">Já pago</div><div class="num pos">' + fmt.brl(pagoTotal) + '</div>' +
+      '<div class="painel clicavel" data-pe="lista"><div class="rot">Previsto da obra</div><div class="num">' + fmt.brl(previstoTotal) + '</div></div>' +
+      '<div class="painel clicavel" data-pe="pagos"><div class="rot">Já pago</div><div class="num pos">' + fmt.brl(pagoTotal) + '</div>' +
         '<div class="sub">' + pctFin + '% do previsto</div></div>' +
-      '<div class="painel"><div class="rot">Falta pagar</div><div class="num' + (previstoTotal - pagoTotal > 0.01 ? ' neg' : '') + '">' +
+      '<div class="painel clicavel" data-pe="lista"><div class="rot">Falta pagar</div><div class="num' + (previstoTotal - pagoTotal > 0.01 ? ' neg' : '') + '">' +
         fmt.brl(Math.max(0, previstoTotal - pagoTotal)) + '</div>' +
         '<div class="sub">entra sozinho nos Relatórios</div></div>' +
     '</div>' +
@@ -126,6 +126,12 @@ TELAS.cronograma = function () {
         '</div></details>';
     }).join('') || vazio('🏗️', 'Nenhuma etapa ainda', 'Comece pelo que falta fazer: patrola, meio-fio, rede de energia…'));
 
+  app.querySelectorAll('.painel[data-pe]').forEach((el) => {
+    el.onclick = () => {
+      if (el.dataset.pe === 'pagos') { TELAS._fLanc = { q: '', tipo: 'saida', cat: 'Obra / infraestrutura', mes: 'todos' }; location.hash = '#/lancamentos'; }
+      else { const h = [...app.querySelectorAll('h2')].find((x) => x.textContent.length); if (h) h.scrollIntoView({ behavior: 'smooth' }); }
+    };
+  });
   document.getElementById('et-nova').onclick = () => abrirEtapa(null);
   document.getElementById('et-pdf').onclick = () => {
     PDF.cronograma(ets.map((e) => ({ e, sit: situacaoEtapa(e, pago[e.id]), pago: pago[e.id] || 0 })),
