@@ -120,6 +120,7 @@ function gerarContratoPdf(v, cliente, l, cfg, plano) {
     ['C', 'CLÁUSULA SEGUNDA – DO PREÇO'],
     ['P', 'Pela venda ora prometida, as PROMITENTES COMPRADORAS pagarão, ao PROMITENTE VENDEDOR, a importância de ' + dinheiroExt(importancia) + ' que será paga da seguinte forma:'],
     ['P', pagamento],
+    ['QP', null],
     ['C', 'CLÁUSULA TERCEIRA – DAS PENALIDADES'],
     ['P', 'A mora ou inadimplência de qualquer das parcelas referidas no Parágrafo Primeiro da Cláusula Segunda sujeitará as PROMITENTES COMPRADORAS ao pagamento de multa de 10% (dez por cento ao mês) do valor da parcela, acrescida de juros de 2% (dois por cento ao mês) e correção monetária a ser calculada pelos índices da Corregedoria de Justiça do TJMG.'],
     ['P', 'PARÁGRAFO PRIMEIRO – Além dos encargos previstos nesta cláusula, o PROMITENTE COMPRADOR arcará com o pagamento de honorários dos advogados eventualmente contratados para cobrança das obrigações ora contratadas, honorários estes desde já fixados em 20% (vinte por cento) sobre o valor da cobrança; serviços esses serão contratados após 30 dias de vencimento da parcela.'],
@@ -202,6 +203,51 @@ function gerarContratoPdf(v, cliente, l, cfg, plano) {
       doc.setFont('helvetica', 'bold'); doc.setFontSize(10);
       garante(10);
       y += 2; doc.text(bloco[1], 14, y); y += 6;
+    } else if (tipo === 'QP') {
+      // O QUADRO DO PLANO DE PAGAMENTO, linha a linha — pedido do dono:
+      // as faixas de parcela com o valor do boleto e o valor pagando em dia.
+      if (nParc > 0) {
+        const reajCfg = (cfg && cfg.reajuste) || { pct: 6, aCada: 12 };
+        const linhasQP = [['Entrada', '', brl(entradaV)]];
+        let totCheio = entradaV, totDia = entradaV;
+        const degraus = reajustada ? Math.ceil(nParc / (reajCfg.aCada || 12)) : 1;
+        for (let dg = 0; dg < degraus; dg++) {
+          const ini2 = dg * (reajustada ? (reajCfg.aCada || 12) : nParc) + 1;
+          const fim2 = reajustada ? Math.min(nParc, (dg + 1) * (reajCfg.aCada || 12)) : nParc;
+          const emDia = Math.round(parcDesc * Math.pow(1 + (reajCfg.pct || 6) / 100, dg) * 100) / 100;
+          const cheia = Math.round(emDia / 0.8 * 100) / 100;
+          totDia += emDia * (fim2 - ini2 + 1);
+          totCheio += cheia * (fim2 - ini2 + 1);
+          linhasQP.push(['Parcelas ' + ini2 + ' a ' + fim2, brl(cheia), brl(emDia)]);
+        }
+        linhasQP.push(['TOTAL (entrada + parcelas)', brl(Math.round(totCheio * 100) / 100), brl(Math.round(totDia * 100) / 100)]);
+        garante(12);
+        doc.setFillColor(240, 246, 240);
+        doc.rect(14, y - 4, 182, 6.5, 'F');
+        doc.setFont('helvetica', 'bold'); doc.setFontSize(8);
+        doc.text('PLANO DE PAGAMENTO', 16, y);
+        doc.text('VALOR DO BOLETO', 148, y, { align: 'right' });
+        doc.text('PAGANDO EM DIA (-20%)', 194, y, { align: 'right' });
+        y += 6.5;
+        doc.setFontSize(9);
+        for (const [rot2, cheia2, dia2] of linhasQP) {
+          garante(6);
+          const totalLinha = rot2.indexOf('TOTAL') === 0;
+          doc.setFont('helvetica', totalLinha ? 'bold' : 'normal');
+          doc.text(rot2, 16, y);
+          if (cheia2) doc.text(String(cheia2), 148, y, { align: 'right' });
+          doc.setFont('helvetica', 'bold');
+          doc.text(String(dia2), 194, y, { align: 'right' });
+          doc.setFont('helvetica', 'normal');
+          doc.setDrawColor(225, 234, 226);
+          doc.line(14, y + 1.6, 196, y + 1.6);
+          y += 5.6;
+        }
+        doc.setFontSize(7.5); doc.setTextColor(95, 122, 102);
+        doc.text('O desconto de 20% vale para pagamento até o vencimento do boleto.' + (reajustada ? ' Valores com o reajuste anual de 6% aplicado por faixa.' : ''), 16, y);
+        doc.setTextColor(30, 43, 33);
+        y += 5;
+      }
     } else if (tipo === 'Q') {
       const [, cab, val] = bloco;
       garante(18);
