@@ -342,10 +342,13 @@ Deno.serve(async (req) => {
                   soma("recBaixadoAMao"); continue;
                 }
                 const numero = await proximoNumero("rec");
+                // A forma REAL do pagamento vem do tipo do título no Omie.
+                const FORMA: Record<string, string> = { PIX: "PIX", BOL: "Boleto", CARNE: "Boleto",
+                  DIN: "Dinheiro", CRC: "Cartão de Crédito", CRD: "Cartão de Débito", TRF: "Transferência" };
                 const registro: any = {
                   id, origem: "omie", numero, codigo: "RB-" + String(numero).padStart(4, "0"),
                   vendaId, tipo: "parcela", parcelaN: null, valor, data: dataPagto,
-                  forma: "Boleto", obs: "baixa automática do Omie" +
+                  forma: FORMA[d.cTipo] || "Boleto", obs: "baixa automática do Omie" +
                     (d.cNumBoleto ? " · boleto " + d.cNumBoleto : ""),
                   conferir: !vendaId || undefined,
                   omie: { titulo: d.nCodTitulo, venc: brParaISO(d.dDtVenc), cpf, parcela: d.cNumParcela || "" },

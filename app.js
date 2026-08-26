@@ -230,6 +230,8 @@ TELAS.config = function () {
     '</div><div class="colunas-3">' +
       campo('Entrada padrão (R$)', entrada('entradaPadrao', cfg.entradaPadrao || 3000, { inputmode: 'decimal' }), 'o simulador já abre com ela') +
     '</div>' +
+    campo('Centros de custo (um por linha)', areaTexto('centrosCustoTxt', (cfg.centrosCusto || []).join('\n'),
+      'ex.:\nPortaria\nRede de água\nRede de energia\nRuas\nAdministração\nComercial')) +
     '<button class="btn primario" id="cf-salvar">Salvar configurações</button></div>' +
 
     '<div class="cartao"><h2>Acessos da equipe <span class="nota">— um por pessoa; o histórico diz quem fez</span></h2>' +
@@ -287,6 +289,7 @@ TELAS.config = function () {
         validadeProposta: Math.max(1, Math.round(numeroBR(v.validadeProposta))),
         entradaPadrao: Math.max(0, numeroBR(v.entradaPadrao)) || 3000,
         omie: { ...(cfg.omie || {}), corteEntradas: v.omieCorte || (cfg.omie && cfg.omie.corteEntradas) || '' },
+        centrosCusto: String(v.centrosCustoTxt || '').split('\n').map((x) => x.trim()).filter(Boolean).slice(0, 40),
       } });
       S.cfg = { ...S.cfg, ...r.cfg };
       gravarCache();

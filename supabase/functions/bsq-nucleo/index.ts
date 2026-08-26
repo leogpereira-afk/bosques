@@ -42,7 +42,7 @@ const CFG_PADRAO = {
   // Reajuste da parcela "Reajustada": +pct% a cada `aCada` parcelas
   // (aniversário do contrato). REGRA ASSUMIDA — confirmar com a direção.
   reajuste: { pct: 6, aCada: 12 },
-  formasPg: ["PIX", "Dinheiro", "Transferência", "Boleto", "Cartão de Débito", "Cartão de Crédito", "Cheque"],
+  formasPg: ["PIX", "Dinheiro", "Transferência", "Boleto", "Cartão de Débito", "Cartão de Crédito", "Cheque", "Permuta"],
   categoriasDespesa: ["Obra / infraestrutura", "Funcionários", "Comissão", "Marketing",
     "Administrativo", "Impostos e taxas", "Contabilidade", "Telefone / internet",
     "Tarifas bancárias", "Distrato / devolução", "Outros"],

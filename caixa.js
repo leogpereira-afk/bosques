@@ -18,6 +18,23 @@ const nomeMes = (m) => {
 const cxVivos = () => lista('cx').filter((c) => !c.anotacao);
 
 // Todos os movimentos de um mês, já com sinal e origem.
+/* ── A régua de inconsistência: o que faz um lançamento ficar ASSINALADO ────
+   Regra pedida pelo dono (27/08): linha com problema carrega ⚠ com o motivo,
+   em toda tela. A mesma régua alimenta o cartão de vínculos do Caixa. */
+function problemasDoLancamento(x) {
+  const probs = [];
+  if (!x.data) probs.push('sem data');
+  if (x.col === 'cx' && !x.entrada) {
+    if (!x.categoria || x.categoria === 'Outros') probs.push('sem categoria (Outros)');
+    if (x.categoria === 'Comissão' && !x.corretorId && !x.temRateio) probs.push('comissão sem corretor');
+    if (x.categoria === 'Obra / infraestrutura' && !x.etapaId) probs.push('obra sem etapa');
+    // só cobra centro de custo depois que a casa os cadastrou
+    if (!x.centroCusto && ((S.cfg && S.cfg.centrosCusto) || []).length) probs.push('sem centro de custo');
+  }
+  if (x.col === 'rec' && !x.vendaId) probs.push('recebimento sem venda');
+  return probs;
+}
+
 function movimentosDoMes(mes) {
   const movs = [];
   for (const r of lista('rec')) {
@@ -327,6 +344,9 @@ function abrirEdicaoLancamento(id, aoTerminar) {
         campo('Etapa do cronograma', seletor('etapaId', c.etapaId || '',
           lista('etapa').map((e2) => ({ v: e2.id, t: e2.nome })), 'nenhuma'), 'soma no "pago" da etapa')
       : '') +
+    (((S.cfg && S.cfg.centrosCusto) || []).length && c.tipo === 'saida'
+      ? campo('Centro de custo', seletor('centroCusto', c.centroCusto || '', (S.cfg.centrosCusto || []), '— nenhum —'), 'onde esse dinheiro trabalhou')
+      : '') +
     campo('Observação', entrada('obs', c.obs || '')) + trilha;
   const fundoEd = abrirModal({
     titulo: (c.tipo === 'saida' ? 'Saída' : 'Receita') + ' — editar',
@@ -373,6 +393,7 @@ function abrirEdicaoLancamento(id, aoTerminar) {
         salvar('cx', {
           id: c.id, valor, data: v.data, forma: v.forma, categoria: v.categoria,
           etapaId: etapaNova, corretorId: corNovo,
+          centroCusto: v.centroCusto != null ? v.centroCusto : (c.centroCusto || ''),
           descricao: desc, obs: String(v.obs || '').slice(0, 300),
           historico: historiar(c, 'Editou: ' + mud.join('; ')),
         });
@@ -411,6 +432,9 @@ function abrirLancamento(tipo, aoTerminar, etapaPre) {
     (etapasVivas.length
       ? campo('Etapa do cronograma', seletor('etapaId', etapaPre || '', etapasVivas.map((e) => ({ v: e.id, t: e.nome })), 'nenhuma'), 'soma no "pago" da etapa')
       : '') +
+    (tipo === 'saida' && ((S.cfg && S.cfg.centrosCusto) || []).length
+      ? campo('Centro de custo', seletor('centroCusto', '', (S.cfg.centrosCusto || []), '— nenhum —'), 'onde esse dinheiro trabalhou')
+      : '') +
     campo('Observação', entrada('obs', ''));
   const fundoNv = abrirModal({
     titulo: tipo === 'saida' ? 'Nova despesa' : 'Outra receita',
@@ -425,6 +449,7 @@ function abrirLancamento(tipo, aoTerminar, etapaPre) {
         salvar('cx', {
           tipo, valor, data: c.data, forma: c.forma, categoria: c.categoria,
           etapaId: c.etapaId || '',
+          centroCusto: c.centroCusto || '',
           corretorId: c.categoria === 'Comissão' ? (c.corretorId || '') : '',
           descricao: c.descricao.trim().slice(0, 200), obs: String(c.obs || '').slice(0, 300),
         });
@@ -475,6 +500,8 @@ TELAS.lancamentos = function () {
       codigo: '', criadoPor: c.criadoPor || '—', criadoEm: c.criadoEm,
       atualizadoPor: c.atualizadoPor, obs: c.obs || '',
       origem: c.origem || '', nHist: (c.historico || []).length,
+      corretorId: c.corretorId || '', temRateio: !!(c.rateio && c.rateio.length),
+      etapaId: c.etapaId || '', centroCusto: c.centroCusto || '',
     });
   }
 
@@ -485,6 +512,10 @@ TELAS.lancamentos = function () {
     if (f.tipo === 'entrada' && !x.entrada) return false;
     if (f.tipo === 'saida' && x.entrada) return false;
     if (f.cat && x.categoria !== f.cat) return false;
+    if (f.cc) {
+      if (x.entrada) return false;                    // centro de custo é coisa de despesa
+      if (f.cc === '__sem__' ? x.centroCusto : x.centroCusto !== f.cc) return false;
+    }
     if (f.q && !((x.descricao + ' ' + x.obs + ' ' + x.forma + ' ' + x.criadoPor + ' ' + x.codigo).toLowerCase().includes(f.q.toLowerCase()))) return false;
     return true;
   }).sort((a, b) => String(b.data).localeCompare(a.data));
@@ -501,7 +532,8 @@ TELAS.lancamentos = function () {
   const linhaExtrato = (x) =>
     '<tr class="ln-row" data-col="' + x.col + '" data-id="' + esc(x.id) + '"' +
       (x.col === 'rec' ? ' data-venda="' + esc(x.vendaId) + '"' : '') + ' style="cursor:pointer">' +
-    '<td style="white-space:nowrap;color:var(--tinta-fraca)">' + (x.data ? fmt.data(x.data).slice(0, 5) : '⚠ s/data') + '</td>' +
+    '<td style="white-space:nowrap;color:var(--tinta-fraca)">' + (x.data ? fmt.data(x.data).slice(0, 5) : '⚠ s/data') +
+      (problemasDoLancamento(x).length ? ' <span title="' + esc(problemasDoLancamento(x).join(' · ')) + '" style="cursor:help">⚠</span>' : '') + '</td>' +
     '<td><b>' + esc(x.descricao) + '</b>' + (x.codigo ? ' <span class="nota">' + esc(x.codigo) + '</span>' : '') +
       '<br><span class="nota">' + esc(x.categoria) +
       (x.origem === 'omie' && x.criadoPor !== 'omie' ? ' · <b>omie</b>' : x.origem === 'planilha' ? ' · 📄 planilha' : '') +
@@ -545,6 +577,9 @@ TELAS.lancamentos = function () {
         '<option value="saida"' + (f.tipo === 'saida' ? ' selected' : '') + '>Só saídas</option></select>' +
       '<select id="ln-cat"><option value="">Todas as categorias</option>' +
         cats.map((c) => '<option' + (f.cat === c ? ' selected' : '') + '>' + esc(c) + '</option>').join('') + '</select>' +
+      '<select id="ln-cc"><option value="">Todos os centros</option>' +
+        ((S.cfg && S.cfg.centrosCusto) || []).map((c) => '<option value="' + esc(c) + '"' + (f.cc === c ? ' selected' : '') + '>' + esc(c) + '</option>').join('') +
+        '<option value="__sem__"' + (f.cc === '__sem__' ? ' selected' : '') + '>— sem centro</option></select>' +
       '<button class="btn primario" id="ln-desp">− Despesa</button>' +
       '<button class="btn" id="ln-rece">+ Receita</button>' +
     '</div>' + grade;
@@ -556,6 +591,7 @@ TELAS.lancamentos = function () {
   document.getElementById('ln-mes').onchange = (e) => { f.mes = e.target.value; TELAS.lancamentos(); };
   document.getElementById('ln-tipo').onchange = (e) => { f.tipo = e.target.value; TELAS.lancamentos(); };
   document.getElementById('ln-cat').onchange = (e) => { f.cat = e.target.value; TELAS.lancamentos(); };
+  document.getElementById('ln-cc').onchange = (e) => { f.cc = e.target.value; TELAS.lancamentos(); };
   document.getElementById('ln-desp').onclick = () => abrirLancamento('saida', TELAS.lancamentos);
   document.getElementById('ln-rece').onclick = () => abrirLancamento('entrada', TELAS.lancamentos);
   app.querySelectorAll('.ln-row').forEach((el) => {
@@ -666,6 +702,12 @@ TELAS.relatorios = function () {
     .reduce((s2, e) => s2 + Math.max(0, (Number(e.valorPrevisto) || 0) - (pagoEtapas[e.id] || 0)), 0);
 
   const rotuloHz = { mes: 'em ' + nomeMes(mesAtual), ano: 'em ' + anoAtual, total: 'até acabar' }[hz];
+  // o recorte do horizonte para valores JÁ acontecidos (formas, centros)
+  const dentroHz = (d) => {
+    const m = mesDe(d || '');
+    if (!/^\d{4}-\d{2}$/.test(m)) return hz === 'total';
+    return hz === 'mes' ? m === mesAtual : hz === 'ano' ? m.startsWith(anoAtual) : true;
+  };
 
   // tabela do horizonte: por mês (mês/ano) ou por ANO (até acabar — 150
   // parcelas vão até 2038; 13 linhas de ano leem melhor que 150 de mês)
@@ -711,7 +753,8 @@ TELAS.relatorios = function () {
       '<div class="painel clicavel" data-acao="' + (vendasDePe.length !== new Set(vendasDePe.map((v) => v.loteId)).size ? 'duplicados' : 'vendas') + '"><div class="rot">Lotes vendidos</div><div class="num">' + new Set(vendasDePe.map((v) => v.loteId)).size + '</div>' +
         (vendasDePe.length !== new Set(vendasDePe.map((v) => v.loteId)).size ? '<div class="sub">⚠ ' + vendasDePe.length + ' contratos — clique e veja os lotes com 2 vendas</div>' : '') + '</div>' +
       '<div class="painel clicavel" data-acao="vendas"><div class="rot">Valor total vendido (VGV)</div><div class="num pos">' + fmt.brl(vgv) + '</div></div>' +
-      '<div class="painel clicavel" data-acao="recebido"><div class="rot">Já recebido</div><div class="num pos">' + fmt.brl(ac.entradas) + '</div></div>' +
+      '<div class="painel clicavel" data-acao="recebido"><div class="rot">Já recebido</div><div class="num pos">' + fmt.brl(ac.entradas) + '</div>' +
+        '<div class="sub">clique e veja por forma abaixo</div></div>' +
       '<div class="painel clicavel" data-acao="gasto"><div class="rot">Já gasto</div><div class="num neg">' + fmt.brl(ac.saidas) + '</div></div>' +
     '</div>' +
     '<div class="paineis">' +
@@ -765,7 +808,51 @@ TELAS.relatorios = function () {
           '</div>').join('') +
         '<p class="nota" style="margin-top:6px">Este valor NÃO está dentro dos "gastos previstos" acima — comissão devida não tem mês marcado; paga quando você decidir.</p></div>';
     })() +
-    '<div class="cartao" id="rel-previstos"><h2>Gastos futuros previsíveis <span class="nota">— o que você já sabe que vem</span></h2>' +
+    '<div class="cartao" id="rel-formas"><h2>💳 Recebido por forma <span class="nota">— ' + rotuloHz + '</span></h2>' +
+      (function () {
+        const somaF = {};
+        for (const r2 of lista('rec')) {
+          if (!dentroHz(r2.data)) continue;
+          const f2 = r2.forma || '—';
+          somaF[f2] = (somaF[f2] || 0) + (Number(r2.valor) || 0);
+        }
+        for (const c2 of cxVivos()) {
+          if (c2.tipo !== 'entrada' || !dentroHz(c2.data)) continue;
+          const f2 = c2.forma || '—';
+          somaF[f2] = (somaF[f2] || 0) + (Number(c2.valor) || 0);
+        }
+        const ordem = ['PIX', 'Dinheiro', 'Boleto', 'Cartão de Crédito', 'Cartão de Débito', 'Transferência', 'Cheque', 'Permuta'];
+        const chaves = [...new Set([...ordem.filter((k2) => somaF[k2]), ...Object.keys(somaF)])];
+        const total2 = Object.values(somaF).reduce((s2, v2) => s2 + v2, 0);
+        if (!total2) return '<p class="nota">Nada recebido nesse recorte.</p>';
+        return '<div class="rolagem"><table class="tabela"><thead><tr><th>Forma</th><th class="num">Valor</th><th class="num">%</th></tr></thead><tbody>' +
+          chaves.map((k2) => '<tr class="rf-lin" data-forma="' + esc(k2) + '" style="cursor:pointer"><td><b>' + esc(k2) + '</b></td>' +
+            '<td class="num">' + fmt.brl(somaF[k2]) + '</td>' +
+            '<td class="num">' + Math.round(somaF[k2] / total2 * 100) + '%</td></tr>').join('') +
+          '<tr style="border-top:2px solid var(--borda);font-weight:800"><td>TOTAL</td><td class="num">' + fmt.brl(total2) + '</td><td class="num">100%</td></tr>' +
+          '</tbody></table></div>';
+      })() + '</div>' +
+
+      '<div class="cartao" id="rel-centros"><h2>🏗️ Gasto por centro de custo <span class="nota">— ' + rotuloHz + ' · cadastre os centros em Configurações</span></h2>' +
+      (function () {
+        const somaC = {}; let semC = 0;
+        for (const c2 of cxVivos()) {
+          if (c2.tipo !== 'saida' || !dentroHz(c2.data)) continue;
+          if (c2.centroCusto) somaC[c2.centroCusto] = (somaC[c2.centroCusto] || 0) + (Number(c2.valor) || 0);
+          else semC += Number(c2.valor) || 0;
+        }
+        const chaves = Object.keys(somaC).sort((x2, y2) => somaC[y2] - somaC[x2]);
+        const total2 = chaves.reduce((s2, k2) => s2 + somaC[k2], 0) + semC;
+        if (!total2) return '<p class="nota">Nenhuma despesa nesse recorte.</p>';
+        return '<div class="rolagem"><table class="tabela"><thead><tr><th>Centro de custo</th><th class="num">Valor</th><th class="num">%</th></tr></thead><tbody>' +
+          chaves.map((k2) => '<tr class="rc-lin" data-cc="' + esc(k2) + '" style="cursor:pointer"><td><b>' + esc(k2) + '</b></td>' +
+            '<td class="num">' + fmt.brl(somaC[k2]) + '</td><td class="num">' + Math.round(somaC[k2] / total2 * 100) + '%</td></tr>').join('') +
+          (semC ? '<tr class="rc-lin" data-cc="__sem__" style="cursor:pointer"><td>— sem centro de custo</td><td class="num">' + fmt.brl(semC) + '</td><td class="num">' + Math.round(semC / total2 * 100) + '%</td></tr>' : '') +
+          '<tr style="border-top:2px solid var(--borda);font-weight:800"><td>TOTAL</td><td class="num">' + fmt.brl(total2) + '</td><td class="num">100%</td></tr>' +
+          '</tbody></table></div>';
+      })() + '</div>' +
+
+      '<div class="cartao" id="rel-previstos"><h2>Gastos futuros previsíveis <span class="nota">— o que você já sabe que vem</span></h2>' +
       (previstos.map((g) =>
         '<div class="lin prev-lin" data-id="' + esc(g.id) + '">' +
         '<div class="cresce"><b>' + esc(g.descricao || '—') + '</b>' +
@@ -798,6 +885,12 @@ TELAS.relatorios = function () {
   });
   app.querySelectorAll('.cap-pagar').forEach((b) => {
     b.onclick = () => abrirPagarComissao(b.dataset.id, b.dataset.nome, Number(b.dataset.saldo));
+  });
+  app.querySelectorAll('.rc-lin').forEach((el) => {
+    el.onclick = () => { TELAS._fLanc = { q: '', tipo: 'saida', cat: '', mes: 'todos', cc: el.dataset.cc }; location.hash = '#/lancamentos'; };
+  });
+  app.querySelectorAll('.rf-lin').forEach((el) => {
+    el.onclick = () => { TELAS._fLanc = { q: el.dataset.forma, tipo: '', cat: '', mes: 'todos' }; location.hash = '#/lancamentos'; };
   });
   const bCobrar = document.getElementById('rel-cobrar');
   if (bCobrar) bCobrar.onclick = () => { TELAS._fVendas = { q: '', sit: '', so: 'atraso' }; location.hash = '#/vendas'; };
