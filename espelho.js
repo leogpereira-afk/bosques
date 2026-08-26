@@ -139,13 +139,14 @@ TELAS.espelho = function () {
       '</div>' +
     '</div>' +
     '<div class="paineis">' +
-      '<div class="painel"><div class="rot">Lotes</div><div class="num">' + ls.length + '</div></div>' +
-      '<div class="painel"><div class="rot">Disponíveis</div><div class="num pos">' + disp + '</div>' +
+      '<div class="painel clicavel" data-card="todos"><div class="rot">Lotes</div><div class="num">' + ls.length + '</div>' +
+        '<div class="sub">ver todos</div></div>' +
+      '<div class="painel clicavel" data-card="Disponível"><div class="rot">Disponíveis</div><div class="num pos">' + disp + '</div>' +
         '<div class="sub">' + fmt.brl(estoqueRS) + ' em tabela para vender</div></div>' +
-      '<div class="painel"><div class="rot">Vendidos</div><div class="num">' + vend + '</div>' +
+      '<div class="painel clicavel" data-card="Vendido"><div class="rot">Vendidos</div><div class="num">' + vend + '</div>' +
         '<div class="sub">' + Math.round(vend / ls.length * 100) + '% · VGV ' + fmt.brl(vgvVendido) + '</div></div>' +
       (ehCorretorPerfil() ? '' :
-      '<div class="painel"><div class="rot">Com atraso</div><div class="num' + (atrasos.size ? ' neg' : '') + '">' + atrasos.size + '</div></div>') +
+      '<div class="painel clicavel" data-card="atraso"><div class="rot">Com atraso</div><div class="num' + (atrasos.size ? ' neg' : '') + '">' + atrasos.size + '</div></div>') +
     '</div>' +
     '<div class="filtros">' +
       '<input type="search" id="esp-q" placeholder="nº do lote…" value="' + esc(filtro.q) + '">' +
@@ -181,6 +182,15 @@ TELAS.espelho = function () {
   if (bNovo) bNovo.onclick = () => abrirCadastroLote(null);
   document.getElementById('esp-q').oninput = (e) => { filtro.q = e.target.value; TELAS.espelho(); };
   document.getElementById('esp-quadra').onchange = (e) => { filtro.quadra = e.target.value; TELAS.espelho(); };
+  document.querySelectorAll('.painel[data-card]').forEach((cd) => {
+    cd.onclick = () => {
+      const alvo = cd.dataset.card;
+      if (alvo === 'todos') { filtro.status = ''; filtro.atraso = false; }
+      else if (alvo === 'atraso') { filtro.atraso = !filtro.atraso; filtro.status = ''; }
+      else { filtro.status = filtro.status === alvo ? '' : alvo; filtro.atraso = false; }
+      TELAS.espelho();
+    };
+  });
   document.querySelectorAll('.esp-chip').forEach((c) => {
     c.onclick = () => {
       filtro.status = filtro.status === c.dataset.st ? '' : c.dataset.st;   // clicou de novo, desliga

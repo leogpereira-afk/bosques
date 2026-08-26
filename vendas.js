@@ -337,6 +337,7 @@ TELAS.venda = function (id) {
     '</div>' +
     '<div class="acoes-linha">' +
       (viva ? '<button class="btn primario" id="bt-baixa">💰 Dar baixa</button>' : '') +
+      (viva ? '<button class="btn" id="bt-editar-venda">✏ Editar venda</button>' : '') +
       (viva ? botaoCobranca(v, r, false) : '') +
       (viva && r.quitada ? '<button class="btn" id="bt-quitar">✅ Marcar quitada</button>' : '') +
       (viva ? '<button class="btn perigo" id="bt-distrato">Distratar…</button>' : '') +
@@ -384,6 +385,7 @@ TELAS.venda = function (id) {
         (rc.tipo === 'entrada' ? ' · entrada' : rc.parcelaN ? ' · parcela ' + rc.parcelaN : '') +
         (rc.obs ? ' · ' + esc(rc.obs) : '') + ' · por ' + esc(rc.criadoPor || rc.atualizadoPor || '—') +
         (rc.origem === 'omie' ? ' · <b>🔗 omie</b>' : rc.origem === 'planilha' ? ' · 📄 planilha' : ' · ✍️ manual') + '</span></div>' +
+      (viva ? '<button class="btn mini bt-edit-rec" data-id="' + esc(rc.id) + '">✏</button>' : '') +
       '<button class="btn mini bt-recibo" data-id="' + esc(rc.id) + '">recibo</button>' +
       (viva ? '<button class="btn mini perigo bt-estorno" data-id="' + esc(rc.id) + '">estornar</button>' : '') +
     '</div>').join('');
@@ -406,6 +408,11 @@ TELAS.venda = function (id) {
 
   /* ── ações ── */
   ligarBotoesCobranca(app);
+  const bEV = document.getElementById('bt-editar-venda');
+  if (bEV) bEV.onclick = () => abrirEditarVenda(v);
+  app.querySelectorAll('.bt-edit-rec').forEach((b2) => {
+    b2.onclick = () => abrirEditarRec(v, b2.dataset.id);
+  });
   const bB = document.getElementById('bt-baixa');
   if (bB) bB.onclick = () => abrirBaixa(v, r);
   app.querySelectorAll('.bt-edit-p').forEach((b2) => {
@@ -948,4 +955,88 @@ function abrirEditarParcela(v, idx, opts = {}) {
     TELAS.venda(v.id);
   } });
   abrirModal({ titulo: (nova ? '➕ Nova parcela' : '✏ Parcela ' + (idx + 1)) + ' — ' + (v.codigo || ''), corpo, acoes });
+}
+
+
+/* ── Editar a VENDA (ordem do dono: toda linha editável) ─────────────────────
+   O que o servidor protege continua protegido (situação e lote são dele);
+   o resto — corretores, comissões, datas, plano, observação — edita aqui.
+   O plano NÃO mexe no espelho das parcelas: o carnê real vem do Omie. */
+function abrirEditarVenda(v) {
+  const corrs = lista('corretor').filter((c) => c.ativo !== false);
+  const opc = (sel) => corrs.map((c) => '<option value="' + esc(c.id) + '"' + (sel === c.id ? ' selected' : '') + '>' + esc(c.nome) + '</option>').join('');
+  const corpo =
+    '<div class="colunas-3">' +
+      campo('Data da venda', entrada('dataVenda', v.dataVenda || '', { tipo: 'date' })) +
+      campo('Entrada (R$)', entrada('entrada', v.entrada != null ? v.entrada : '', { inputmode: 'decimal' })) +
+      campo('Data da entrada', entrada('dataEntrada', v.dataEntrada || '', { tipo: 'date' })) +
+    '</div><div class="colunas-3">' +
+      campo('Qtde de parcelas', entrada('qtdeParcelas', v.qtdeParcelas != null ? v.qtdeParcelas : '', { inputmode: 'numeric' })) +
+      campo('Parcela em dia (R$)', entrada('valorParcela', v.valorParcela != null ? v.valorParcela : '', { inputmode: 'decimal' })) +
+      '<div class="campo"><label>Tipo</label><select data-campo="tipoParcela">' +
+        ['Fixa', 'Reajustada', 'À vista'].map((t) => '<option' + ((v.tipoParcela || 'Fixa') === t ? ' selected' : '') + '>' + t + '</option>').join('') +
+      '</select></div>' +
+    '</div><div class="colunas-3">' +
+      campo('1ª parcela vence em', entrada('inicioParcelas', v.inicioParcelas || '', { tipo: 'date' })) +
+      '<div class="campo"><label>Corretor</label><select data-campo="corretorId"><option value="">—</option>' + opc(v.corretorId) + '</select></div>' +
+      campo('Comissão (R$)', entrada('comissao', v.comissao != null ? v.comissao : '', { inputmode: 'decimal' })) +
+    '</div><div class="colunas-3">' +
+      '<div class="campo"><label>2º corretor</label><select data-campo="cor2Id"><option value="">—</option>' + opc(v.cor2Id) + '</select></div>' +
+      campo('Comissão do 2º (R$)', entrada('comissao2', v.comissao2 != null ? v.comissao2 : '', { inputmode: 'decimal' })) +
+      campo('Forma da entrada', entrada('formaEntrada', v.formaEntrada || '')) +
+    '</div>' +
+      campo('Observação', entrada('obs', v.obs || '')) +
+    '<p class="nota">O carnê real (parcelas do Omie) não muda por aqui — parcelas se editam na lista delas. ' +
+    'Situação e lote são do sistema (distrato e conferência têm botão próprio).</p>';
+  abrirModal({
+    titulo: '✏ Editar ' + (v.codigo || 'venda'),
+    corpo,
+    acoes: [
+      { texto: 'Voltar', aoClicar: () => fecharModal() },
+      { texto: 'Salvar', classe: 'primario', aoClicar: (fundo) => {
+        const c = lerCampos(fundo);
+        salvar('venda', { id: v.id,
+          dataVenda: c.dataVenda, entrada: numeroBR(c.entrada), dataEntrada: c.dataEntrada,
+          qtdeParcelas: Math.max(0, Math.round(numeroBR(c.qtdeParcelas))), valorParcela: numeroBR(c.valorParcela),
+          tipoParcela: c.tipoParcela, inicioParcelas: c.inicioParcelas,
+          corretorId: c.corretorId, corretorNome: (corrs.find((x) => x.id === c.corretorId) || {}).nome || '',
+          comissao: numeroBR(c.comissao), cor2Id: c.cor2Id, comissao2: numeroBR(c.comissao2),
+          formaEntrada: c.formaEntrada, obs: String(c.obs || '').slice(0, 300),
+          historico: [{ em: new Date().toISOString(), por: S.quem || '—', acao: 'editou os dados da venda' }] });
+        fecharSilencioso(fundo);
+        toast('Venda salva');
+        TELAS.venda(v.id);
+      } },
+    ],
+  });
+}
+
+/* ── Editar um RECEBIMENTO ───────────────────────────────────────────────────
+   Data, forma e observação. VALOR e VENDA o servidor tranca de propósito
+   (corrigir valor = estornar e lançar de novo — assim fica no log). */
+function abrirEditarRec(v, recId) {
+  const rc = achar('rec', recId);
+  if (!rc) return;
+  const corpo =
+    '<div class="colunas-3">' +
+      campo('Valor (travado)', entrada('valorTravado', fmt.brl(rc.valor), { somenteLeitura: true }),
+        'corrigir valor = estornar e lançar de novo') +
+      campo('Em', entrada('data', rc.data || '', { tipo: 'date' })) +
+      campo('Forma', seletor('forma', rc.forma || 'PIX', (S.cfg && S.cfg.formasPg) || ['PIX', 'Dinheiro'])) +
+    '</div>' +
+      campo('Observação', entrada('obs', rc.obs || ''));
+  abrirModal({
+    titulo: '✏ Recebimento ' + (rc.codigo || ''),
+    corpo,
+    acoes: [
+      { texto: 'Voltar', aoClicar: () => fecharModal() },
+      { texto: 'Salvar', classe: 'primario', aoClicar: (fundo) => {
+        const c = lerCampos(fundo);
+        salvar('rec', { id: rc.id, data: c.data, forma: c.forma, obs: String(c.obs || '').slice(0, 300) });
+        fecharSilencioso(fundo);
+        toast('Recebimento salvo');
+        TELAS.venda(v.id);
+      } },
+    ],
+  });
 }

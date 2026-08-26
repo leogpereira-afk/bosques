@@ -3,7 +3,11 @@
 # O jsc do macOS compila o corpo; erro de sintaxe estoura com linha.
 JSC=/System/Library/Frameworks/JavaScriptCore.framework/Versions/Current/Helpers/jsc
 ok=0
-for f in "$@"; do
+# Sem argumentos = confere TODOS os .js do app (chamar sem args e "passar"
+# era mentira: o laço nem rodava e o exit era 0).
+ARQS=("$@")
+if [ ${#ARQS[@]} -eq 0 ]; then ARQS=(config.js ui.js store.js carne.js pdf.js espelho.js vendas.js caixa.js cadastros.js cronograma.js apresentacao.js contratos.js omie.js app.js sw.js); fi
+for f in "${ARQS[@]}"; do
   if python3 - "$f" <<'PY' > /tmp/_wrap.js
 import sys, json
 src = open(sys.argv[1], encoding='utf-8').read()

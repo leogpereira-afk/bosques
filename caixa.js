@@ -178,6 +178,9 @@ TELAS.caixa = function () {
   const arCaixa = aReceberPorMes();
   const doze = Object.keys(arCaixa.porMes).sort().filter((m) => m >= mes).slice(0, 12)
     .reduce((s, m) => s + arCaixa.porMes[m], 0);
+  const anoC = String(new Date().getFullYear());
+  const aReceberAnoCorrente = Object.entries(arCaixa.porMes)
+    .filter(([m2]) => m2.slice(0, 4) === anoC).reduce((s2, [, v2]) => s2 + v2, 0);
 
   // ── DRE com as barras embutidas (um cartão só responde "para onde foi") ──
   const dre = dreDados(mes);
@@ -229,7 +232,8 @@ TELAS.caixa = function () {
       '<td class="num">' + fmt.brl(tAno.e) + '</td><td class="num">' + fmt.brl(tAno.s2) + '</td>' +
       '<td class="num">' + fmt.brl(tAno.e - tAno.s2) + '</td></tr></tbody></table></div></div>' +
     '<div class="cartao clicavel" id="pn-prev" style="cursor:pointer"><h2 style="margin:0">🔭 Previsibilidade ' +
-      '<span class="nota">— próximos 12 meses: <b>' + fmt.brl(doze) + '</b> a receber dos carnês · vencido a cobrar <b style="color:var(--ruim)">' +
+      '<span class="nota">— a receber em ' + String(new Date().getFullYear()) + ': <b>' + fmt.brl(aReceberAnoCorrente) + '</b>' +
+      ' · próximos 12 meses: <b>' + fmt.brl(doze) + '</b> · vencido a cobrar <b style="color:var(--ruim)">' +
       fmt.brl(arCaixa.vencido) + '</b> · o detalhe está nos Relatórios →</span></h2></div>' +
     blocoDre +
     '<div class="cartao clicavel" id="ver-lanc" style="cursor:pointer"><h2 style="margin:0">🧾 Lançamentos de ' + nomeMes(mes) +
@@ -653,6 +657,10 @@ TELAS.relatorios = function () {
     hz === 'mes' ? m === mesAtual : hz === 'ano' ? m.startsWith(anoAtual) : true);
   const aReceberHz = doHorizonte.reduce((s, m) => s + ar.porMes[m], 0);
   const previstoHz = doHorizonte.reduce((s, m) => s + previstoNoMes(m), 0);
+  // Etapa com valor e SEM prazo não cai em mês nenhum — mostrar, senão some.
+  const pagoEtapas = pagoPorEtapa();   // devolve o MAPA inteiro {etapaId: pago}
+  const previstoSemData = lista('etapa').filter((e) => !e.inicio && !e.fim)
+    .reduce((s2, e) => s2 + Math.max(0, (Number(e.valorPrevisto) || 0) - (pagoEtapas[e.id] || 0)), 0);
 
   const rotuloHz = { mes: 'em ' + nomeMes(mesAtual), ano: 'em ' + anoAtual, total: 'até acabar' }[hz];
 
@@ -708,7 +716,8 @@ TELAS.relatorios = function () {
         '<div class="sub">' + (hz === 'total' ? ar.parcelas + ' parcela(s) em aberto' : 'parcelas a vencer no período') + '</div></div>' +
       '<div class="painel clicavel" data-acao="vencido"><div class="rot">Vencido a cobrar</div><div class="num' + (ar.vencido ? ' neg' : '') + '">' + fmt.brl(ar.vencido) + '</div>' +
         '<div class="sub">clique para ir cobrar</div></div>' +
-      '<div class="painel clicavel" data-acao="previstos"><div class="rot">Gastos previstos ' + rotuloHz + '</div><div class="num">' + fmt.brl(previstoHz) + '</div></div>' +
+      '<div class="painel clicavel" data-acao="previstos"><div class="rot">Gastos previstos ' + rotuloHz + '</div><div class="num">' + fmt.brl(previstoHz) + '</div>' +
+        (previstoSemData > 0 ? '<div class="sub">⚠ + ' + fmt.brl(previstoSemData) + ' de etapas SEM PRAZO — defina no Cronograma</div>' : '') + '</div>' +
       '<div class="painel clicavel" data-acao="tabela"><div class="rot">Saldo projetado ' + rotuloHz + '</div>' +
         '<div class="num ' + (aReceberHz - previstoHz >= 0 ? 'pos' : 'neg') + '">' + fmt.brl(aReceberHz - previstoHz) + '</div>' +
         '<div class="sub">a receber − previstos (sem o vencido)</div></div>' +
@@ -777,7 +786,7 @@ TELAS.relatorios = function () {
       if (acao === 'vendas') location.hash = '#/vendas';
       else if (acao === 'recebido') { TELAS._fLanc = { q: '', tipo: 'entrada', cat: '', mes: 'todos' }; location.hash = '#/lancamentos'; }
       else if (acao === 'gasto') { TELAS._fLanc = { q: '', tipo: 'saida', cat: '', mes: 'todos' }; location.hash = '#/lancamentos'; }
-      else if (acao === 'caixa') location.hash = '#/caixa';
+      else if (acao === 'caixa') { const c2 = document.getElementById('rel-tabela'); if (c2) c2.scrollIntoView({ behavior: 'smooth', block: 'start' }); else location.hash = '#/caixa'; }
       else if (acao === 'vencido') { TELAS._fVendas = { q: '', sit: '', so: 'atraso' }; location.hash = '#/vendas'; }
       else if (acao === 'previstos') { const c2 = document.getElementById('rel-previstos'); if (c2) c2.scrollIntoView({ behavior: 'smooth', block: 'start' }); }
       else if (acao === 'tabela') { const c2 = document.getElementById('rel-tabela'); if (c2) c2.scrollIntoView({ behavior: 'smooth', block: 'start' }); }
