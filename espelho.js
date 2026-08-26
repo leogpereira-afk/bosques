@@ -11,13 +11,65 @@ const recsDaVenda = (vid) => lista('rec').filter((r) => r.vendaId === vid);
 const cfgReajuste = () => (S.cfg && S.cfg.reajuste) || { pct: 6, aCada: 12 };
 const ehCorretorPerfil = () => S.perfil === 'corretor';
 
+/* ── O MOTOR DO CARNÊ (ordem do dono, 26/08): a verdade das parcelas é o
+   ESPELHO DO OMIE, armazenado em v.parcelas pela sincronização e EDITÁVEL na
+   ficha. O carnê derivado do plano (carne.js) só vale para simulação de
+   proposta e para venda que ainda não tem espelho. A inadimplência daqui
+   bate com o banco por construção: parcela vencida sem pagamento = título
+   vencido em aberto no Omie. */
+function resumoVenda(v) {
+  const ps = Array.isArray(v.parcelas) ? v.parcelas.filter(Boolean) : [];
+  if (!ps.length) {
+    // Sem boletos no Omie o atraso NÃO se afirma: o carnê derivado vira só o
+    // PLANO (régua do banco é a única que conta dívida). A ficha avisa.
+    const r = CARNE.resumo(v, cfgReajuste(), recsDaVenda(v.id));
+    for (const l of r.carne) if (l.situacao === 'atrasada') l.situacao = 'aberta';
+    r.qtdAtraso = 0; r.emAtraso = 0; r.semEspelho = true;
+    return r;
+  }
+  const hoje = hojeISO();
+  const cent = (x) => Math.round(x * 100) / 100;
+  const carne = ps.map((pp, i) => {
+    const situacao = pp.pago ? 'paga' : (pp.venc < hoje ? 'atrasada' : pp.venc === hoje ? 'hoje' : 'aberta');
+    return {
+      n: i + 1, venc: pp.venc || '', valor: Number(pp.valor) || 0,
+      valorDia: pp.valorDia != null ? Number(pp.valorDia) : null,
+      pago: pp.pago ? (Number(pp.pagoValor) || Number(pp.valor) || 0) : 0,
+      pagoEm: pp.pago || null, situacao, tid: pp.tid || null,
+      trava: !!pp.trava, conferir: !!pp.conferir, obs: pp.obs || '',
+      rotulo: (i + 1) + 'ª' + (pp.tid ? '' : ' ✍️'),
+    };
+  });
+  const total = cent(carne.reduce((s2, l) => s2 + l.valor, 0));
+  const pago = cent(carne.reduce((s2, l) => s2 + l.pago, 0));
+  const atrasadas = carne.filter((l) => l.situacao === 'atrasada');
+  const emAtraso = cent(atrasadas.reduce((s2, l) => s2 + l.valor, 0));
+  const proxima = carne.find((l) => ['aberta', 'hoje'].includes(l.situacao)) || null;
+  const abertas = carne.filter((l) => !l.pagoEm);
+  return {
+    carne, total, pago, sobra: 0,
+    saldo: cent(abertas.reduce((s2, l) => s2 + l.valor, 0)),
+    qtdAtraso: atrasadas.length, emAtraso, proxima,
+    quitada: carne.length > 0 && abertas.length === 0,
+    espelhoOmie: true,
+  };
+}
+
+// O valor do plano (VGV): pagando sempre em dia — entrada + parcelas com desconto.
+function totalPlanoVenda(v) {
+  const ps = Array.isArray(v.parcelas) ? v.parcelas.filter(Boolean) : [];
+  if (!ps.length) return CARNE.resumo(v, cfgReajuste(), []).total;
+  const soma = ps.reduce((s2, pp) => s2 + (pp.valorDia != null ? Number(pp.valorDia) : Number(pp.valor) || 0), 0);
+  return Math.round(((Number(v.entrada) || 0) + soma) * 100) / 100;
+}
+
 // Vendas em atraso por lote (para o "!" no espelho) — só direção/escritório.
 function lotesComAtraso() {
   const marca = new Set();
   if (ehCorretorPerfil()) return marca;
   for (const v of lista('venda')) {
     if (v.situacao && v.situacao !== 'ativa' && v.situacao !== 'conferir') continue;
-    const r = CARNE.resumo(v, cfgReajuste(), recsDaVenda(v.id));
+    const r = resumoVenda(v);
     if (r.qtdAtraso > 0) marca.add(v.loteId);
   }
   return marca;
@@ -40,7 +92,7 @@ TELAS.espelho = function () {
   // MESMA régua da tela Vendas (contratos de pé) — duas telas com números
   // diferentes para "vendido" é briga em reunião.
   const vgvVendido = lista('venda').filter((v) => v.situacao !== 'distratada')
-    .reduce((s, v) => s + CARNE.resumo(v, cfgReajuste(), []).total, 0);
+    .reduce((s, v) => s + totalPlanoVenda(v), 0);
   const atrasos = lotesComAtraso();
 
   const filtrados = ls.filter((l) =>

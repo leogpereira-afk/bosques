@@ -573,7 +573,7 @@ function aReceberPorMes() {
   const porMes = {};
   let vencido = 0, total = 0, parcelas = 0;
   for (const v of vendasVivas()) {
-    const r = CARNE.resumo(v, cfgReajuste(), recsDaVenda(v.id));
+    const r = resumoVenda(v);
     for (const l of r.carne) {
       const falta = Math.round((l.valor - Math.min(l.pago, l.valor)) * 100) / 100;
       if (falta <= 0.004) continue;
@@ -611,7 +611,7 @@ function agingInadimplencia() {
     { rotulo: 'mais de 90 dias', ate: 1e9, rs: 0, parcelas: 0, contratos: new Set() },
   ];
   for (const v of vendasVivas()) {
-    const r = CARNE.resumo(v, cfgReajuste(), recsDaVenda(v.id));
+    const r = resumoVenda(v);
     for (const l of r.carne) {
       if (l.situacao !== 'atrasada') continue;
       const falta = Math.round((l.valor - Math.min(l.pago, l.valor)) * 100) / 100;
@@ -633,7 +633,7 @@ TELAS.relatorios = function () {
 
   // vendido / recebido / gasto (sempre desde o início — é o retrato do negócio)
   const vendasDePe = lista('venda').filter((v) => v.situacao !== 'distratada');
-  const vgv = vendasDePe.reduce((s, v) => s + CARNE.resumo(v, cfgReajuste(), []).total, 0);
+  const vgv = vendasDePe.reduce((s, v) => s + totalPlanoVenda(v), 0);
   const ac = totaisAcumulados();
 
   // a receber e previstos DENTRO do horizonte

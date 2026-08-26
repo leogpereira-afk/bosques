@@ -44,7 +44,7 @@ function renderLateral() {
   const { nome } = rotaAtual();
   const atrasos = (S.perfil !== 'corretor')
     ? lista('venda').filter((v) => ['ativa', 'conferir'].includes(v.situacao || 'ativa') &&
-        CARNE.resumo(v, cfgReajuste(), recsDaVenda(v.id)).qtdAtraso > 0).length
+        resumoVenda(v).qtdAtraso > 0).length
     : 0;
   el.innerHTML =
     '<div class="marca"><img src="icons/icon-192.png" alt=""><b>Portal dos Bosques<span>gestão do loteamento</span></b></div>' +
@@ -153,7 +153,7 @@ TELAS.home = function () {
   const t = totaisDoMes(mes);
   const vivas = vendasVivas();
   const comAtraso = vivas
-    .map((v) => ({ v, r: CARNE.resumo(v, cfgReajuste(), recsDaVenda(v.id)) }))
+    .map((v) => ({ v, r: resumoVenda(v) }))
     .filter((x) => x.r.qtdAtraso > 0)
     .sort((a, b) => b.r.emAtraso - a.r.emAtraso);
   const totalAtraso = comAtraso.reduce((s, x) => s + x.r.emAtraso, 0);

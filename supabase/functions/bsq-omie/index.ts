@@ -24,7 +24,7 @@
 
 import { json, preflight } from "../_shared/cors.ts";
 import {
-  agora, db, gravarCfg, gravarVarios, guardarIndiceNumero, lerCfgBruta,
+  agora, db, lerUm, gravarUm, gravarCfg, gravarVarios, guardarIndiceNumero, lerCfgBruta,
   lerColecaoBruta, marcarMudanca, proximoNumero, registrarLog,
 } from "../_shared/dados.ts";
 import { identificar, perfilDe, type Quem } from "../_shared/acesso.ts";
@@ -275,6 +275,14 @@ Deno.serve(async (req) => {
         }
 
         // As páginas de movimentos desta chamada.
+        // O ESPELHO DAS PARCELAS: todo título de cliente (aberto ou pago)
+        // vira parcela ARMAZENADA na venda — v.parcelas é a verdade do carnê,
+        // e o que o Léo editar à mão (trava) a sincronização respeita.
+        const titulosPorVenda = new Map<string, any[]>();
+        const anotarTitulo = (vendaId: string, item: any) => {
+          if (!titulosPorVenda.has(vendaId)) titulosPorVenda.set(vendaId, []);
+          titulosPorVenda.get(vendaId)!.push(item);
+        };
         const POR_CHAMADA = 15;
         let pagina = Number(body.pagina) || 1;
         let totPaginas = pagina;
@@ -291,6 +299,35 @@ Deno.serve(async (req) => {
 
             /* recebimento de venda baixado */
             if (grupo === "CONTA_A_RECEBER") {
+              // espelho das parcelas: casa o título com a venda e anota
+              if (d.cStatus !== "CANCELADO") {
+                const cpfT = soDigitos(d.cCPFCNPJCliente);
+                const minhasT = vendasPorCpf.get(cpfT) || [];
+                const cheio = Math.round((Number(d.nValorTitulo) || 0) * 100) / 100;
+                let vId = minhasT.length === 1 ? minhasT[0].id : casarVenda(minhasT, cheio, cfg);
+                let conferirT = false;
+                if (!vId && minhasT.length) {
+                  // Ambíguo (cliente com N vendas de parcela igual): distribui
+                  // por tid % N — estável para sempre (o tid não muda), e os
+                  // carnês gêmeos se dividem em vez de amontoar na mais
+                  // antiga. Fica marcado; a edição move se for o caso.
+                  const ordenadas = minhasT.slice().sort((x: any, y: any) =>
+                    String(x.dataVenda || "").localeCompare(String(y.dataVenda || "")) ||
+                    String(x.codigo || "").localeCompare(String(y.codigo || "")));
+                  vId = ordenadas[Number(d.nCodTitulo) % ordenadas.length].id;
+                  conferirT = true;
+                }
+                if (vId) {
+                  const recebido = d.cStatus === "RECEBIDO" && res.cLiquidado === "S";
+                  anotarTitulo(vId, {
+                    tid: d.nCodTitulo, venc: brParaISO(d.dDtVenc), valor: cheio,
+                    valorDia: Math.round(cheio * 0.8 * 100) / 100,
+                    pago: recebido ? brParaISO(d.dDtPagamento) : null,
+                    pagoValor: recebido ? (Number(res.nValPago) || cheio) : null,
+                    ...(conferirT ? { conferir: true } : {}),
+                  });
+                }
+              }
               const id = "rbomie-" + d.nCodTitulo;
               const existente = recPorId.get(id);
               if (d.cStatus === "RECEBIDO" && res.cLiquidado === "S") {
@@ -369,6 +406,53 @@ Deno.serve(async (req) => {
           if (pagina >= totPaginas) { pagina = 0; break; }   // acabou
           pagina += 1;
         }
+
+        // aplica o espelho nas vendas tocadas nesta chamada (merge por tid;
+        // trava do Léo vence em vencimento/valores; o PAGAMENTO real do banco
+        // sempre atualiza; parcela manual sem tid fica como está)
+        // tids TRAVADOS em qualquer venda (o Léo moveu/mexeu): a sync nunca
+        // recria em outra venda — o movimento manual é definitivo.
+        const vendasCache = new Map<string, any>();
+        const lerVendaC = async (id2: string) => {
+          if (!vendasCache.has(id2)) vendasCache.set(id2, await lerUm("venda", id2));
+          return vendasCache.get(id2);
+        };
+        const tidsTravadosDoCpf = async (cpf2: string, foraDe: string) => {
+          const set = new Set<number>();
+          for (const vv of (vendasPorCpf.get(cpf2) || [])) {
+            if (vv.id === foraDe) continue;
+            const reg = await lerVendaC(vv.id);
+            for (const pz of (reg?.parcelas || [])) if (pz && pz.tid && pz.trava) set.add(pz.tid);
+          }
+          return set;
+        };
+        for (const [vId, itens] of titulosPorVenda) {
+          const venda = await lerVendaC(vId);
+          if (!venda || venda.apagadoEm) continue;
+          const travadosFora = await tidsTravadosDoCpf(soDigitos(venda.clienteId), vId);
+          const itensValidos = itens.filter((it) => !travadosFora.has(it.tid));
+          const atuais: any[] = Array.isArray(venda.parcelas) ? venda.parcelas.filter(Boolean) : [];
+          const porTid = new Map(atuais.filter((x) => x.tid).map((x) => [x.tid, x]));
+          for (const it of itensValidos) {
+            const velho = porTid.get(it.tid);
+            if (velho && velho.trava) {
+              velho.pago = it.pago ?? velho.pago;
+              velho.pagoValor = it.pagoValor ?? velho.pagoValor;
+            } else if (velho) {
+              Object.assign(velho, it, { obs: velho.obs || "" });
+            } else {
+              porTid.set(it.tid, { ...it, origem: "omie" });
+            }
+          }
+          const manuais = atuais.filter((x) => !x.tid);
+          const novas = [...porTid.values(), ...manuais]
+            .sort((x, y) => String(x.venc || "").localeCompare(String(y.venc || "")));
+          venda.parcelas = novas;
+          venda.atualizadoEm = agora();
+          await gravarUm("venda", vId, venda);
+          soma("vendasEspelhadas");
+        }
+        if (titulosPorVenda.size) await marcarMudanca("venda");
 
         if (gravar.length) {
           await gravarVarios(gravar);

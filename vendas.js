@@ -14,9 +14,8 @@
 
 const vendasVivas = () => lista('venda').filter((v) => ['ativa', 'conferir'].includes(v.situacao || 'ativa'));
 
-function resumoVenda(v) {
-  return CARNE.resumo(v, cfgReajuste(), recsDaVenda(v.id));
-}
+/* resumoVenda mora no espelho.js: espelho do Omie manda; derivado é reserva. */
+
 
 /* ── Cobrança pelo WhatsApp ──────────────────────────────────────────────────
    A mensagem sai PRONTA: parcelas vencidas, valor total e os dados de
@@ -345,23 +344,35 @@ TELAS.venda = function (id) {
       '<button class="btn" id="bt-pdf-venda">📄 Baixar PDF desta venda</button>' +
     '</div></div>';
 
+  const espelhado = !!r.espelhoOmie;
   const linhasCarne = r.carne.map((l) => {
     const falta = Math.max(0, Math.round((l.valor - l.pago) * 100) / 100);
     return '<tr class="' + l.situacao + '">' +
-      '<td>' + esc(l.rotulo) + '</td>' +
+      '<td>' + esc(l.rotulo) + (l.trava ? ' 🔒' : '') +
+        (l.conferir ? ' <span class="etiqueta et-hoje" title="título de cliente com mais de uma venda — confirme se é desta">conferir</span>' : '') + '</td>' +
       '<td>' + fmt.data(l.venc) + '</td>' +
       '<td class="num">' + fmt.brl(l.valor) + '</td>' +
+      (espelhado ? '<td class="num">' + (l.valorDia != null ? fmt.brl(l.valorDia) : '—') + '</td>' : '') +
       '<td class="num">' + (l.pago ? fmt.brl(l.pago) : '—') + '</td>' +
       '<td>' + etiqueta(l.situacao) + '</td>' +
-      '<td class="num">' + (viva && falta > 0
+      '<td class="num" style="white-space:nowrap">' +
+        (espelhado && viva ? '<button class="btn mini bt-edit-p" data-i="' + (l.n - 1) + '">✏</button> ' : '') +
+        (viva && falta > 0
         ? '<button class="btn mini bt-baixa-n" data-n="' + l.n + '" data-falta="' + falta + '">baixar</button>' : '') + '</td>' +
       '</tr>';
   }).join('');
 
   const carne =
-    '<div class="cartao"><h2>Carnê <span class="nota">— derivado do plano + recebimentos; nada aqui é gravado à mão</span></h2>' +
-    (r.sobra > 0.004 ? '<p class="nota">⚠ Há ' + fmt.brl(r.sobra) + ' recebidos ALÉM do carnê — confira o plano ou os lançamentos.</p>' : '') +
-    '<div class="rolagem"><table class="tabela"><thead><tr><th>Parcela</th><th>Vence</th><th class="num">Valor</th><th class="num">Pago</th><th>Situação</th><th></th></tr></thead>' +
+    '<div class="cartao"><h2>Carnê ' +
+    (espelhado
+      ? '<span class="nota">— espelho dos boletos do Omie · editável (✏)</span>' +
+        (viva ? ' <button class="btn mini" id="bt-add-parc" style="float:right">+ parcela</button>' : '')
+      : '<span class="nota">— derivado do plano (sem boletos no Omie ainda)</span>') + '</h2>' +
+    (r.semEspelho ? '<p class="nota">⚠ Este contrato não tem boletos no Omie — o ATRASO não é medido por aqui. Gere o carnê no Omie para a cobrança valer.</p>' : '') +
+    (!espelhado && r.sobra > 0.004 ? '<p class="nota">⚠ Há ' + fmt.brl(r.sobra) + ' recebidos ALÉM do carnê — confira o plano ou os lançamentos.</p>' : '') +
+    '<div class="rolagem"><table class="tabela"><thead><tr><th>Parcela</th><th>Vence</th><th class="num">Boleto</th>' +
+    (espelhado ? '<th class="num">Em dia (−20%)</th>' : '') +
+    '<th class="num">Pago</th><th>Situação</th><th></th></tr></thead>' +
     '<tbody>' + linhasCarne + '</tbody></table></div></div>';
 
   const linhasRecs = recs.sort((a, b) => String(b.data || '').localeCompare(a.data || '')).map((rc) =>
@@ -395,8 +406,15 @@ TELAS.venda = function (id) {
   ligarBotoesCobranca(app);
   const bB = document.getElementById('bt-baixa');
   if (bB) bB.onclick = () => abrirBaixa(v, r);
+  app.querySelectorAll('.bt-edit-p').forEach((b2) => {
+    b2.onclick = () => abrirEditarParcela(v, Number(b2.dataset.i));
+  });
+  const bAddP = document.getElementById('bt-add-parc');
+  if (bAddP) bAddP.onclick = () => abrirEditarParcela(v, -1);
   app.querySelectorAll('.bt-baixa-n').forEach((b) => {
-    b.onclick = () => abrirBaixa(v, r, Number(b.dataset.n), Number(b.dataset.falta));
+    b.onclick = () => (r.espelhoOmie
+      ? abrirEditarParcela(v, Number(b.dataset.n) - 1, { baixa: true })
+      : abrirBaixa(v, r, Number(b.dataset.n), Number(b.dataset.falta)));
   });
   const bQ = document.getElementById('bt-quitar');
   if (bQ) bQ.onclick = async () => {
@@ -841,3 +859,91 @@ TELAS.simulacao = function () {
   document.getElementById('sm-tipo').onchange = (e) => { f.tipo = e.target.value; TELAS.simulacao(); };
   document.getElementById('sm-horizonte').onchange = (e) => { f.horizonte = Number(e.target.value); TELAS.simulacao(); };
 };
+
+
+/* ── Editar parcela (espelho do Omie) ────────────────────────────────────────
+   A ordem do dono (26/08): as parcelas são a verdade e SE EDITAM AQUI.
+   O que for salvo ganha trava (🔒): a sincronização do Omie não passa por
+   cima de vencimento e valores travados — só o PAGAMENTO real do banco
+   continua atualizando. Dá para mover a parcela para outra venda do mesmo
+   cliente (títulos ambíguos) e para remover (acordos). */
+function abrirEditarParcela(v, idx, opts = {}) {
+  const ps = Array.isArray(v.parcelas) ? v.parcelas.slice() : [];
+  const nova = idx < 0;
+  const pp = nova ? { venc: hojeISO(), valor: '', valorDia: '', pago: null, obs: '', origem: 'manual' } : { ...ps[idx] };
+  if (opts.baixa && !pp.pago) { pp.pago = hojeISO(); pp.pagoValor = pp.valorDia != null ? pp.valorDia : pp.valor; }
+  const outras = lista('venda').filter((x) => x.id !== v.id && x.clienteId === v.clienteId &&
+    ['ativa', 'conferir'].includes(x.situacao || 'ativa'));
+  const corpo =
+    (pp.tid ? '<p class="nota">Boleto do Omie nº ' + esc(String(pp.tid)) + ' — o pagamento chega sozinho pela sincronização. ' +
+      'O que você salvar aqui fica travado (🔒) e o Omie não sobrescreve.</p>' : '') +
+    '<div class="colunas-3">' +
+      campo('Vencimento', entrada('venc', pp.venc || '', { tipo: 'date' })) +
+      campo('Valor do boleto (R$)', entrada('valor', pp.valor, { inputmode: 'decimal' })) +
+      campo('Em dia −20% (R$)', entrada('valorDia', pp.valorDia != null ? pp.valorDia : '', { inputmode: 'decimal' }), 'vazio = calcula 80%') +
+    '</div><div class="colunas-3">' +
+      campo('Pago em', entrada('pago', pp.pago || '', { tipo: 'date' }), 'vazio = em aberto') +
+      campo('Valor pago (R$)', entrada('pagoValor', pp.pagoValor != null ? pp.pagoValor : '', { inputmode: 'decimal' })) +
+      campo('Observação', entrada('obs', pp.obs || '')) +
+    '</div>' +
+    (outras.length && !nova
+      ? campo('Mover para outra venda deste cliente?', seletor('mover', '', outras.map((x) =>
+          ({ v: x.id, t: (x.codigo || '') + ' · Q' + x.quadra + '-L' + x.lote })), 'não — fica nesta'))
+      : '');
+  const acoes = [
+    { texto: 'Voltar', aoClicar: () => fecharModal() },
+    { texto: nova ? 'Adicionar' : 'Salvar', classe: 'primario', aoClicar: (fundo) => {
+      const c = lerCampos(fundo);
+      const valor = numeroBR(c.valor);
+      if (!(valor > 0) || !c.venc) { toast('Vencimento e valor do boleto são obrigatórios', 'ruim'); return; }
+      const editada = {
+        ...pp, venc: c.venc, valor,
+        valorDia: c.valorDia !== '' ? numeroBR(c.valorDia) : Math.round(valor * 0.8 * 100) / 100,
+        pago: c.pago || null,
+        pagoValor: c.pago ? (c.pagoValor !== '' ? numeroBR(c.pagoValor) : null) : null,
+        obs: String(c.obs || '').slice(0, 200),
+        trava: true, conferir: false,
+      };
+      const virouPaga = !!editada.pago && !(idx >= 0 && ps[idx] && ps[idx].pago);
+      if (c.mover) {
+        // muda de venda: sai daqui, entra lá (com a trava junto)
+        const destino = achar('venda', c.mover);
+        if (destino) {
+          const psl = ps.slice(); psl.splice(idx, 1);
+          salvar('venda', { id: v.id, parcelas: psl });
+          const psD = (Array.isArray(destino.parcelas) ? destino.parcelas.slice() : []);
+          psD.push(editada);
+          psD.sort((x, y) => String(x.venc || '').localeCompare(String(y.venc || '')));
+          salvar('venda', { id: destino.id, parcelas: psD });
+          fecharSilencioso(fundo);
+          toast('Parcela movida para ' + (destino.codigo || 'a outra venda'));
+          TELAS.venda(v.id);
+          return;
+        }
+      }
+      if (nova) ps.push(editada); else ps[idx] = editada;
+      ps.sort((x, y) => String(x.venc || '').localeCompare(String(y.venc || '')));
+      salvar('venda', { id: v.id, parcelas: ps });
+      // baixa manual em parcela SEM boleto: o dinheiro entra no caixa por rec
+      if (virouPaga && !editada.tid && editada.pagoValor > 0) {
+        salvar('rec', { vendaId: v.id, tipo: 'parcela', parcelaN: null,
+          valor: editada.pagoValor, data: editada.pago, forma: 'PIX',
+          obs: 'baixa manual de parcela ✍️' });
+      }
+      fecharSilencioso(fundo);
+      toast(nova ? 'Parcela adicionada 🔒' : 'Parcela salva 🔒');
+      TELAS.venda(v.id);
+    } },
+  ];
+  if (!nova) acoes.push({ texto: 'Remover', classe: 'perigo', aoClicar: async (fundo) => {
+    if (!(await confirmar('Remover esta parcela do carnê? (acordo/erro — fica no histórico da venda)', { perigo: true, ok: 'Remover' }))) return;
+    const psl = ps.slice(); psl.splice(idx, 1);
+    salvar('venda', { id: v.id, parcelas: psl,
+      historico: [{ em: new Date().toISOString(), por: S.quem || '—',
+        acao: 'removeu a parcela venc ' + (pp.venc || '?') + ' de ' + fmt.brl(pp.valor) + (pp.tid ? ' (boleto ' + pp.tid + ')' : '') }] });
+    fecharSilencioso(fundo);
+    toast('Parcela removida');
+    TELAS.venda(v.id);
+  } });
+  abrirModal({ titulo: (nova ? '➕ Nova parcela' : '✏ Parcela ' + (idx + 1)) + ' — ' + (v.codigo || ''), corpo, acoes });
+}

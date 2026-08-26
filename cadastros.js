@@ -233,7 +233,7 @@ TELAS.corretores = function () {
     // de vendas (a venda é uma só — dupla contagem incharia o VGV).
     const comoSegundo = vendas.filter((v) => v.corretor2Id === cor.id && v.situacao !== 'distratada');
     const distratadas = vendas.filter((v) => v.corretorId === cor.id && v.situacao === 'distratada');
-    const vgv = suas.reduce((s, v) => s + CARNE.resumo(v, cfgReajuste(), []).total, 0);
+    const vgv = suas.reduce((s, v) => s + totalPlanoVenda(v), 0);
     const devido = suas.reduce((s, v) => s + (Number(v.comissao) || 0), 0) +
       comoSegundo.reduce((s, v) => s + (Number(v.comissao2) || 0), 0);
     const pago = pagoComissaoDoCorretor(cor.id, pagos);
