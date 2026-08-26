@@ -659,5 +659,40 @@ const PDF = (() => {
     salvarNoAparelho(doc.output('blob'), 'Cronograma-Bosques-' + new Date().toISOString().slice(0, 10) + '.pdf');
   }
 
-  return { proposta, recibo, venda, vendasDash, dre, espelho, relatorio, cronograma };
+  // ── Lançamentos: exatamente o recorte que está na tela ────────────────────
+  function lancamentos(rotulo, itens, cfg) {
+    const doc = novo();
+    cabecalho(doc, cfg, 'LANÇAMENTOS');
+    let y = 40;
+    doc.setTextColor(30, 43, 33);
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(12);
+    doc.text('Extrato — ' + rotulo, 14, y);
+    y += 5;
+    const somaE = itens.filter((x) => x.entrada).reduce((s2, x) => s2 + x.valor, 0);
+    const somaS = itens.filter((x) => !x.entrada).reduce((s2, x) => s2 + x.valor, 0);
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(9); doc.setTextColor(...CINZA);
+    doc.text(itens.length + ' lançamento(s) · entradas ' + brl(somaE) + ' · saídas ' + brl(somaS) +
+      ' · diferença ' + brl(somaE - somaS), 14, y);
+    y += 7;
+    const cols = [
+      { t: 'Data', x: 14 },
+      { t: 'Descrição', x: 34 },
+      { t: 'Categoria · forma', x: 110 },
+      { t: 'Valor', x: 196, alinha: 'right' },
+    ];
+    const linhas = itens.map((x) => [
+      x.data ? dataBR(x.data) : 's/ data',
+      String(x.descricao || '-').slice(0, 36),
+      (String(x.categoria || '')).slice(0, 26) + (x.forma ? ' · ' + x.forma : ''),
+      // '-' ASCII: o U+2212 vira lixo na Helvetica embutida do jsPDF
+      { t: (x.entrada ? '+' : '-') + brl(x.valor), cor: x.entrada ? [46, 125, 50] : [180, 60, 50] },
+    ]);
+    linhas.push(['', '', { t: 'TOTAL', negrito: true },
+      { t: brl(somaE - somaS), negrito: true }]);
+    tabelaPaginada(doc, cols, linhas, y, 'lançamentos · ' + rotulo);
+    rodape(doc, 'Associação Campestre Portal dos Bosques · lançamentos · ' + rotulo);
+    return doc.output('blob');
+  }
+
+  return { proposta, recibo, venda, vendasDash, dre, espelho, relatorio, cronograma, lancamentos };
 })();

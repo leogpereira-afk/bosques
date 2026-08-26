@@ -476,6 +476,10 @@ TELAS.lancamentos = function () {
   const meses = mesesComMovimento();
   const f = TELAS._fLanc || { q: '', tipo: '', cat: '', mes: mesDe(hojeISO()) };
   TELAS._fLanc = f;
+  // Outras telas mandam mes 'AAAA-MM' ou 'todos' — vira ano + chip de mês.
+  if (f.mes && /^\d{4}-\d{2}$/.test(f.mes)) { f.ano = f.mes.slice(0, 4); f.mes = f.mes.slice(5, 7); }
+  else if (f.mes === 'todos') { f.mes = ''; if (f.ano == null) f.ano = ''; }
+  if (f.ano == null) f.ano = String(new Date().getFullYear());
 
   // combina recebimentos de venda + lançamentos avulsos
   const tudo = [];
@@ -507,8 +511,11 @@ TELAS.lancamentos = function () {
 
   const cats = [...new Set(tudo.map((x) => x.categoria))].sort();
   const filtrados = tudo.filter((x) => {
-    if (f.mes && f.mes !== 'todos' && mesDe(x.data) !== f.mes) return false;
-    if (f.mes === 'sem-data' && x.data) return false;
+    if (f.mes === 'sem-data') { if (x.data) return false; }
+    else {
+      if (f.ano && mesDe(x.data).slice(0, 4) !== f.ano) return false;
+      if (f.mes && mesDe(x.data).slice(5, 7) !== f.mes) return false;
+    }
     if (f.tipo === 'entrada' && !x.entrada) return false;
     if (f.tipo === 'saida' && x.entrada) return false;
     if (f.cat && x.categoria !== f.cat) return false;
@@ -569,9 +576,9 @@ TELAS.lancamentos = function () {
     '</div>' +
     '<div class="filtros">' +
       '<input type="search" id="ln-q" placeholder="descrição, quem fez, forma…" value="' + esc(f.q) + '">' +
-      '<select id="ln-mes"><option value="todos"' + (f.mes === 'todos' ? ' selected' : '') + '>Todos os meses</option>' +
-        '<option value="sem-data"' + (f.mes === 'sem-data' ? ' selected' : '') + '>Sem data</option>' +
-        meses.slice().reverse().map((m) => '<option value="' + m + '"' + (f.mes === m ? ' selected' : '') + '>' + nomeMes(m) + '</option>').join('') + '</select>' +
+      '<select id="ln-ano"><option value=""' + (f.ano === '' ? ' selected' : '') + '>Todos os anos</option>' +
+        [...new Set(meses.map((m) => m.slice(0, 4)))].sort().reverse().map((a2) =>
+          '<option value="' + a2 + '"' + (f.ano === a2 ? ' selected' : '') + '>' + a2 + '</option>').join('') + '</select>' +
       '<select id="ln-tipo"><option value="">Entradas e saídas</option>' +
         '<option value="entrada"' + (f.tipo === 'entrada' ? ' selected' : '') + '>Só entradas</option>' +
         '<option value="saida"' + (f.tipo === 'saida' ? ' selected' : '') + '>Só saídas</option></select>' +
@@ -580,15 +587,37 @@ TELAS.lancamentos = function () {
       '<select id="ln-cc"><option value="">Todos os centros</option>' +
         ((S.cfg && S.cfg.centrosCusto) || []).map((c) => '<option value="' + esc(c) + '"' + (f.cc === c ? ' selected' : '') + '>' + esc(c) + '</option>').join('') +
         '<option value="__sem__"' + (f.cc === '__sem__' ? ' selected' : '') + '>— sem centro</option></select>' +
+      '<button class="btn mini" id="ln-pdf" title="baixa em PDF exatamente o recorte da tela">📄 PDF</button>' +
       '<button class="btn primario" id="ln-desp">− Despesa</button>' +
       '<button class="btn" id="ln-rece">+ Receita</button>' +
-    '</div>' + grade;
+    '</div>' +
+    '<div class="filtros"><div class="chips">' +
+      '<button class="chip' + (!f.mes ? ' on' : '') + '" data-lm="">Todos</button>' +
+      ['01','02','03','04','05','06','07','08','09','10','11','12'].map((m2, i2) =>
+        '<button class="chip' + (f.mes === m2 ? ' on' : '') + '" data-lm="' + m2 + '">' +
+        ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'][i2] + '</button>').join('') +
+      '<button class="chip' + (f.mes === 'sem-data' ? ' on' : '') + '" data-lm="sem-data">s/ data</button>' +
+    '</div></div>' + grade;
 
   app.querySelectorAll('.painel[data-pl]').forEach((el) => {
     el.onclick = () => { f.tipo = el.dataset.pl; TELAS.lancamentos(); };
   });
   document.getElementById('ln-q').oninput = (e) => { f.q = e.target.value; TELAS.lancamentos(); };
-  document.getElementById('ln-mes').onchange = (e) => { f.mes = e.target.value; TELAS.lancamentos(); };
+  document.getElementById('ln-ano').onchange = (e) => { f.ano = e.target.value; TELAS.lancamentos(); };
+  app.querySelectorAll('.chip[data-lm]').forEach((c) => {
+    c.onclick = () => { f.mes = f.mes === c.dataset.lm ? '' : c.dataset.lm; TELAS.lancamentos(); };
+  });
+  document.getElementById('ln-pdf').onclick = () => {
+    const rotulo = [
+      f.mes === 'sem-data' ? 'sem data' : f.mes ? ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'][Number(f.mes) - 1] : 'todos os meses',
+      f.ano || 'todos os anos',
+      f.tipo === 'entrada' ? 'só entradas' : f.tipo === 'saida' ? 'só saídas' : '',
+      f.cat, f.cc === '__sem__' ? 'sem centro' : f.cc, f.q,
+    ].filter(Boolean).join(' · ');
+    const blob = PDF.lancamentos(rotulo, filtrados, S.cfg || {});
+    salvarNoAparelho(blob, 'Lancamentos-Bosques-' + hojeISO() + '.pdf');
+    toast('PDF do recorte baixado');
+  };
   document.getElementById('ln-tipo').onchange = (e) => { f.tipo = e.target.value; TELAS.lancamentos(); };
   document.getElementById('ln-cat').onchange = (e) => { f.cat = e.target.value; TELAS.lancamentos(); };
   document.getElementById('ln-cc').onchange = (e) => { f.cc = e.target.value; TELAS.lancamentos(); };
