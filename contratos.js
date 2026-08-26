@@ -208,7 +208,15 @@ function gerarContratoPdf(v, cliente, l, cfg, plano) {
       // as faixas de parcela com o valor do boleto e o valor pagando em dia.
       if (nParc > 0) {
         const reajCfg = (cfg && cfg.reajuste) || { pct: 6, aCada: 12 };
-        const linhasQP = [['Entrada', '', brl(entradaV)]];
+        // vencimento da parcela N: mesmo dia, N-1 meses após a primeira
+        const vencDe = (nPar) => {
+          if (!ini) return '';
+          const d0 = new Date(ini + 'T12:00:00');
+          const dt = new Date(d0.getFullYear(), d0.getMonth() + (nPar - 1), 1);
+          const dia0 = Math.min(d0.getDate(), new Date(dt.getFullYear(), dt.getMonth() + 1, 0).getDate());
+          return String(dia0).padStart(2, '0') + '/' + String(dt.getMonth() + 1).padStart(2, '0') + '/' + dt.getFullYear();
+        };
+        const linhasQP = [['Entrada', '', '', brl(entradaV)]];
         let totCheio = entradaV, totDia = entradaV;
         const degraus = reajustada ? Math.ceil(nParc / (reajCfg.aCada || 12)) : 1;
         for (let dg = 0; dg < degraus; dg++) {
@@ -218,26 +226,30 @@ function gerarContratoPdf(v, cliente, l, cfg, plano) {
           const cheia = Math.round(emDia / 0.8 * 100) / 100;
           totDia += emDia * (fim2 - ini2 + 1);
           totCheio += cheia * (fim2 - ini2 + 1);
-          linhasQP.push(['Parcelas ' + ini2 + ' a ' + fim2, brl(cheia), brl(emDia)]);
+          linhasQP.push(['Parcelas ' + ini2 + ' a ' + fim2,
+            ini ? vencDe(ini2) + ' a ' + vencDe(fim2) : '', brl(cheia), brl(emDia)]);
         }
-        linhasQP.push(['TOTAL (entrada + parcelas)', brl(Math.round(totCheio * 100) / 100), brl(Math.round(totDia * 100) / 100)]);
+        if (ini) linhasQP.push(['Última parcela: ' + nParc + 'ª', vencDe(nParc), '', '']);
+        linhasQP.push(['TOTAL (entrada + parcelas)', '', brl(Math.round(totCheio * 100) / 100), brl(Math.round(totDia * 100) / 100)]);
         garante(12);
         doc.setFillColor(240, 246, 240);
         doc.rect(14, y - 4, 182, 6.5, 'F');
         doc.setFont('helvetica', 'bold'); doc.setFontSize(8);
         doc.text('PLANO DE PAGAMENTO', 16, y);
-        doc.text('VALOR DO BOLETO', 148, y, { align: 'right' });
-        doc.text('PAGANDO EM DIA (-20%)', 194, y, { align: 'right' });
+        doc.text('VENCIMENTOS', 96, y);
+        doc.text('BOLETO', 152, y, { align: 'right' });
+        doc.text('EM DIA (-20%)', 194, y, { align: 'right' });
         y += 6.5;
         doc.setFontSize(9);
-        for (const [rot2, cheia2, dia2] of linhasQP) {
+        for (const [rot2, venc2, cheia2, dia2] of linhasQP) {
           garante(6);
-          const totalLinha = rot2.indexOf('TOTAL') === 0;
+          const totalLinha = rot2.indexOf('TOTAL') === 0 || rot2.indexOf('Última') === 0;
           doc.setFont('helvetica', totalLinha ? 'bold' : 'normal');
           doc.text(rot2, 16, y);
-          if (cheia2) doc.text(String(cheia2), 148, y, { align: 'right' });
+          if (venc2) { doc.setFontSize(8); doc.text(String(venc2), 96, y); doc.setFontSize(9); }
+          if (cheia2) doc.text(String(cheia2), 152, y, { align: 'right' });
           doc.setFont('helvetica', 'bold');
-          doc.text(String(dia2), 194, y, { align: 'right' });
+          if (dia2) doc.text(String(dia2), 194, y, { align: 'right' });
           doc.setFont('helvetica', 'normal');
           doc.setDrawColor(225, 234, 226);
           doc.line(14, y + 1.6, 196, y + 1.6);
