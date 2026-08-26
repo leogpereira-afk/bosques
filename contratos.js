@@ -46,21 +46,34 @@ function extensoBRL(v) {
 const MESES_EXT = ['janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho',
   'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro'];
 
+/* ── a logomarca entra no cabeçalho de toda página do contrato ────────────── */
+let LOGO_CONTRATO = null;
+try {
+  fetch('icons/logo-pdf.png').then((r) => r.blob()).then((bl) => {
+    const fr = new FileReader();
+    fr.onload = () => { LOGO_CONTRATO = fr.result; };
+    fr.readAsDataURL(bl);
+  }).catch(() => {});
+} catch (e) { /* offline no primeiro uso: cabeçalho sai sem logo */ }
+
 /* ── o PDF do contrato ────────────────────────────────────────────────────── */
-function gerarContratoPdf(v, cliente, l, cfg) {
+function gerarContratoPdf(v, cliente, l, cfg, plano) {
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF({ unit: 'mm', format: 'a4' });
-  const reajustada = v.tipoParcela === 'Reajustada';
-  const nParc = Number(v.qtdeParcelas) || 0;
-  const parcDesc = Number(v.valorParcela) || 0;
-  const parcCheia = Math.round(parcDesc / 0.8 * 100) / 100;
-  const entradaV = Number(v.entrada) || 0;
+  // O PLANO vem corrigido do modal (a venda é o prefill; o que o dono digitar
+  // ali é o que vale no papel).
+  plano = plano || {};
+  const reajustada = (plano.tipoParcela || v.tipoParcela) === 'Reajustada';
+  const nParc = plano.qtdeParcelas != null ? plano.qtdeParcelas : (Number(v.qtdeParcelas) || 0);
+  const parcDesc = plano.valorParcela != null ? plano.valorParcela : (Number(v.valorParcela) || 0);
+  const parcCheia = plano.parcCheia != null ? plano.parcCheia : Math.round(parcDesc / 0.8 * 100) / 100;
+  const entradaV = plano.entrada != null ? plano.entrada : (Number(v.entrada) || 0);
   const restante = Math.round(parcCheia * nParc * 100) / 100;
   const importancia = Math.round((entradaV + restante) * 100) / 100;
   const cota = (Number(v.quadra) || 0) * 1000 + (Number(v.lote) || 0);
   const area = (l && l.areaM2) ? Number(l.areaM2) : null;
-  const ini = String(v.inicioParcelas || '');
-  const diaVenc = ini ? Number(ini.slice(8, 10)) : null;
+  const ini = String(plano.inicioParcelas != null ? plano.inicioParcelas : (v.inicioParcelas || ''));
+  const diaVenc = plano.diaVenc || (ini ? Number(ini.slice(8, 10)) : null);
   const mesIni = ini ? MESES_EXT[Number(ini.slice(5, 7)) - 1] : 'XX';
   const anoIni = ini ? ini.slice(0, 4) : '20XX';
   const hoje = new Date();
@@ -81,7 +94,8 @@ function gerarContratoPdf(v, cliente, l, cfg) {
 
   const pagamento = nParc > 0
     ? 'a) Uma entrada no valor de ' + dinheiroExt(entradaV) + ' que será paga ' +
-      (v.entradaDetalhe ? '(' + v.entradaDetalhe + ') ' : (v.formaEntrada ? 'via ' + v.formaEntrada + ' ' : '')) +
+      (plano.entradaDetalhe ? '(' + plano.entradaDetalhe + ') '
+        : v.entradaDetalhe ? '(' + v.entradaDetalhe + ') ' : (v.formaEntrada ? 'via ' + v.formaEntrada + ' ' : '')) +
       'para a conta da PROMITENTE VENDEDORA. O valor restante de ' + dinheiroExt(restante) +
       ' será parcelado em boletos bancários, emitidos pela promitente vendedora ou empresa de cobrança ' +
       'indicada pela mesma. Serão ' + nParc + ' (' + extensoNum(nParc) + ') parcelas com vencimento mensal ' +
@@ -155,9 +169,27 @@ function gerarContratoPdf(v, cliente, l, cfg) {
     ['P', 'Montes Claros, ' + hoje.getDate() + ' de ' + MESES_EXT[hoje.getMonth()] + ' de ' + hoje.getFullYear() + '.'],
   ];
 
-  // ── diagramação ──────────────────────────────────────────────────────────
-  let y = 20;
-  const garante = (mm) => { if (y + mm > 282) { doc.addPage(); y = 20; } };
+  // ── diagramação: o layout da casa em toda página ─────────────────────────
+  const VERDE = [14, 83, 43], VERDE_CLARO = [139, 195, 74], CINZA = [95, 122, 102];
+  let pagina = 0;
+  const cabecalhoCasa = () => {
+    pagina += 1;
+    doc.setFillColor(...VERDE); doc.rect(0, 0, 210, 30, 'F');
+    doc.setFillColor(...VERDE_CLARO); doc.rect(0, 30, 210, 1.6, 'F');
+    if (LOGO_CONTRATO) { try { doc.addImage(LOGO_CONTRATO, 'PNG', 9, 2, 49.5, 26); } catch (e) {} }
+    doc.setTextColor(255, 255, 255); doc.setFont('helvetica', 'bold'); doc.setFontSize(12);
+    doc.text('CONTRATO ' + (v.codigo || ''), 196, 14, { align: 'right' });
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5); doc.setTextColor(197, 225, 165);
+    doc.text('Clube Portal dos Bosques · Montes Claros/MG', 196, 20, { align: 'right' });
+    doc.setFontSize(8); doc.setTextColor(...CINZA);
+    doc.text('Termo de reserva · ' + (v.codigo || '') + ' · página ' + pagina, 105, 288, { align: 'center' });
+    doc.setFontSize(7);
+    doc.text('developed by Léo Gonçalves', 105, 292.5, { align: 'center' });
+    doc.setTextColor(30, 43, 33);
+  };
+  cabecalhoCasa();
+  let y = 40;
+  const garante = (mm) => { if (y + mm > 280) { doc.addPage(); cabecalhoCasa(); y = 40; } };
   for (const bloco of blocos) {
     const [tipo] = bloco;
     if (tipo === 'T') {
@@ -239,14 +271,11 @@ function abrirGerarContrato(vendaId) {
   const v = achar('venda', vendaId);
   if (!v) return;
   const cli = achar('cliente', v.clienteId) || {};
+  const iniPrefill = v.inicioParcelas ||
+    (() => { const d = new Date(); return new Date(d.getFullYear(), d.getMonth() + 1, 10).toISOString().slice(0, 10); })();
   const corpo =
-    (!v.inicioParcelas && (v.qtdeParcelas > 0)
-      ? '<p class="nota" style="color:var(--ruim)">⚠ Esta venda está SEM a data de início das parcelas — o dia e o mês do vencimento sairão como "XX" no contrato. Complete a venda antes, se quiser o texto pronto.</p>'
-      : '') +
-    '<p class="nota">O plano vem da venda (' + esc(v.tipoParcela || '') +
-    (v.qtdeParcelas ? ' · entrada ' + fmt.brl(v.entrada) + ' + ' + v.qtdeParcelas + '× de ' + fmt.brl(v.valorParcela) +
-      ' — no contrato: ' + fmt.brl((Number(v.valorParcela) || 0) / 0.8) + ' cheia / ' + fmt.brl(v.valorParcela) + ' em dia' : '') +
-    '). Complete o que faltar do comprador — fica salvo no cadastro dele.</p>' +
+    '<p class="nota">Complete o que faltar do comprador — fica salvo no cadastro dele. ' +
+    'Os VALORES e as DATAS do plano podem ser corrigidos aqui: o que você acertar vale no contrato e volta para a venda.</p>' +
     '<div class="colunas-3">' +
       campo('Nome completo', entrada('nome', cli.nome || v.clienteNome || '')) +
       campo('CPF', entrada('cpf', cli.cpf || '')) +
@@ -261,29 +290,62 @@ function abrirGerarContrato(vendaId) {
       campo('Bairro', entrada('bairro', cli.bairro || '')) +
       campo('Cidade', entrada('cidade', cli.cidade || 'Montes Claros')) +
       campo('CEP', entrada('cep', cli.cep || '')) +
-    '</div>';
+    '</div>' +
+    '<h3 style="margin:10px 0 4px">Plano de pagamento <span class="nota">— corrija aqui, se precisar</span></h3>' +
+    '<div class="colunas-3">' +
+      campo('Entrada (R$)', entrada('entrada', v.entrada != null ? v.entrada : '', { inputmode: 'decimal' })) +
+      campo('Nº de parcelas', entrada('qtdeParcelas', v.qtdeParcelas != null ? v.qtdeParcelas : 150, { inputmode: 'numeric' })) +
+      '<div class="campo"><label>Tipo de parcela</label><select data-campo="tipoParcela">' +
+        ['Fixa', 'Reajustada'].map((t) => '<option' + ((v.tipoParcela || 'Fixa') === t ? ' selected' : '') + '>' + t + '</option>').join('') +
+      '</select><div class="dica">decide o modelo: FIXO ou REAJUSTE 6%</div></div>' +
+    '</div><div class="colunas-3">' +
+      campo('Parcela pagando em dia (R$)', entrada('valorParcela', v.valorParcela != null ? v.valorParcela : '', { inputmode: 'decimal' }),
+        'a cheia calcula sozinha (÷0,8)') +
+      campo('Parcela cheia do boleto (R$)', entrada('parcCheia',
+        v.valorParcela ? (Math.round(Number(v.valorParcela) / 0.8 * 100) / 100).toFixed(2) : '', { inputmode: 'decimal' }),
+        'mexeu aqui, vale o que digitar') +
+      campo('1ª parcela vence em', entrada('inicioParcelas', iniPrefill, { tipo: 'date' }),
+        'o dia desta data vale para todo mês') +
+    '</div>' +
+      campo('Condição da entrada (sai no contrato)', entrada('entradaDetalhe', v.entradaDetalhe || '',
+        { placeholder: 'ex.: via PIX em 26/08/2026 · ou: cartão 4x de R$ 1.650,00' })) +
+    '<p class="nota" id="ct-detalhe" style="font-weight:600"></p>';
+
   abrirModal({
-    titulo: '📜 Contrato — ' + (v.codigo || '') + ' · modelo ' + (v.tipoParcela === 'Reajustada' ? 'REAJUSTE 6%' : 'FIXO'),
+    titulo: '📜 Contrato — ' + (v.codigo || ''),
     corpo,
     acoes: [
       { texto: 'Voltar', aoClicar: () => fecharModal() },
       { texto: 'Gerar contrato (PDF)', classe: 'primario', aoClicar: async (fundo) => {
         const c = lerCampos(fundo);
         if (!c.nome || !c.cpf) { toast('Nome e CPF são obrigatórios no contrato', 'ruim'); return; }
-        // o que se completou aqui VOLTA para o cadastro — da próxima vez já vem
+        const plano = {
+          entrada: numeroBR(c.entrada),
+          qtdeParcelas: Math.max(0, Math.round(numeroBR(c.qtdeParcelas))),
+          valorParcela: numeroBR(c.valorParcela),
+          parcCheia: c.parcCheia !== '' ? numeroBR(c.parcCheia) : Math.round(numeroBR(c.valorParcela) / 0.8 * 100) / 100,
+          tipoParcela: c.tipoParcela,
+          inicioParcelas: c.inicioParcelas || '',
+          diaVenc: c.inicioParcelas ? Number(c.inicioParcelas.slice(8, 10)) : null,
+          entradaDetalhe: String(c.entradaDetalhe || '').slice(0, 160),
+        };
+        // a correção VOLTA para a venda — contrato e sistema contam a mesma história
+        salvar('venda', { id: v.id, entrada: plano.entrada, qtdeParcelas: plano.qtdeParcelas,
+          valorParcela: plano.valorParcela, tipoParcela: plano.tipoParcela,
+          inicioParcelas: plano.inicioParcelas, entradaDetalhe: plano.entradaDetalhe,
+          historico: [{ em: new Date().toISOString(), por: S.quem || '—', acao: 'plano corrigido ao gerar o contrato' }] });
         if (cli.id) {
           salvar('cliente', { id: cli.id, nome: c.nome, cpf: c.cpf, rg: c.rg, profissao: c.profissao,
             nacionalidade: c.nacionalidade, email: c.email, endereco: c.endereco,
             bairro: c.bairro, cidade: c.cidade, cep: c.cep });
         }
         const l = achar('lote', v.loteId);
-        const blob = gerarContratoPdf(v, c, l, S.cfg || {});
+        const blob = gerarContratoPdf({ ...v, codigo: v.codigo }, c, l, S.cfg || {}, plano);
         const nomeArq = 'Contrato-Bosques-' + (v.codigo || 'Q' + v.quadra + 'L' + v.lote) + '-' +
           (c.nome || '').split(' ')[0] + '.pdf';
         salvarNoAparelho(blob, nomeArq);
         fecharSilencioso(fundo);
         toast('Contrato gerado — baixando e anexando à venda…');
-        // anexa à ficha da venda (o contrato mora junto da venda)
         try {
           const meta = await enviarArquivo(new File([blob], nomeArq, { type: 'application/pdf' }));
           salvar('venda', { id: v.id, anexos: [{ id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
@@ -293,4 +355,37 @@ function abrirGerarContrato(vendaId) {
       } },
     ],
   });
+
+  // ── o DETALHE VIVO das datas e valores: recalcula a cada tecla ────────────
+  const fundo = document.querySelector('[data-campo="entrada"]').closest('.modal, body');
+  const pega = (nome) => document.querySelector('[data-campo="' + nome + '"]');
+  const detalhe = () => {
+    const el = document.getElementById('ct-detalhe');
+    if (!el) return;
+    const n = Math.max(0, Math.round(numeroBR(pega('qtdeParcelas').value)));
+    const emDia = numeroBR(pega('valorParcela').value);
+    const cheiaCampo = pega('parcCheia');
+    if (!cheiaCampo.dataset.mexido && emDia > 0) cheiaCampo.value = (Math.round(emDia / 0.8 * 100) / 100).toFixed(2);
+    const cheia = numeroBR(cheiaCampo.value);
+    const ini = pega('inicioParcelas').value;
+    const ent = numeroBR(pega('entrada').value);
+    let datas = '';
+    if (ini && n > 0) {
+      const d0 = new Date(ini + 'T12:00:00');
+      const dFim = new Date(d0.getFullYear(), d0.getMonth() + (n - 1), Math.min(d0.getDate(), 28));
+      datas = '1ª: ' + fmt.data(ini) + ' · última (' + n + 'ª): ' +
+        String(d0.getDate()).padStart(2, '0') + '/' + String(dFim.getMonth() + 1).padStart(2, '0') + '/' + dFim.getFullYear() +
+        ' · todo dia ' + d0.getDate();
+    }
+    el.textContent = (datas ? '📅 ' + datas + '  ·  ' : '') +
+      (cheia > 0 ? '💵 boleto ' + fmt.brl(cheia) + ' / em dia ' + fmt.brl(emDia) : '') +
+      (n > 0 && cheia > 0 ? '  ·  total do contrato ' + fmt.brl(Math.round((ent + cheia * n) * 100) / 100) : '');
+  };
+  ['entrada', 'qtdeParcelas', 'valorParcela', 'parcCheia', 'inicioParcelas'].forEach((nome) => {
+    const el = pega(nome);
+    if (el) el.addEventListener('input', detalhe);
+  });
+  const cc = pega('parcCheia');
+  if (cc) cc.addEventListener('keydown', () => { cc.dataset.mexido = '1'; });
+  detalhe();
 }
