@@ -132,7 +132,8 @@ TELAS.vendas = function () {
 
   // VGV = o valor geral de vendas (soma dos contratos que estão de pé).
   const naoDistratadas = linhas.filter(({ v }) => v.situacao !== 'distratada');
-  const vgv = naoDistratadas.reduce((s, x) => s + x.r.total, 0);
+  // MESMA RÉGUA do Espelho e dos Relatórios: o plano pagando em dia.
+  const vgv = naoDistratadas.reduce((s, x) => s + totalPlanoVenda(x.v), 0);
 
   // Uma linha de venda — a mesma peça nos dois modos (dentro do mês e na busca).
   const linhaVenda = ({ v, r }) => {
@@ -189,7 +190,8 @@ TELAS.vendas = function () {
       '<div class="painel"><div class="rot">Contratos vivos</div><div class="num">' + vendasVivas().length + '</div></div>' +
       '<div class="painel clicavel" id="pn-atraso"><div class="rot">Em atraso</div><div class="num' + (emAtraso.length ? ' neg' : ' pos') + '">' + emAtraso.length + '</div>' +
         '<div class="sub">' + fmt.brl(totalAtraso) + ' vencidos</div></div>' +
-      '<div class="painel"><div class="rot">Recebido no mês</div><div class="num pos">' + fmt.brl(recebidoMes) + '</div></div>' +
+      '<div class="painel"><div class="rot">Recebido de vendas · ' + nomeMes(mesStr) + '</div><div class="num pos">' + fmt.brl(recebidoMes) + '</div>' +
+        '<div class="sub">só parcelas e entradas; o Caixa soma tudo</div></div>' +
       '<div class="painel"><div class="rot">Quitadas</div><div class="num">' + todas.filter((v) => v.situacao === 'quitada').length + '</div></div>' +
     '</div>' +
     '<div class="filtros">' +

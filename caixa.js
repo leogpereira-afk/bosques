@@ -575,10 +575,20 @@ function aReceberPorMes() {
   for (const v of vendasVivas()) {
     const r = resumoVenda(v);
     for (const l of r.carne) {
+      // Parcela PAGA está encerrada — quitar com o desconto de pontualidade
+      // não deixa "falta"; contar a diferença criava vencido fantasma.
+      if (l.situacao === 'paga') continue;
       const falta = Math.round((l.valor - Math.min(l.pago, l.valor)) * 100) / 100;
       if (falta <= 0.004) continue;
       total += falta; parcelas++;
-      if (l.venc && l.venc < hoje) { vencido += falta; continue; }
+      if (l.venc && l.venc < hoje) {
+        // VENCIDO é só o que a régua marca 'atrasada' (parcela do espelho do
+        // Omie sem pagamento). Parcela derivada do plano com data passada em
+        // venda SEM boletos não é dívida provada — fica fora da conta toda.
+        if (l.situacao === 'atrasada') { vencido += falta; }
+        else { total -= falta; parcelas--; }
+        continue;
+      }
       const m = mesDe(l.venc);
       if (/^\d{4}-\d{2}$/.test(m)) porMes[m] = (porMes[m] || 0) + falta;
     }

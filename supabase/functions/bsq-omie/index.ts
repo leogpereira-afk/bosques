@@ -399,7 +399,9 @@ Deno.serve(async (req) => {
               if (corretorId) registro.corretorId = corretorId;
               gravar.push({ colecao: "cx", id, registro });
               cxPorId.set(id, registro);
-              saidasDia.add(chaveDia);
+              // NÃO entra no dedupe: título do Omie nunca duplica outro título
+              // (tids distintos) — o dedupe é só contra lançamento manual, e
+              // marcá-lo aqui pulava despesas gêmeas legítimas do mesmo dia.
               soma("cxNovos");
             }
           }

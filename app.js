@@ -163,10 +163,10 @@ TELAS.home = function () {
 
   app.innerHTML =
     '<div class="paineis">' +
-      '<div class="painel clicavel" data-vai="caixa"><div class="rot">Recebido em ' + nomeMes(mes) + '</div>' +
+      '<div class="painel clicavel" data-vai="caixa"><div class="rot">Entradas · ' + nomeMes(mes) + '</div>' +
         '<div class="num pos">' + fmt.brl(t.entradas) + '</div></div>' +
-      '<div class="painel clicavel" data-vai="caixa"><div class="rot">Saídas</div><div class="num">' + fmt.brl(t.saidas) + '</div></div>' +
-      '<div class="painel clicavel" data-vai="caixa"><div class="rot">Resultado</div>' +
+      '<div class="painel clicavel" data-vai="caixa"><div class="rot">Saídas · ' + nomeMes(mes) + '</div><div class="num">' + fmt.brl(t.saidas) + '</div></div>' +
+      '<div class="painel clicavel" data-vai="caixa"><div class="rot">Resultado do mês</div>' +
         '<div class="num ' + (t.resultado >= 0 ? 'pos' : 'neg') + '">' + fmt.brl(t.resultado) + '</div></div>' +
       '<div class="painel clicavel" data-vai="vendas"><div class="rot">Em atraso</div>' +
         '<div class="num' + (comAtraso.length ? ' neg' : ' pos') + '">' + fmt.brl(totalAtraso) + '</div>' +
