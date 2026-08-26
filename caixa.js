@@ -687,7 +687,8 @@ TELAS.relatorios = function () {
         '<button class="chip' + (hz === v ? ' on' : '') + '" data-hz="' + v + '">' + t2 + '</button>').join('') +
     '</div><button class="btn mini" id="rel-pdf">📄 PDF do relatório</button></div>' +
     '<div class="paineis">' +
-      '<div class="painel clicavel" data-acao="vendas"><div class="rot">Lotes vendidos</div><div class="num">' + vendasDePe.length + '</div></div>' +
+      '<div class="painel clicavel" data-acao="vendas"><div class="rot">Lotes vendidos</div><div class="num">' + new Set(vendasDePe.map((v) => v.loteId)).size + '</div>' +
+        (vendasDePe.length !== new Set(vendasDePe.map((v) => v.loteId)).size ? '<div class="sub">' + vendasDePe.length + ' contratos (lote com 2 vendas em conferência)</div>' : '') + '</div>' +
       '<div class="painel clicavel" data-acao="vendas"><div class="rot">Valor total vendido (VGV)</div><div class="num pos">' + fmt.brl(vgv) + '</div></div>' +
       '<div class="painel clicavel" data-acao="recebido"><div class="rot">Já recebido</div><div class="num pos">' + fmt.brl(ac.entradas) + '</div></div>' +
       '<div class="painel clicavel" data-acao="gasto"><div class="rot">Já gasto</div><div class="num neg">' + fmt.brl(ac.saidas) + '</div></div>' +
@@ -789,7 +790,7 @@ TELAS.relatorios = function () {
   });
   document.getElementById('rel-pdf').onclick = () => {
     PDF.relatorio({
-      rotuloHz, hz, vendidos: vendasDePe.length, vgv,
+      rotuloHz, hz, vendidos: new Set(vendasDePe.map((v) => v.loteId)).size, vgv,
       recebido: ac.entradas, gasto: ac.saidas,
       aReceber: aReceberHz, vencido: ar.vencido, previsto: previstoHz, grupos,
       aging: aging.map((f) => ({ rotulo: f.rotulo, rs: f.rs, parcelas: f.parcelas, contratos: f.contratos.size })),
