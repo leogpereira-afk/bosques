@@ -133,6 +133,10 @@ function vincularRecsOmie(aoTerminar) {
   if (!soltos.length) { toast('Nenhum recebimento para vincular'); if (aoTerminar) aoTerminar(); return; }
   const vendas = lista('venda').filter((v) => v.situacao !== 'distratada');
   const rotulo = (v) => (v.codigo || '') + ' Q' + v.quadra + '-L' + v.lote + ' · ' + (v.clienteNome || '');
+  const nomeDoCpf = (cpf) => {
+    const c = cpf && achar('cliente', cpf);
+    return c ? (c.nome || '') : '';
+  };
   const corpo =
     '<p class="nota">Dinheiro que entrou por boleto mas cujo CPF não bate com nenhuma venda — ou bate ' +
       'com mais de uma. Escolha a venda certa; o carnê aplica na parcela mais antiga em aberto. ' +
@@ -142,12 +146,20 @@ function vincularRecsOmie(aoTerminar) {
       const doCpf = cpf ? vendas.filter((v) => String(v.clienteId || '').replace(/\D/g, '') === cpf) : [];
       const opcoes = (doCpf.length ? doCpf : vendas).map((v) =>
         '<option value="' + esc(v.id) + '">' + esc(rotulo(v)) + '</option>').join('');
-      return '<div class="lin" style="cursor:default;flex-wrap:wrap"><div class="cresce"><b>' +
-        fmt.brl(r.valor) + ' · ' + fmt.data(r.data) + '</b>' +
-        '<span class="sub">' + esc(r.obs || '') + (cpf ? ' · CPF ' + esc(cpf) : '') +
-          (doCpf.length ? ' · ' + doCpf.length + ' venda(s) desse CPF' : ' · CPF sem venda no sistema') + '</span></div>' +
-        '<select class="vr-venda" data-id="' + esc(r.id) + '"><option value="">— escolher a venda —</option>' + opcoes + '</select>' +
-        '<button class="btn mini vr-ok" data-id="' + esc(r.id) + '">vincular</button></div>';
+      const nome = nomeDoCpf(cpf);
+      return '<div class="cartao" style="margin:8px 0;padding:10px 12px">' +
+        '<div style="display:flex;justify-content:space-between;gap:10px;align-items:baseline">' +
+          '<b style="font-size:1.05em">' + fmt.brl(r.valor) + '</b>' +
+          '<span class="nota">' + fmt.data(r.data) + (r.codigo ? ' · ' + esc(r.codigo) : '') + '</span></div>' +
+        '<div class="sub" style="margin:2px 0 8px">' +
+          (nome ? '<b>' + esc(nome) + '</b> · ' : '') + (cpf ? 'CPF ' + esc(cpf) : 'sem CPF') +
+          (doCpf.length ? ' · ' + doCpf.length + ' venda(s) desse CPF' : ' · <b>CPF sem venda no sistema</b>') +
+          (r.obs ? ' · ' + esc(r.obs) : '') + '</div>' +
+        '<div style="display:flex;gap:8px;align-items:center">' +
+          '<select class="vr-venda" data-id="' + esc(r.id) + '" style="flex:1;min-width:0">' +
+            '<option value="">— escolher a venda —</option>' + opcoes + '</select>' +
+          '<button class="btn mini vr-ok" data-id="' + esc(r.id) + '" style="flex-shrink:0">vincular</button>' +
+        '</div></div>';
     }).join('');
   abrirModal({
     titulo: '🔗 Recebimentos do Omie sem venda (' + soltos.length + ')',
