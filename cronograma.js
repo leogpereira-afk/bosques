@@ -245,7 +245,7 @@ function abrirVincularDespesas(etapaId) {
         if (!ids.length) { toast('Marque pelo menos uma', 'ruim'); return; }
         for (const cid of ids) {
           const c = achar('cx', cid);
-          salvar('cx', { id: cid, etapaId, historico: historiar(c, 'Vinculou à etapa "' + e.nome + '"') });
+          salvar('cx', { id: cid, etapaId, editadoAMao: true, historico: historiar(c, 'Vinculou à etapa "' + e.nome + '"') });
         }
         fecharSilencioso(fundo);
         toast(ids.length + ' despesa(s) vinculada(s)');

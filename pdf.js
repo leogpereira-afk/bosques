@@ -247,6 +247,10 @@ const PDF = (() => {
         y = 18;
         cabecalhoTabela();
       }
+      if (linha.fundo) {
+        doc.setFillColor(linha.fundo[0], linha.fundo[1], linha.fundo[2]);
+        doc.rect(13, y - 3.6, 184, 5.2, 'F');
+      }
       for (let i = 0; i < cols.length; i++) {
         const cel = linha[i];
         const txt2 = (cel && typeof cel === 'object') ? cel.t : cel;
@@ -260,6 +264,42 @@ const PDF = (() => {
     }
     doc.setTextColor(30, 43, 33);
     return y;
+  }
+
+  // A simulação do Simulador, no papel: quadro completo, faixa a faixa.
+  function simulacao(d, cfg) {
+    const doc = novo();
+    cabecalho(doc, cfg, 'SIMULAÇÃO');
+    let y = 40;
+    doc.setTextColor(30, 43, 33);
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(12);
+    doc.text('Simulação de venda — ' + d.rotLote, 14, y);
+    y += 5;
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(9); doc.setTextColor(...CINZA);
+    doc.text('Lote ' + brl(d.preco) + (d.m2 ? ' (' + d.m2.toLocaleString('pt-BR') + ' m2 x R$ 40)' : '') +
+      ' · entrada ' + brl(d.entradaP) + ' · ' + d.nParc + ' parcelas ' +
+      (d.reajustada ? 'reajustadas' : 'fixas') + ' de ' + brl(d.parcDia) + ' em dia' +
+      (d.ini ? ' · 1a parcela ' + dataBR(d.ini) : ''), 14, y);
+    y += 7;
+    const cols = [
+      { t: 'Faixa', x: 14 },
+      { t: 'Vencimentos', x: 78 },
+      { t: 'Boleto (cheio)', x: 160, alinha: 'right' },
+      { t: 'Em dia (-20%)', x: 196, alinha: 'right' },
+    ];
+    const linhas = [['Entrada', d.ini ? 'no ato' : '', '', { t: brl(d.entradaP), cor: [46, 125, 50] }]];
+    for (const fx of d.faixas) {
+      linhas.push([fx.rot, fx.venc || '', brl(fx.cheia), { t: brl(fx.emDia), cor: [46, 125, 50] }]);
+    }
+    if (d.ultima) linhas.push(['Ultima parcela: ' + d.nParc + 'a', d.ultima, '', '']);
+    linhas.push([{ t: 'TOTAL (entrada + parcelas)', negrito: true }, '',
+      { t: brl(d.totCheio), negrito: true }, { t: brl(d.totDia), negrito: true }]);
+    y = tabelaPaginada(doc, cols, linhas, y, 'simulação de venda');
+    y += 4;
+    doc.setFontSize(8); doc.setTextColor(...CINZA);
+    doc.text('Pagando em dia = boleto com 20% de desconto. Simulação de tabela - sem valor contratual.', 14, Math.min(y, 280));
+    rodape(doc, 'Associação Campestre Portal dos Bosques · simulação de venda');
+    return doc.output('blob');
   }
 
   const corSituacao = {
@@ -673,20 +713,31 @@ const PDF = (() => {
     doc.setFont('helvetica', 'normal'); doc.setFontSize(9); doc.setTextColor(...CINZA);
     doc.text(itens.length + ' lançamento(s) · entradas ' + brl(somaE) + ' · saídas ' + brl(somaS) +
       ' · diferença ' + brl(somaE - somaS), 14, y);
-    y += 7;
+    y += 5;
+    const nPend = itens.filter((x) => x.pendente).length;
+    if (nPend) {
+      doc.setFillColor(255, 243, 196);
+      doc.rect(14, y - 3, 3.6, 3.6, 'F');
+      doc.text('linha amarela = sem vinculo (venda, corretor ou etapa) - ' + nPend + ' pendente(s)', 19.5, y);
+      y += 5;
+    } else { y += 2; }
     const cols = [
       { t: 'Data', x: 14 },
       { t: 'Descrição', x: 34 },
       { t: 'Categoria · forma', x: 110 },
       { t: 'Valor', x: 196, alinha: 'right' },
     ];
-    const linhas = itens.map((x) => [
-      x.data ? dataBR(x.data) : 's/ data',
-      String(x.descricao || '-').slice(0, 36),
-      (String(x.categoria || '')).slice(0, 26) + (x.forma ? ' · ' + x.forma : ''),
-      // '-' ASCII: o U+2212 vira lixo na Helvetica embutida do jsPDF
-      { t: (x.entrada ? '+' : '-') + brl(x.valor), cor: x.entrada ? [46, 125, 50] : [180, 60, 50] },
-    ]);
+    const linhas = itens.map((x) => {
+      const l = [
+        x.data ? dataBR(x.data) : 's/ data',
+        String(x.descricao || '-').slice(0, 36),
+        (String(x.categoria || '')).slice(0, 26) + (x.forma ? ' · ' + x.forma : ''),
+        // '-' ASCII: o U+2212 vira lixo na Helvetica embutida do jsPDF
+        { t: (x.entrada ? '+' : '-') + brl(x.valor), cor: x.entrada ? [46, 125, 50] : [180, 60, 50] },
+      ];
+      if (x.pendente) l.fundo = [255, 243, 196]; // amarelo = sem vínculo, igual à tela
+      return l;
+    });
     linhas.push(['', '', { t: 'TOTAL', negrito: true },
       { t: brl(somaE - somaS), negrito: true }]);
     tabelaPaginada(doc, cols, linhas, y, 'lançamentos · ' + rotulo);
@@ -694,5 +745,5 @@ const PDF = (() => {
     return doc.output('blob');
   }
 
-  return { proposta, recibo, venda, vendasDash, dre, espelho, relatorio, cronograma, lancamentos };
+  return { proposta, recibo, venda, vendasDash, dre, espelho, relatorio, cronograma, lancamentos, simulacao };
 })();

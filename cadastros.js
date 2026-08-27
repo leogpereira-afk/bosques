@@ -411,9 +411,9 @@ function abrirAssociarComissao(cxId) {
         }
         const nomes = partes.map((x) => (corretores.find((cor) => cor.id === x.corretorId) || {}).nome || '?');
         salvar('cx', partes.length === 1
-          ? { id: cxId, corretorId: partes[0].corretorId, rateio: null,
+          ? { id: cxId, corretorId: partes[0].corretorId, rateio: null, editadoAMao: true,
               historico: historiar(c, 'Comissão associada a ' + nomes[0]) }
-          : { id: cxId, corretorId: '', rateio: partes,
+          : { id: cxId, corretorId: '', rateio: partes, editadoAMao: true,
               historico: historiar(c, 'Comissão dividida: ' + partes.map((x, i2) => nomes[i2] + ' ' + fmt.brl(x.valor)).join(' + ')) });
         fecharSilencioso(fundo);
         toast(partes.length === 1 ? 'Associada a ' + nomes[0] : 'Dividida entre ' + nomes.join(' e '));

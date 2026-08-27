@@ -302,7 +302,7 @@ TELAS.caixa = function () {
       const c = achar('cx', b.dataset.id);
       if (!c) return;
       const d = await perguntarData('Quando foi "' + (c.descricao || '') + '" (' + fmt.brl(c.valor) + ')?');
-      if (d) { salvar('cx', { id: c.id, data: d }); TELAS.caixa(); }
+      if (d) { salvar('cx', { id: c.id, data: d, editadoAMao: true, historico: historiar(c, 'Editou: data → ' + d) }); TELAS.caixa(); }
     };
   });
   const bDre = document.getElementById('dre-pdf');
@@ -396,6 +396,7 @@ function abrirEdicaoLancamento(id, aoTerminar) {
           centroCusto: v.centroCusto != null ? v.centroCusto : (c.centroCusto || ''),
           descricao: desc, obs: String(v.obs || '').slice(0, 300),
           historico: historiar(c, 'Editou: ' + mud.join('; ')),
+          editadoAMao: true,
         });
         fecharSilencioso(fundo);
         toast('Lançamento atualizado');
@@ -493,7 +494,7 @@ TELAS.lancamentos = function () {
         (r.tipo === 'entrada' ? ' (entrada)' : r.parcelaN ? ' (parc. ' + r.parcelaN + ')' : ''),
       codigo: r.codigo || '', criadoPor: r.criadoPor || '—', criadoEm: r.criadoEm,
       atualizadoPor: r.atualizadoPor, vendaId: r.vendaId, obs: r.obs || '',
-      origem: r.origem || '', nHist: 0,
+      origem: r.origem || '', nHist: 0, edMao: r.editadoAMao === true,
     });
   }
   for (const c of cxVivos()) {
@@ -504,6 +505,8 @@ TELAS.lancamentos = function () {
       codigo: '', criadoPor: c.criadoPor || '—', criadoEm: c.criadoEm,
       atualizadoPor: c.atualizadoPor, obs: c.obs || '',
       origem: c.origem || '', nHist: (c.historico || []).length,
+      edMao: c.editadoAMao === true || (c.historico || []).some((h) =>
+        !/^(omie|importa|—|auditoria|limpeza|confer|espelho|ajuste|rotina|sistema)/i.test(h.por || '—')),
       corretorId: c.corretorId || '', temRateio: !!(c.rateio && c.rateio.length),
       etapaId: c.etapaId || '', centroCusto: c.centroCusto || '',
     });
@@ -536,19 +539,27 @@ TELAS.lancamentos = function () {
   const entradas2 = filtrados.filter((x) => x.entrada);
   const saidas2 = filtrados.filter((x) => !x.entrada);
 
-  const linhaExtrato = (x) =>
-    '<tr class="ln-row" data-col="' + x.col + '" data-id="' + esc(x.id) + '"' +
-      (x.col === 'rec' ? ' data-venda="' + esc(x.vendaId) + '"' : '') + ' style="cursor:pointer">' +
+  // editado à mão = carimbo gravado pelas telas de edição (rotinas automáticas não carimbam)
+  const editadoAMao = (x) => !!x.edMao;
+  // amarelo = falta VÍNCULO (o pedido do dono); os demais avisos ficam só no simbolo de atenção
+  const semVinculo = (x) => problemasDoLancamento(x).some((pr) => /sem venda|sem corretor|sem etapa/.test(pr));
+  const linhaExtrato = (x) => {
+    const pendente = semVinculo(x);
+    return '<tr class="ln-row' + (pendente ? ' pendente' : '') + '" data-col="' + x.col + '" data-id="' + esc(x.id) + '"' +
+      (x.col === 'rec' ? ' data-venda="' + esc(x.vendaId) + '"' : '') +
+      ' style="cursor:pointer">' +
     '<td style="white-space:nowrap;color:var(--tinta-fraca)">' + (x.data ? fmt.data(x.data).slice(0, 5) : '⚠ s/data') +
       (problemasDoLancamento(x).length ? ' <span title="' + esc(problemasDoLancamento(x).join(' · ')) + '" style="cursor:help">⚠</span>' : '') + '</td>' +
     '<td><b>' + esc(x.descricao) + '</b>' + (x.codigo ? ' <span class="nota">' + esc(x.codigo) + '</span>' : '') +
       '<br><span class="nota">' + esc(x.categoria) +
       (x.origem === 'omie' && x.criadoPor !== 'omie' ? ' · <b>omie</b>' : x.origem === 'planilha' ? ' · 📄 planilha' : '') +
       (x.forma ? ' · ' + esc(x.forma) : '') +
-      ' · ' + esc(x.criadoPor) + (x.nHist ? ' · ✏️' + x.nHist : '') +
+      ' · ' + esc(x.criadoPor) +
+      (editadoAMao(x) ? ' · <span style="color:#7b1fa2;font-weight:800" title="alterado à mão' + (x.nHist ? ' — ' + x.nHist + ' edição(ões)' : '') + '">✏️' + (x.nHist || '') + '</span>' : '') +
       (x.obs ? ' · ' + esc(x.obs) : '') + '</span></td>' +
     '<td class="num" style="font-weight:700;color:' + (x.entrada ? 'var(--verde)' : 'var(--ruim)') + '">' +
       (x.entrada ? '+' : '−') + fmt.brl(x.valor) + '</td></tr>';
+  };
 
   const coluna = (titulo, icone, itens, soma, corTot) =>
     '<div class="cartao" style="margin:0"><h2>' + icone + ' ' + titulo +
@@ -559,6 +570,9 @@ TELAS.lancamentos = function () {
         itens.map(linhaExtrato).join('') + '</tbody></table></div>'
       : '<p class="nota">Nada nesse recorte.</p>') + '</div>';
 
+  const legenda = '<p class="nota" style="margin:6px 2px">' +
+    '<span style="background:#fff7d6;border-radius:4px;padding:1px 8px">amarelo</span> sem vínculo (venda, corretor ou etapa) · ' +
+    '<span style="color:#7b1fa2;font-weight:800">✏️</span> alterado à mão</p>';
   const grade =
     f.tipo === 'entrada' ? coluna('Entradas', '↑', entradas2, somaE, 'var(--verde)')
     : f.tipo === 'saida' ? coluna('Saídas', '↓', saidas2, somaS, 'var(--ruim)')
@@ -587,6 +601,7 @@ TELAS.lancamentos = function () {
       '<select id="ln-cc"><option value="">Todos os centros</option>' +
         ((S.cfg && S.cfg.centrosCusto) || []).map((c) => '<option value="' + esc(c) + '"' + (f.cc === c ? ' selected' : '') + '>' + esc(c) + '</option>').join('') +
         '<option value="__sem__"' + (f.cc === '__sem__' ? ' selected' : '') + '>— sem centro</option></select>' +
+      '<button class="btn mini" id="ln-cc-add" title="cadastrar os centros de custo nas Configurações">+ centros</button>' +
       '<button class="btn mini" id="ln-pdf" title="baixa em PDF exatamente o recorte da tela">📄 PDF</button>' +
       '<button class="btn primario" id="ln-desp">− Despesa</button>' +
       '<button class="btn" id="ln-rece">+ Receita</button>' +
@@ -597,7 +612,7 @@ TELAS.lancamentos = function () {
         '<button class="chip' + (f.mes === m2 ? ' on' : '') + '" data-lm="' + m2 + '">' +
         ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'][i2] + '</button>').join('') +
       '<button class="chip' + (f.mes === 'sem-data' ? ' on' : '') + '" data-lm="sem-data">s/ data</button>' +
-    '</div></div>' + grade;
+    '</div></div>' + legenda + grade;
 
   app.querySelectorAll('.painel[data-pl]').forEach((el) => {
     el.onclick = () => { f.tipo = el.dataset.pl; TELAS.lancamentos(); };
@@ -609,15 +624,16 @@ TELAS.lancamentos = function () {
   });
   document.getElementById('ln-pdf').onclick = () => {
     const rotulo = [
-      f.mes === 'sem-data' ? 'sem data' : f.mes ? ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'][Number(f.mes) - 1] : 'todos os meses',
+      f.mes === 'sem-data' ? 'sem data' : f.mes ? ['janeiro','fevereiro','março','abril','maio','junho','julho','agosto','setembro','outubro','novembro','dezembro'][Number(f.mes) - 1] : 'todos os meses',
       f.ano || 'todos os anos',
       f.tipo === 'entrada' ? 'só entradas' : f.tipo === 'saida' ? 'só saídas' : '',
       f.cat, f.cc === '__sem__' ? 'sem centro' : f.cc, f.q,
     ].filter(Boolean).join(' · ');
-    const blob = PDF.lancamentos(rotulo, filtrados, S.cfg || {});
+    const blob = PDF.lancamentos(rotulo, filtrados.map((x) => Object.assign({}, x, { pendente: semVinculo(x) })), S.cfg || {});
     salvarNoAparelho(blob, 'Lancamentos-Bosques-' + hojeISO() + '.pdf');
     toast('PDF do recorte baixado');
   };
+  document.getElementById('ln-cc-add').onclick = () => { location.hash = '#/config'; };
   document.getElementById('ln-tipo').onchange = (e) => { f.tipo = e.target.value; TELAS.lancamentos(); };
   document.getElementById('ln-cat').onchange = (e) => { f.cat = e.target.value; TELAS.lancamentos(); };
   document.getElementById('ln-cc').onchange = (e) => { f.cc = e.target.value; TELAS.lancamentos(); };

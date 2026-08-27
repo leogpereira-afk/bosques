@@ -230,8 +230,9 @@ TELAS.config = function () {
     '</div><div class="colunas-3">' +
       campo('Entrada padrão (R$)', entrada('entradaPadrao', cfg.entradaPadrao || 3000, { inputmode: 'decimal' }), 'o simulador já abre com ela') +
     '</div>' +
-    campo('Centros de custo (um por linha)', areaTexto('centrosCustoTxt', (cfg.centrosCusto || []).join('\n'),
-      'ex.:\nPortaria\nRede de água\nRede de energia\nRuas\nAdministração\nComercial')) +
+    '<h2 style="margin-top:8px">🏷️ Centros de custo <span class="nota">— classificam as despesas; aparecem nos lançamentos e nos relatórios</span></h2>' +
+    campo('Um centro por linha', areaTexto('centrosCustoTxt', (cfg.centrosCusto || []).join('\n'),
+      'ex.:\nPortaria\nRede de água\nRede de energia\nRuas\nAdministração\nComercial'), 'depois de salvar, o campo "Centro de custo" aparece em toda despesa') +
     '<button class="btn primario" id="cf-salvar">Salvar configurações</button></div>' +
 
     '<div class="cartao"><h2>Acessos da equipe <span class="nota">— um por pessoa; o histórico diz quem fez</span></h2>' +

@@ -172,7 +172,7 @@ function vincularRecsOmie(aoTerminar) {
       if (!sel || !sel.value) { toast('Escolha a venda primeiro', 'ruim'); return; }
       const r = achar('rec', b.dataset.id);
       if (!r) return;
-      salvar('rec', Object.assign({}, r, { vendaId: sel.value, conferir: false }));
+      salvar('rec', Object.assign({}, r, { vendaId: sel.value, conferir: false, editadoAMao: true }));
       b.textContent = '✓'; b.disabled = true; sel.disabled = true;
       toast('Vinculado — o carnê aplica sozinho');
     };

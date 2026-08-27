@@ -1057,7 +1057,11 @@ function abrirEditarRec(v, recId) {
       { texto: 'Voltar', aoClicar: () => fecharModal() },
       { texto: 'Salvar', classe: 'primario', aoClicar: (fundo) => {
         const c = lerCampos(fundo);
-        salvar('rec', { id: rc.id, data: c.data, forma: c.forma, obs: String(c.obs || '').slice(0, 300) });
+        const obs2 = String(c.obs || '').slice(0, 300);
+        if (c.data === (rc.data || '') && c.forma === (rc.forma || 'PIX') && obs2 === (rc.obs || '')) {
+          fecharSilencioso(fundo); return;
+        }
+        salvar('rec', { id: rc.id, data: c.data, forma: c.forma, obs: obs2, editadoAMao: true });
         fecharSilencioso(fundo);
         toast('Recebimento salvo');
         TELAS.venda(v.id);
