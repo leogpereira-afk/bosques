@@ -541,10 +541,9 @@ TELAS.lancamentos = function () {
 
   // editado à mão = carimbo gravado pelas telas de edição (rotinas automáticas não carimbam)
   const editadoAMao = (x) => !!x.edMao;
-  // amarelo = falta VÍNCULO (o pedido do dono); os demais avisos ficam só no simbolo de atenção
-  const semVinculo = (x) => problemasDoLancamento(x).some((pr) => /sem venda|sem corretor|sem etapa/.test(pr));
+  // amarelo = a linha tem o simbolo de atenção (pedido do dono: "o com ! é pra ficar amarelo")
   const linhaExtrato = (x) => {
-    const pendente = semVinculo(x);
+    const pendente = problemasDoLancamento(x).length > 0;
     return '<tr class="ln-row' + (pendente ? ' pendente' : '') + '" data-col="' + x.col + '" data-id="' + esc(x.id) + '"' +
       (x.col === 'rec' ? ' data-venda="' + esc(x.vendaId) + '"' : '') +
       ' style="cursor:pointer">' +
@@ -571,7 +570,7 @@ TELAS.lancamentos = function () {
       : '<p class="nota">Nada nesse recorte.</p>') + '</div>';
 
   const legenda = '<p class="nota" style="margin:6px 2px">' +
-    '<span style="background:#fff7d6;border-radius:4px;padding:1px 8px">amarelo</span> sem vínculo (venda, corretor ou etapa) · ' +
+    '<span style="background:#fff7d6;border-radius:4px;padding:1px 8px">amarelo</span> com pendência ⚠ (sem vínculo, sem data, sem categoria ou sem centro) · ' +
     '<span style="color:#7b1fa2;font-weight:800">✏️</span> alterado à mão</p>';
   const grade =
     f.tipo === 'entrada' ? coluna('Entradas', '↑', entradas2, somaE, 'var(--verde)')
@@ -629,7 +628,7 @@ TELAS.lancamentos = function () {
       f.tipo === 'entrada' ? 'só entradas' : f.tipo === 'saida' ? 'só saídas' : '',
       f.cat, f.cc === '__sem__' ? 'sem centro' : f.cc, f.q,
     ].filter(Boolean).join(' · ');
-    const blob = PDF.lancamentos(rotulo, filtrados.map((x) => Object.assign({}, x, { pendente: semVinculo(x) })), S.cfg || {});
+    const blob = PDF.lancamentos(rotulo, filtrados.map((x) => Object.assign({}, x, { pendente: problemasDoLancamento(x).length > 0 })), S.cfg || {});
     salvarNoAparelho(blob, 'Lancamentos-Bosques-' + hojeISO() + '.pdf');
     toast('PDF do recorte baixado');
   };

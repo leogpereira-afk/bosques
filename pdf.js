@@ -718,7 +718,7 @@ const PDF = (() => {
     if (nPend) {
       doc.setFillColor(255, 243, 196);
       doc.rect(14, y - 3, 3.6, 3.6, 'F');
-      doc.text('linha amarela = sem vinculo (venda, corretor ou etapa) - ' + nPend + ' pendente(s)', 19.5, y);
+      doc.text('linha amarela = lancamento com pendencia - ' + nPend + ' pendente(s)', 19.5, y);
       y += 5;
     } else { y += 2; }
     const cols = [

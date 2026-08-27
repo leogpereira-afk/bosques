@@ -14,4 +14,4 @@ window.API_ARQ = window.API_BASE + '/bsq-acervo';
 window.API_OMIE = window.API_BASE + '/bsq-omie';
 window.P_URL = window.API_BASE + '/bsq-p'; // landing pública da proposta
 
-window.VERSAO = '44'; // suba a cada publicação, junto com o CACHE do sw.js
+window.VERSAO = '45'; // suba a cada publicação, junto com o CACHE do sw.js
