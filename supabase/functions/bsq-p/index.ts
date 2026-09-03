@@ -9,7 +9,7 @@
 // Cada abertura e cada clique ficam gravados NA PROPOSTA — é assim que o
 // sistema responde "quem mandou, quando, e o cliente viu?".
 // ============================================================================
-import { lerUm, gravarUm, baixarParte, agora, idNovo } from "../_shared/dados.ts";
+import { lerUm, gravarUm, baixarParte, agora, idNovo, lerCfgBruta, lerColecaoBruta } from "../_shared/dados.ts";
 
 const esc = (s: unknown) => String(s == null ? "" : s).replace(/[&<>"']/g, (c) =>
   ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c] as string));
@@ -26,7 +26,14 @@ const html = (code: number, body: string) => new Response(body, {
 });
 const json = (code: number, obj: unknown) => new Response(JSON.stringify(obj), {
   status: code,
-  headers: { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" },
+  headers: {
+    "content-type": "application/json; charset=utf-8",
+    "cache-control": "no-store",
+    /* A página do espelho mora no GitHub Pages, outra origem — sem isto o
+       navegador engole a resposta e a tela fica branca sem erro visível. */
+    "access-control-allow-origin": "*",
+    "access-control-allow-headers": "content-type",
+  },
 });
 
 const aviso = (code: number, msg: string) => html(code, `<!doctype html><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1"><title>Portal dos Bosques</title><body style="margin:0;font-family:-apple-system,Segoe UI,Arial,sans-serif;background:#0f2417;color:#eef5ef;min-height:100vh;display:flex;align-items:center;justify-content:center;text-align:center;padding:24px"><div><div style="color:#8bc34a;font-weight:800;font-size:22px;letter-spacing:.06em">PORTAL DOS BOSQUES</div><p style="margin-top:14px;color:#a9c0ad">${esc(msg)}</p></div></body>`);
@@ -100,6 +107,50 @@ async function anotarEvento(prop: any, tipo: string) {
   await gravarUm("prop", prop.id, prop);
 }
 
+
+// ============================================================================
+// O ESPELHO PÚBLICO — GET /bsq-p/espelho/<token>
+//
+// O corretor recebe um link, abre a tabela de lotes e imprime em PDF. Não
+// edita nada, e a garantia disso não é um botão escondido: é NÃO HAVER caminho
+// de escrita. Esta rota devolve SÓ DADO, de leitura — sem app, sem sessão, sem
+// token do painel. Um perfil "só leitura" dentro do painel teria de barrar cada
+// ação uma a uma, e bastaria eu esquecer uma.
+//
+// QUEM DESENHA É O GITHUB PAGES (espelho-publico.html), e não esta função: o
+// gateway do Supabase reescreve toda resposta text/html para text/plain e ainda
+// manda "content-security-policy: sandbox". Página servida daqui chega ao
+// corretor como código-fonte na tela. Medido em 03/09/2026 — e é o mesmo
+// motivo pelo qual a landing da PROPOSTA, logo abaixo, está quebrada hoje.
+//
+// O QUE FICA DE FORA, E POR QUÊ. Um link vai para o WhatsApp e é encaminhável;
+// tudo que entra aqui deve poder cair na mão de qualquer um:
+//
+//   · NOME DE QUEM RESERVOU — o espelho interno mostra o primeiro nome no lote
+//     reservado. Aqui o lote só diz "Reservado". Nome de cliente em link aberto
+//     é vazamento, não recurso.
+//   · VGV VENDIDO e a soma "em tabela para vender" — número da empresa, não do
+//     corretor. (O preço de cada lote disponível VAI, porque é a ferramenta de
+//     venda dele; a soma ele faria sozinho, mas quem publica não precisa.)
+//   · LOTES EM ATRASO — isso é comportamento de pagamento de compradores. Não
+//     é assunto de corretor nenhum.
+//   · Toda e qualquer coleção que não seja `lote`: venda, cliente, recebimento
+//     e caixa nem são lidos por esta rota.
+//
+// O TOKEN mora em cfg.espelhoToken e a direção troca quando quiser: trocar
+// derruba os links antigos de uma vez, que é o que se quer quando um corretor
+// sai da equipe.
+// ============================================================================
+
+// Comparação sem atalho: sai no mesmo tempo para token errado do mesmo tamanho.
+// Com 20 caracteres sorteados o ataque por tempo é teórico — mas são 4 linhas.
+function tokenBate(a: string, b: string): boolean {
+  if (!a || !b || a.length !== b.length) return false;
+  let dif = 0;
+  for (let i = 0; i < a.length; i++) dif |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  return dif === 0;
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { status: 204 });
   const url = new URL(req.url);
@@ -109,6 +160,38 @@ Deno.serve(async (req) => {
   const id = (iFn >= 0 ? partes[iFn + 1] : "") || url.searchParams.get("id") || "";
   const t = (iFn >= 0 ? partes[iFn + 2] : "") || url.searchParams.get("t") || "";
   if (!id || !t) return aviso(400, "Link inválido.");
+
+  /* O ESPELHO PÚBLICO entra ANTES da proposta: "espelho" ocupa o lugar do id.
+     Só GET — POST aqui não tem o que fazer, e recusar é mais claro que ignorar. */
+  if (id === "espelho") {
+    if (req.method !== "GET") return json(405, { erro: "Este link é só de leitura." });
+    const cfgE = await lerCfgBruta();
+    const esperado = String((cfgE && cfgE.espelhoToken) || "");
+    if (!esperado) return json(404, { erro: "O espelho público não está ligado." });
+    if (!tokenBate(esperado, t)) return json(403, { erro: "Link inválido ou já substituído." });
+    const linhas = await lerColecaoBruta("lote", "registro", false);
+    /* O RECORTE ACONTECE AQUI, NO SERVIDOR, e não na página que desenha.
+       Mandar o lote inteiro e esconder campo na tela seria a mesma coisa que
+       mandar tudo: quem abre o inspetor vê. Só estes cinco campos saem — e o
+       preço só do disponível, porque no vendido ele é a tabela de HOJE, não o
+       que aquele comprador pagou: número certo respondendo pergunta errada. */
+    const lotes = linhas.map((l: any) => l.registro).filter(Boolean).map((l: any) => {
+      const st = String(l.status || "Disponível");
+      return {
+        quadra: Number(l.quadra) || 0,
+        lote: String(l.lote ?? ""),
+        areaM2: Number(l.areaM2) || 0,
+        status: st === "Vendido" || st === "Reservado" ? st : "Disponível",
+        preco: st === "Disponível" ? (Number(l.preco) || 0) : null,
+      };
+    });
+    const emp = (cfgE && cfgE.empresa) || {};
+    return json(200, {
+      empresa: { nome: String(emp.nome || "Portal dos Bosques"), telefone: String(emp.telefone || "") },
+      lotes,
+      geradoEm: agora(),
+    });
+  }
 
   const prop = await lerUm("prop", id);
   if (!prop || prop.apagadoEm) return aviso(404, "Proposta não encontrada — o link pode ter sido removido.");
