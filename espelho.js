@@ -40,17 +40,32 @@ function resumoVenda(v) {
       rotulo: (i + 1) + 'ª' + (pp.tid ? '' : ' ✍️'),
     };
   });
-  const total = cent(carne.reduce((s2, l) => s2 + l.valor, 0));
-  const pago = cent(carne.reduce((s2, l) => s2 + l.pago, 0));
+  /* RÉGUA ÚNICA DA FICHA: Contrato − Pago = Saldo tem que fechar, tudo EM DIA.
+     Misturar boleto cheio (total/saldo) com dinheiro real (pago, normalmente
+     80%) fazia venda quitada em dia mostrar "pagou 80%" e a subtração nunca
+     bater. Cheio só aparece rotulado (coluna "Boleto" e "Em atraso"). */
+  const total = totalPlanoVenda(v); // entrada + parcelas em dia
+  const entradaRS = cent(Number(v.entrada) || 0);
+  const recsEntrada = recsDaVenda(v.id).filter((rc) => rc.tipo === 'entrada');
+  // Sem rec de entrada nenhum = entrada recebida no ato (regra da casa: sinal
+  // à vista; o Omie não emite boleto de entrada, então rec dela só nasce à mão).
+  // Com rec, vale o que foi registrado (entrada parcelada/parcial de verdade).
+  const entradaPaga = recsEntrada.length
+    ? cent(recsEntrada.reduce((s2, rc) => s2 + (Number(rc.valor) || 0), 0))
+    : entradaRS;
+  const pago = cent(carne.reduce((s2, l) => s2 + l.pago, 0) + Math.min(entradaPaga, entradaRS));
   const atrasadas = carne.filter((l) => l.situacao === 'atrasada');
+  // Atrasada deve o boleto CHEIO — o desconto de pontualidade já se perdeu.
   const emAtraso = cent(atrasadas.reduce((s2, l) => s2 + l.valor, 0));
   const proxima = carne.find((l) => ['aberta', 'hoje'].includes(l.situacao)) || null;
   const abertas = carne.filter((l) => !l.pagoEm);
   return {
     carne, total, pago, sobra: 0,
-    saldo: cent(abertas.reduce((s2, l) => s2 + l.valor, 0)),
+    // Saldo em dia: o que falta pagando em dia (abertas × valorDia + entrada em aberto).
+    saldo: cent(abertas.reduce((s2, l) => s2 + (l.valorDia != null ? l.valorDia : l.valor), 0) +
+      Math.max(0, entradaRS - entradaPaga)),
     qtdAtraso: atrasadas.length, emAtraso, proxima,
-    quitada: carne.length > 0 && abertas.length === 0,
+    quitada: carne.length > 0 && abertas.length === 0 && entradaPaga >= entradaRS - 0.01,
     espelhoOmie: true,
   };
 }
@@ -953,11 +968,14 @@ TELAS.simulador = function () {
   const entradaP = f.entradaV !== '' ? numeroBR(f.entradaV) : ((S.cfg && S.cfg.entradaPadrao) || 3000);
   const parc = (razao) => Math.round(preco * razao * 100) / 100;
   const nParc = f.nParc !== '' ? Math.max(1, Math.round(numeroBR(f.nParc))) : 150;
-  const linha = (rot, cheia, desc) =>
+  /* Total pelo MESMO motor do quadro completo (totalDoPlano → CARNE):
+     a Reajustada sobe +6% a cada 12 — multiplicar reto subestimava o plano
+     e a tabela contradizia o quadro logo abaixo na mesma tela. */
+  const linha = (rot, cheia, desc, tipoParc) =>
     '<tr><td><b>' + rot + '</b></td>' +
     '<td class="num">' + fmt.brl(cheia) + '</td>' +
     '<td class="num" style="font-weight:700;color:var(--verde)">' + fmt.brl(desc) + '</td>' +
-    '<td class="num">' + fmt.brl(entradaP + desc * nParc) + '</td></tr>';
+    '<td class="num">' + fmt.brl(totalDoPlano({ tipo: tipoParc, qtde: nParc, entrada: entradaP, valorParcela: desc }, cfgReajuste())) + '</td></tr>';
 
   app.innerHTML =
     '<div class="cartao"><h2>🏷️ Simulador <span class="nota">— a tabela oficial na mão; nada é gravado</span></h2>' +
@@ -981,8 +999,8 @@ TELAS.simulador = function () {
         '<div class="cartao"><h2>O plano, nas duas réguas</h2>' +
         '<div class="rolagem"><table class="tabela">' +
         '<thead><tr><th>Tipo</th><th class="num">Boleto (cheio)</th><th class="num">Pagando em dia (−20%)</th><th class="num">Total do plano em dia</th></tr></thead><tbody>' +
-        linha('Fixa', parc(RAZAO_PARC.parcFixa), parc(RAZAO_PARC.parcFixaDesc)) +
-        linha('Reajustada 6%', parc(RAZAO_PARC.parcReaj), parc(RAZAO_PARC.parcReajDesc)) +
+        linha('Fixa', parc(RAZAO_PARC.parcFixa), parc(RAZAO_PARC.parcFixaDesc), 'Fixa') +
+        linha('Reajustada 6%', parc(RAZAO_PARC.parcReaj), parc(RAZAO_PARC.parcReajDesc), 'Reajustada') +
         '</tbody></table></div>' +
         '<p class="nota">Reajustada: +6% a cada 12 parcelas sobre o valor da parcela — começa menor e sobe com o tempo. ' +
         'Simulação de tabela: não cria orçamento, não reserva e não fica registrada. ' +

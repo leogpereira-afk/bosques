@@ -191,6 +191,9 @@ async function saldoBancosOmie() {
     const r = await apiOmie('saldos');
     if (!r.ok) throw new Error(r.error || '');
     const novo = { quando: r.quando, contas: r.contas || [], bancario: r.bancario };
+    // Resposta parcial (alguma conta falhou no Omie): repassa a flag e NÃO
+    // grava no cache local — número incompleto não pode ficar 30 min na tela.
+    if (r.parcial) { novo.parcial = true; return novo; }
     localStorage.setItem(K_OMIE_SALDOS, JSON.stringify(novo));
     return novo;
   } catch (e) {

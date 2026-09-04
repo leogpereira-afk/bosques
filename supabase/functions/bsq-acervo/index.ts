@@ -10,10 +10,10 @@
 // ============================================================================
 import { json, preflight } from "../_shared/cors.ts";
 import { identificar, perfilDe, podeFazer } from "../_shared/acesso.ts";
-import { NOMES_COLECOES } from "../_shared/colecoes.ts";
+import { COLECOES, NOMES_COLECOES } from "../_shared/colecoes.ts";
 import { arquivosDoRegistro } from "../_shared/arquivos.ts";
 import {
-  agora, idNovo, lerUm, gravarUm, lerCfgBruta, lerTudo,
+  agora, idNovo, lerUm, gravarUm, lerCfgBruta, lerTudo, registrarLog,
   subirParte, baixarParte, apagarArquivo, apagarDeVez, lerColecaoBruta,
 } from "../_shared/dados.ts";
 
@@ -22,17 +22,29 @@ const META = "_arqmeta";
 // A senha aberta demais vira chave-mestra do acervo: a régua de LEITURA vale
 // por arquivo. Direção e escritório leem tudo (contratos são o trabalho
 // deles); o corretor só baixa o que é de proposta DELE.
-async function podeBaixar(eu: any, arquivoId: string): Promise<boolean> {
+async function podeBaixar(eu: any, arquivoId: string, meta: any): Promise<boolean> {
   const perfil = perfilDe(eu);
   if (perfil === "direcao" || perfil === "escritorio") return true;
   const registros = await lerTudo(null, NOMES_COLECOES);
+  // lerTudo vem SEM ordem garantida: decidir pelo primeiro registro que
+  // referencia o arquivo dava resultado instável (negava download legítimo ou
+  // soltava arquivo proibido, conforme a linha que viesse antes). Varre TODAS
+  // as referências e concede se ALGUMA for visível ao papel.
+  let dePropostaDele = false;
   for (const o of registros) {
     if (!arquivosDoRegistro(o).includes(arquivoId)) continue;
     if (o._col === "foto") return true;               // apresentação: material de venda
-    return o._col === "prop" && o.dono === eu.id;
+    if (o._col === "prop" && o.dono === eu.id) dePropostaDele = true;
   }
   // Arquivo órfão: ninguém abre por aqui (direção/escritório já saíram acima).
-  return false;
+  if (!dePropostaDele) return false;
+  // O anexo da proposta é gravável pelo PRÓPRIO corretor: a referência só vale
+  // para arquivo que ele mesmo subiu — senão anexar um arquivoId alheio à
+  // própria proposta abriria contrato/comprovante que o perfil proíbe.
+  if (meta && meta.criadoPorId) return meta.criadoPorId === eu.id;
+  // Arquivos antigos não têm o id do criador: compara o nome carimbado no
+  // envio (para acesso próprio o servidor força quem = eu.nome).
+  return !!(meta && meta.criadoPor && eu.proprio && eu.nome && meta.criadoPor === eu.nome);
 }
 
 const b64ParaBytes = (b64: string) => Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
@@ -58,8 +70,10 @@ Deno.serve(async (req) => {
   const eu = await identificar(cfg, h["x-senha"] || body.senha || "");
   if (!eu) return json({ error: "Senha inválida", semSenha: true }, 403);
 
-  // 'apagar' e 'uso' seguem a mesma régua do nucleo.
-  const ACAO_EQUIVALENTE: Record<string, string> = { apagar: "apagar", uso: "log" };
+  // 'uso' segue a régua do nucleo. 'apagar' AQUI é destruição definitiva no
+  // Storage (arquivo não tem lixeira) — régua de direção, a mesma do
+  // esvaziarLixeira; o 'apagar' comum do nucleo é lixeira restaurável.
+  const ACAO_EQUIVALENTE: Record<string, string> = { apagar: "esvaziarLixeira", uso: "log" };
   const equivalente = ACAO_EQUIVALENTE[body.action];
   if (equivalente && !podeFazer(eu, equivalente)) {
     return json({ error: "Seu acesso não permite isso. Fale com a direção.", semPermissao: true }, 403);
@@ -84,6 +98,9 @@ Deno.serve(async (req) => {
           recebidas: 0,
           criadoEm: agora(),
           criadoPor: quem,
+          // id manda, nome só exibe: a régua de download do corretor
+          // (podeBaixar) compara por este id, não pelo nome.
+          criadoPorId: (eu.proprio && eu.id) || "",
           pronto: false,
         };
         await gravarUm(META, id, meta);
@@ -127,7 +144,7 @@ Deno.serve(async (req) => {
       case "meta": {
         const meta = await lerUm(META, body.id);
         if (!meta) return json({ ok: false, error: "Arquivo não encontrado" }, 404);
-        if (!await podeBaixar(eu, body.id)) {
+        if (!await podeBaixar(eu, body.id, meta)) {
           return json({ error: "Seu acesso não permite este arquivo.", semPermissao: true }, 403);
         }
         return json({ ok: true, meta });
@@ -138,7 +155,7 @@ Deno.serve(async (req) => {
         if (!Number.isInteger(idx) || idx < 0) return json({ ok: false, error: "Índice de parte inválido" }, 400);
         const meta = await lerUm(META, body.id);
         if (!meta) return json({ ok: false, error: "Arquivo não encontrado" }, 404);
-        if (!await podeBaixar(eu, body.id)) {
+        if (!await podeBaixar(eu, body.id, meta)) {
           return json({ error: "Seu acesso não permite este arquivo.", semPermissao: true }, 403);
         }
         const bytes = await baixarParte(body.id + "/p" + idx);
@@ -149,10 +166,21 @@ Deno.serve(async (req) => {
       case "apagar": {
         const meta = await lerUm(META, body.id);
         if (!meta) return json({ ok: true });
+        // Não há lixeira de arquivo: apagar aqui é irreversível. Registro VIVO
+        // ainda apontando para o arquivo viraria download 404 — recusa; o
+        // caminho certo é apagar o registro (lixeira do nucleo cuida do resto).
+        const registros = await lerTudo(null, NOMES_COLECOES);
+        const vivo = registros.find((o: any) => !o.apagadoEm && arquivosDoRegistro(o).includes(body.id));
+        if (vivo) {
+          const nomeCol = (COLECOES[vivo._col] && COLECOES[vivo._col].nome) || vivo._col;
+          return json({ ok: false, emUso: true, error: "Arquivo em uso por registro vivo (" + nomeCol + ") — apague o registro primeiro." }, 409);
+        }
         const chaves: string[] = [];
         for (let i = 0; i < (meta.partes || 1); i++) chaves.push(body.id + "/p" + i);
         await apagarArquivo(chaves);
         await apagarDeVez(META, body.id);
+        // Destruição definitiva fica no histórico, como as ações do nucleo.
+        await registrarLog({ acao: "apagou arquivo do acervo", por: quem, id: body.id, nome: meta.nome, tamanho: meta.tamanho });
         return json({ ok: true });
       }
 

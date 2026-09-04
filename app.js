@@ -308,8 +308,8 @@ TELAS.config = function () {
       const pend = r.sync.pendencias || [];
       el.innerHTML = (horas < 26 ? '🟢' : '🔴') + ' Última sincronização ' + fmt.quando(r.sync.quando) +
         (r.sync.por && r.sync.por !== '—' ? ' por ' + esc(r.sync.por) : '') + ' — ' + resumoOmie(r.sync.contagens) + '.' +
-        (pend.length ? '<br>⚠ <b>' + pend.length + ' despesa(s) do Omie ficaram de fora por parecerem repetidas</b> ' +
-          '(mesmo valor no mesmo mês da planilha). As que forem reais, lance à mão no Caixa:<br>' +
+        (pend.length ? '<br>⚠ <b>' + pend.length + ' lançamento(s) do Omie ficaram de fora</b> ' +
+          '(parecem repetidos, ou foram apagados aqui de propósito). Confira um a um — o que for real, lance à mão (despesa no Caixa; recebimento pela ficha da venda):<br>' +
           pend.slice(0, 12).map((p) => '· ' + fmt.data(p.data) + ' — ' + fmt.brl(p.valor) + ' (' + esc(p.categoria || '') + ')').join('<br>') +
           (pend.length > 12 ? '<br>… e mais ' + (pend.length - 12) : '') : '');
     } catch (e) { el.textContent = '⚠ Não consegui falar com o Omie agora: ' + (e.message || 'sem resposta'); }

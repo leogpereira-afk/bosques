@@ -138,10 +138,14 @@ TELAS.caixa = function () {
   const ac = totaisAcumulados();
 
   // O que os carnês previam trazer neste mês (referência do painel).
+  // A verdade das parcelas é o ESPELHO (boletos reais, travas): resumoVenda
+  // lê o espelho e só cai no plano derivado quando a venda não tem — a mesma
+  // trilha da Previsibilidade logo abaixo, senão são duas réguas lado a lado.
   let projecao = 0;
   for (const v of vendasVivas()) {
-    for (const l of CARNE.gerarParcelas(v, cfgReajuste())) {
-      if (mesDe(l.venc) === mes) projecao += l.valor;
+    for (const l of resumoVenda(v).carne) {
+      // em dia: valorDia do espelho; sem espelho l.valor já é o em dia
+      if (mesDe(l.venc) === mes) projecao += (l.valorDia != null ? l.valorDia : l.valor);
     }
   }
 
@@ -280,7 +284,9 @@ TELAS.caixa = function () {
     document.getElementById('pn-banco-num').className = 'num ' + ((dados.bancario || 0) >= 0 ? 'pos' : 'neg');
     const bancarias = (dados.contas || []).filter((c) => c.tipo === 'CC' && !/inativ/i.test(c.nome) && c.saldo != null);
     document.getElementById('pn-banco-sub').textContent =
-      bancarias.map((c) => c.nome).join(' + ') + ' · conferido ' + fmt.quando(dados.quando);
+      bancarias.map((c) => c.nome).join(' + ') +
+      (dados.parcial ? ' · ⚠ parcial — alguma conta não respondeu, tente Sincronizar'
+        : ' · conferido ' + fmt.quando(dados.quando));
     pn.style.display = '';
     pn.onclick = () => abrirSaldosOmie(dados, ac.resultado);
   })();
@@ -665,17 +671,23 @@ function aReceberPorMes() {
       // Parcela PAGA está encerrada — quitar com o desconto de pontualidade
       // não deixa "falta"; contar a diferença criava vencido fantasma.
       if (l.situacao === 'paga') continue;
-      const falta = Math.round((l.valor - Math.min(l.pago, l.valor)) * 100) / 100;
-      if (falta <= 0.004) continue;
-      total += falta; parcelas++;
+      // A projeção usa SEMPRE o valor EM DIA (l.valorDia do espelho; sem
+      // espelho l.valor já É o em dia do plano) — é o que a nota da tela
+      // 'supõe as parcelas pagas em dia' promete. Cheio aqui inflava 25%.
+      const vlr = l.valorDia != null ? l.valorDia : l.valor;
+      const falta = Math.max(0, Math.round((vlr - l.pago) * 100) / 100);
       if (l.venc && l.venc < hoje) {
         // VENCIDO é só o que a régua marca 'atrasada' (parcela do espelho do
         // Omie sem pagamento). Parcela derivada do plano com data passada em
         // venda SEM boletos não é dívida provada — fica fora da conta toda.
-        if (l.situacao === 'atrasada') { vencido += falta; }
-        else { total -= falta; parcelas--; }
+        // Atrasada cobra o CHEIO (atrasou, perdeu o desconto) — outra régua,
+        // de propósito.
+        const faltaCheia = Math.round((l.valor - Math.min(l.pago, l.valor)) * 100) / 100;
+        if (l.situacao === 'atrasada' && faltaCheia > 0.004) { vencido += faltaCheia; total += faltaCheia; parcelas++; }
         continue;
       }
+      if (falta <= 0.004) continue;
+      total += falta; parcelas++;
       const m = mesDe(l.venc);
       if (/^\d{4}-\d{2}$/.test(m)) porMes[m] = (porMes[m] || 0) + falta;
     }
@@ -736,9 +748,19 @@ TELAS.relatorios = function () {
   // a receber e previstos DENTRO do horizonte
   const ar = aReceberPorMes();
   const mesesFuturos = Object.keys(ar.porMes).sort().filter((m) => m >= mesAtual);
-  const doHorizonte = mesesFuturos.filter((m) =>
-    hz === 'mes' ? m === mesAtual : hz === 'ano' ? m.startsWith(anoAtual) : true);
-  const aReceberHz = doHorizonte.reduce((s, m) => s + ar.porMes[m], 0);
+  // Os meses do horizonte vêm do CALENDÁRIO, não de quem tem parcela: mês sem
+  // vencimento também tem gasto previsto — derivar de porMes o descartava e o
+  // saldo projetado saía inflado.
+  const proxMes = (m) => {
+    const a = Number(m.slice(0, 4)), mm = Number(m.slice(5, 7));
+    return mm === 12 ? (a + 1) + '-01' : a + '-' + String(mm + 1).padStart(2, '0');
+  };
+  const fimHz = hz === 'mes' ? mesAtual
+    : hz === 'ano' ? anoAtual + '-12'
+    : (mesesFuturos.length ? mesesFuturos[mesesFuturos.length - 1] : mesAtual);
+  const doHorizonte = [];
+  for (let m = mesAtual; m <= fimHz && doHorizonte.length < 1200; m = proxMes(m)) doHorizonte.push(m);
+  const aReceberHz = doHorizonte.reduce((s, m) => s + (ar.porMes[m] || 0), 0);
   const previstoHz = doHorizonte.reduce((s, m) => s + previstoNoMes(m), 0);
   // Etapa com valor e SEM prazo não cai em mês nenhum — mostrar, senão some.
   const pagoEtapas = pagoPorEtapa();   // devolve o MAPA inteiro {etapaId: pago}
@@ -758,14 +780,14 @@ TELAS.relatorios = function () {
   let grupos;
   if (hz === 'total') {
     const porAno = {};
-    for (const m of mesesFuturos) {
+    for (const m of doHorizonte) {
       const a = m.slice(0, 4);
       const g = porAno[a] = porAno[a] || { rec: 0, prev: 0 };
-      g.rec += ar.porMes[m]; g.prev += previstoNoMes(m);
+      g.rec += ar.porMes[m] || 0; g.prev += previstoNoMes(m);
     }
     grupos = Object.keys(porAno).sort().map((a) => ({ rotulo: a, ...porAno[a] }));
   } else {
-    grupos = doHorizonte.map((m) => ({ rotulo: nomeMes(m), rec: ar.porMes[m], prev: previstoNoMes(m) }));
+    grupos = doHorizonte.map((m) => ({ rotulo: nomeMes(m), rec: ar.porMes[m] || 0, prev: previstoNoMes(m) }));
   }
 
   const previstos = lista('prev').sort((a, b) => String(a.data || a.inicio || '').localeCompare(b.data || b.inicio || ''));
@@ -820,8 +842,8 @@ TELAS.relatorios = function () {
             const aberto = hz === 'total' && TELAS._anoAbertoRel === g.rotulo;
             let sub = '';
             if (aberto) {
-              sub = mesesFuturos.filter((m) => m.startsWith(g.rotulo)).map((m) => {
-                const rec2 = ar.porMes[m], pv = previstoNoMes(m);
+              sub = doHorizonte.filter((m) => m.startsWith(g.rotulo)).map((m) => {
+                const rec2 = ar.porMes[m] || 0, pv = previstoNoMes(m);
                 return '<tr style="background:#f7faf7"><td style="padding-left:26px;color:var(--tinta-fraca)">' + nomeMes(m) + '</td>' +
                   '<td class="num">' + fmt.brl(rec2) + '</td><td class="num">' + (pv ? fmt.brl(pv) : '—') + '</td>' +
                   '<td class="num">' + fmt.brl(rec2 - pv) + '</td></tr>';

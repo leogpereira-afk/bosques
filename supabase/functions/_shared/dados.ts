@@ -71,8 +71,12 @@ export async function lerTudo(colecoes: string[] | null, todas: string[]): Promi
   // que vai crescer por anos.
   let de = 0;
   for (;;) {
+    // ORDER BY estável: sem ele o Postgres não garante a mesma ordem entre as
+    // páginas (requisições separadas) — linha mexida no meio some ou duplica.
     const { data, error } = await db.from("bsq_registros").select("colecao, registro")
-      .in("colecao", alvo).range(de, de + 999);
+      .in("colecao", alvo)
+      .order("colecao", { ascending: true }).order("id", { ascending: true })
+      .range(de, de + 999);
     if (error) throw new Error("lerTudo: " + error.message);
     for (const linha of (data || [])) saida.push({ ...linha.registro, _col: linha.colecao });
     if (!data || data.length < 1000) break;
@@ -97,7 +101,8 @@ export async function lerColecaoBruta(
   for (;;) {
     let q = db.from("bsq_registros").select(colunas).eq("colecao", colecao);
     if (filtroApagado !== undefined) q = q.eq("apagado", filtroApagado);
-    const { data, error } = await q.range(de, de + 999);
+    // ordem estável entre páginas (ver lerTudo)
+    const { data, error } = await q.order("id", { ascending: true }).range(de, de + 999);
     if (error) throw new Error("lerColecaoBruta(" + colecao + "): " + error.message);
     for (const l of (data || [])) saida.push(l);
     if (!data || data.length < 1000) break;
@@ -112,8 +117,11 @@ export async function lerApagados(): Promise<any[]> {
   const saida: any[] = [];
   let de = 0;
   for (;;) {
+    // ordem estável entre páginas (ver lerTudo)
     const { data, error } = await db.from("bsq_registros")
-      .select("colecao, id, registro").eq("apagado", true).range(de, de + 999);
+      .select("colecao, id, registro").eq("apagado", true)
+      .order("colecao", { ascending: true }).order("id", { ascending: true })
+      .range(de, de + 999);
     if (error) throw new Error("lerApagados: " + error.message);
     for (const l of (data || [])) saida.push(l);
     if (!data || data.length < 1000) break;

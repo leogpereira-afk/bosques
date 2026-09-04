@@ -50,6 +50,16 @@ async function omie(modulo: string, call: string, param: Record<string, unknown>
 const soDigitos = (s: unknown) => String(s || "").replace(/\D/g, "");
 const centavos = (v: unknown) => Math.round((Number(v) || 0) * 100);
 
+// O Deno das Edge Functions roda em UTC: das 21h à meia-noite no Brasil,
+// toISOString().slice(0,10) já devolve AMANHÃ. O dia que vale é o do Brasil (UTC-3).
+const diaBrasil = (dt: string | number | Date = Date.now()) =>
+  new Date(new Date(dt).getTime() - 3 * 3600e3).toISOString().slice(0, 10);
+
+// Tipo do título no Omie → nossa forma de pagamento. O MESMO mapa vale para
+// recebimento e despesa (senão PIX/dinheiro/cartão de saída viram "Transferência").
+const FORMA: Record<string, string> = { PIX: "PIX", BOL: "Boleto", CARNE: "Boleto",
+  DIN: "Dinheiro", CRC: "Cartão de Crédito", CRD: "Cartão de Débito", TRF: "Transferência" };
+
 // "21/08/2026" → "2026-08-21"; qualquer outra coisa → "".
 function brParaISO(d: unknown): string {
   const p = String(d || "").split("/");
@@ -179,7 +189,9 @@ Deno.serve(async (req) => {
         // daqui em diante. A direção pode recuar a data nas Configurações.
         let corte = cfg.omie?.corteEntradas || "";
         if (!corte) {
-          corte = agora().slice(0, 10);
+          // Dia do BRASIL, não o UTC do Deno: às 21h+ daqui o UTC já é amanhã,
+          // e um corte em "amanhã" descartaria as baixas do próprio dia para sempre.
+          corte = diaBrasil();
           await gravarCfg({ ...cfg, omie: { ...(cfg.omie || {}), corteEntradas: corte }, atualizadoEm: agora() });
           await marcarMudanca("cfg");
         }
@@ -208,15 +220,29 @@ Deno.serve(async (req) => {
         }
         const recPorId = new Map(recs.map((r: any) => [r.id, r]));
         const cxPorId = new Map(cxs.map((c: any) => [c.id, c]));
+        // Dedupe contra lançamento manual é por CONTAGEM, não por conjunto:
+        // cada linha manual "cobre" UM título do Omie. Dois títulos gêmeos
+        // (tids distintos, mesmo dia e valor) são legítimos — com Set, uma
+        // única baixa manual engolia os dois e um pagamento real sumia.
+        const conta = (m: Map<string, number>, k: string) => m.set(k, (m.get(k) || 0) + 1);
+        const consome = (m: Map<string, number>, k: string) => {
+          const n = m.get(k) || 0;
+          if (!n) return false;
+          m.set(k, n - 1);
+          return true;
+        };
         // Baixa manual já lançada: chave venda|valor|data.
-        const baixasManuais = new Set(recs.filter((r: any) => !r.apagadoEm && !String(r.id).startsWith("rbomie-"))
-          .map((r: any) => (r.vendaId || "") + "|" + centavos(r.valor) + "|" + String(r.data || "").slice(0, 10)));
+        const baixasManuais = new Map<string, number>();
+        for (const r of recs) {
+          if (r.apagadoEm || String(r.id).startsWith("rbomie-")) continue;
+          conta(baixasManuais, (r.vendaId || "") + "|" + centavos(r.valor) + "|" + String(r.data || "").slice(0, 10));
+        }
         // Saída já registrada (planilha ou à mão): dia+valor e mês+valor.
-        const saidasDia = new Set(); const saidasMes = new Set();
+        const saidasDia = new Map<string, number>(); const saidasMes = new Map<string, number>();
         for (const c of cxs) {
           if (c.apagadoEm || c.tipo !== "saida" || String(c.id).startsWith("cxomie-")) continue;
-          saidasDia.add(centavos(c.valor) + "|" + String(c.data || "").slice(0, 10));
-          saidasMes.add(centavos(c.valor) + "|" + String(c.data || "").slice(0, 7));
+          conta(saidasDia, centavos(c.valor) + "|" + String(c.data || "").slice(0, 10));
+          conta(saidasMes, centavos(c.valor) + "|" + String(c.data || "").slice(0, 7));
         }
         const corretorPorDoc = new Map<string, string>();
         for (const c of corretores) {
@@ -283,11 +309,32 @@ Deno.serve(async (req) => {
           if (!titulosPorVenda.has(vendaId)) titulosPorVenda.set(vendaId, []);
           titulosPorVenda.get(vendaId)!.push(item);
         };
+        // Onde cada tid JÁ mora entre as vendas do cliente (distratada conta;
+        // lixeira não): título conhecido atualiza a parcela onde ela está —
+        // nunca vira cópia noutra venda. Sem isso, tid % N muda de destino
+        // quando N muda (nova venda ou distrato) e a parcela duplica.
+        const tidDonoCache = new Map<string, Map<string, string>>();
+        const tidDono = (cpf: string) => {
+          let m = tidDonoCache.get(cpf);
+          if (!m) {
+            m = new Map<string, string>();
+            for (const vv of vendas) {
+              if (vv.apagadoEm || soDigitos(vv.clienteId) !== cpf) continue;
+              for (const pz of (vv.parcelas || [])) if (pz && pz.tid) m.set(String(pz.tid), vv.id);
+            }
+            tidDonoCache.set(cpf, m);
+          }
+          return m;
+        };
         const POR_CHAMADA = 15;
         let pagina = Number(body.pagina) || 1;
         let totPaginas = pagina;
         const fim = pagina + POR_CHAMADA;
         const pendNovas: any[] = [];
+        // O mesmo título pode aparecer mais de uma vez na listagem (baixa em
+        // partes). A ficha do dedupe é POR TÍTULO: a 2ª ocorrência do mesmo
+        // tid repete o pulo, em vez de gastar outra ficha (ou criar o rec).
+        const tidsCobertos = new Set<string>();
 
         while (pagina < fim) {
           const r = await omie("financas/mf", "ListarMovimentos",
@@ -304,13 +351,17 @@ Deno.serve(async (req) => {
                 const cpfT = soDigitos(d.cCPFCNPJCliente);
                 const minhasT = vendasPorCpf.get(cpfT) || [];
                 const cheio = Math.round((Number(d.nValorTitulo) || 0) * 100) / 100;
-                let vId = minhasT.length === 1 ? minhasT[0].id : casarVenda(minhasT, cheio, cfg);
+                // Tid que já mora numa venda: atualiza LÁ. O casamento por
+                // valor e o tid % N só valem para título ainda desconhecido.
+                let vId = tidDono(cpfT).get(String(d.nCodTitulo)) || "";
                 let conferirT = false;
+                if (!vId) vId = minhasT.length === 1 ? minhasT[0].id : casarVenda(minhasT, cheio, cfg);
                 if (!vId && minhasT.length) {
                   // Ambíguo (cliente com N vendas de parcela igual): distribui
-                  // por tid % N — estável para sempre (o tid não muda), e os
-                  // carnês gêmeos se dividem em vez de amontoar na mais
-                  // antiga. Fica marcado; a edição move se for o caso.
+                  // por tid % N. N é o nº de vendas vivas e MUDA (nova venda,
+                  // distrato) — por isso o tid conhecido é procurado antes,
+                  // acima; só título novo cai aqui. Fica marcado; a edição
+                  // move se for o caso.
                   const ordenadas = minhasT.slice().sort((x: any, y: any) =>
                     String(x.dataVenda || "").localeCompare(String(y.dataVenda || "")) ||
                     String(x.codigo || "").localeCompare(String(y.codigo || "")));
@@ -324,9 +375,16 @@ Deno.serve(async (req) => {
                     valorDia: Math.round(cheio * 0.8 * 100) / 100,
                     pago: recebido ? brParaISO(d.dDtPagamento) : null,
                     pagoValor: recebido ? (Number(res.nValPago) || cheio) : null,
+                    pagoOrigem: recebido ? "omie" : null,
                     ...(conferirT ? { conferir: true } : {}),
                   });
                 }
+              } else {
+                // Título CANCELADO no Omie (renegociação de carnê): a parcela
+                // espelhada não pode ficar viva para sempre — anota para o
+                // merge tirar do espelho (ou marcar, se for travada).
+                const dono = tidDono(soDigitos(d.cCPFCNPJCliente)).get(String(d.nCodTitulo));
+                if (dono) anotarTitulo(dono, { tid: d.nCodTitulo, cancelado: true });
               }
               const id = "rbomie-" + d.nCodTitulo;
               const existente = recPorId.get(id);
@@ -334,17 +392,30 @@ Deno.serve(async (req) => {
                 const dataPagto = brParaISO(d.dDtPagamento);
                 if (!dataPagto || dataPagto < corte) { soma("recAntesDoCorte"); continue; }
                 if (existente && !existente.apagadoEm) { soma("recJaEspelhado"); continue; }
+                const valor = Number(res.nValPago) || Number(d.nValorTitulo) || 0;
+                if (existente && existente.apagadoEm && existente.apagadoPor !== "omie") {
+                  // Uma PESSOA mandou este espelho para a lixeira (estorno
+                  // local = lixeira + relançar): a sync respeita e não
+                  // ressuscita. Só o que a própria sync apagou ("omie",
+                  // estorno lá) pode renascer num re-recebimento.
+                  if (centavos(existente.valor) !== centavos(valor)) {
+                    pendNovas.push({ titulo: d.nCodTitulo, valor, data: dataPagto,
+                      categoria: "recebimento apagado na lixeira aqui — o valor no Omie difere",
+                      categoriaOmie: "" });
+                  }
+                  soma("recNaLixeira"); continue;
+                }
                 const cpf = soDigitos(d.cCPFCNPJCliente);
                 const minhas = vendasPorCpf.get(cpf) || [];
-                const valor = Number(res.nValPago) || Number(d.nValorTitulo) || 0;
                 const vendaId = casarVenda(minhas, valor, cfg);
-                if (vendaId && baixasManuais.has(vendaId + "|" + centavos(valor) + "|" + dataPagto)) {
+                const tidRec = String(d.nCodTitulo);
+                if (vendaId && (tidsCobertos.has(tidRec) ||
+                    consome(baixasManuais, vendaId + "|" + centavos(valor) + "|" + dataPagto))) {
+                  tidsCobertos.add(tidRec);
                   soma("recBaixadoAMao"); continue;
                 }
                 const numero = await proximoNumero("rec");
-                // A forma REAL do pagamento vem do tipo do título no Omie.
-                const FORMA: Record<string, string> = { PIX: "PIX", BOL: "Boleto", CARNE: "Boleto",
-                  DIN: "Dinheiro", CRC: "Cartão de Crédito", CRD: "Cartão de Débito", TRF: "Transferência" };
+                // A forma REAL do pagamento vem do tipo do título no Omie (mapa lá em cima).
                 const registro: any = {
                   id, origem: "omie", numero, codigo: "RB-" + String(numero).padStart(4, "0"),
                   vendaId, tipo: "parcela", parcelaN: null, valor, data: dataPagto,
@@ -375,15 +446,33 @@ Deno.serve(async (req) => {
             /* despesa paga */
             if (grupo === "CONTA_A_PAGAR" && d.cStatus === "PAGO" && res.cLiquidado === "S") {
               const id = "cxomie-" + d.nCodTitulo;
-              if (cxPorId.get(id) && !cxPorId.get(id).apagadoEm) { soma("cxJaEspelhado"); continue; }
+              const jaCx = cxPorId.get(id);
+              if (jaCx && !jaCx.apagadoEm) { soma("cxJaEspelhado"); continue; }
               const valor = Number(res.nValPago) || Number(d.nValorTitulo) || 0;
               const dataPagto = brParaISO(d.dDtPagamento);
+              if (jaCx && jaCx.apagadoEm && jaCx.apagadoPor !== "omie") {
+                // Despesa que o dono excluiu de propósito não volta da lixeira.
+                if (centavos(jaCx.valor) !== centavos(valor)) {
+                  pendNovas.push({ titulo: d.nCodTitulo, valor, data: dataPagto,
+                    categoria: "despesa apagada na lixeira aqui — o valor no Omie difere",
+                    categoriaOmie: d.cCodCateg || "" });
+                }
+                soma("cxNaLixeira"); continue;
+              }
               const chaveDia = centavos(valor) + "|" + dataPagto;
               const chaveMes = centavos(valor) + "|" + dataPagto.slice(0, 7);
-              if (saidasDia.has(chaveDia)) { soma("cxJaNaPlanilha"); continue; }
+              const tidCx = String(d.nCodTitulo);
+              if (tidsCobertos.has(tidCx)) { soma("cxJaNaPlanilha"); continue; }
+              if (consome(saidasDia, chaveDia)) {
+                // A mesma linha manual alimentou os dois mapas: gasta os dois.
+                consome(saidasMes, chaveMes);
+                tidsCobertos.add(tidCx);
+                soma("cxJaNaPlanilha"); continue;
+              }
               const categoria = categoriaLocal(d.cCodCateg || "");
               const fornecedorCpf = soDigitos(d.cCPFCNPJCliente);
-              if (saidasMes.has(chaveMes)) {
+              if (consome(saidasMes, chaveMes)) {
+                tidsCobertos.add(tidCx);
                 // Mesmo valor no mesmo mês com outro dia: pode ser o mesmo gasto
                 // anotado noutra data OU um gasto irmão. Ninguém decide no escuro.
                 pendNovas.push({ titulo: d.nCodTitulo, valor, data: dataPagto, categoria,
@@ -393,7 +482,7 @@ Deno.serve(async (req) => {
               }
               const registro: any = {
                 id, origem: "omie", tipo: "saida", valor, data: dataPagto,
-                forma: d.cTipo === "BOL" ? "Boleto" : "Transferência",
+                forma: FORMA[d.cTipo] || "Transferência",
                 categoria, descricao: "despesa do Omie (" + (d.cCodCateg || "sem categoria") + ")",
                 omie: { titulo: d.nCodTitulo, categoria: d.cCodCateg || "" },
                 criadoEm: agora(), criadoPor: "omie",
@@ -414,39 +503,82 @@ Deno.serve(async (req) => {
 
         // aplica o espelho nas vendas tocadas nesta chamada (merge por tid;
         // trava do Léo vence em vencimento/valores; o PAGAMENTO real do banco
-        // sempre atualiza; parcela manual sem tid fica como está)
-        // tids TRAVADOS em qualquer venda (o Léo moveu/mexeu): a sync nunca
-        // recria em outra venda — o movimento manual é definitivo.
+        // sempre atualiza — inclusive o estorno; parcela manual sem tid fica)
+        // tids TRAVADOS em OUTRA venda (o Léo moveu a parcela): a sync nunca
+        // recria a parcela na venda errada, mas o fato do pagamento é
+        // REDIRECIONADO para onde a parcela mora (fila `redirecionados`).
         const vendasCache = new Map<string, any>();
         const lerVendaC = async (id2: string) => {
           if (!vendasCache.has(id2)) vendasCache.set(id2, await lerUm("venda", id2));
           return vendasCache.get(id2);
         };
-        const tidsTravadosDoCpf = async (cpf2: string, foraDe: string) => {
-          const set = new Set<number>();
+        const travadosDoCpf = async (cpf2: string, foraDe: string) => {
+          const m = new Map<string, string>();       // tid → venda onde a trava mora
           for (const vv of (vendasPorCpf.get(cpf2) || [])) {
             if (vv.id === foraDe) continue;
             const reg = await lerVendaC(vv.id);
-            for (const pz of (reg?.parcelas || [])) if (pz && pz.tid && pz.trava) set.add(pz.tid);
+            for (const pz of (reg?.parcelas || [])) if (pz && pz.tid && pz.trava) m.set(String(pz.tid), vv.id);
           }
-          return set;
+          return m;
+        };
+        const redirecionados: { vendaId: string; it: any }[] = [];
+        // Estorno em parcela travada: o dinheiro voltou no banco — o fato de
+        // pagamento se desfaz mesmo com trava, e a parcela pede conferência.
+        // Quem pagou a parcela: carimbo, ou dedução para as antigas sem ele
+        // (travada = mexida por gente; sem trava, quem pagava era o sync).
+        const origemDoPago = (p: any): string => p.pagoOrigem || (p.trava ? "manual" : "omie");
+        const aplicarPagoNaTravada = (p: any, it: any): boolean => {
+          if ((p.pago ?? null) === (it.pago ?? null) && (p.pagoValor ?? null) === (it.pagoValor ?? null)) return false;
+          if (p.pago && !it.pago) {
+            // Título em aberto no Omie mas parcela paga aqui: se a baixa foi
+            // MANUAL (dinheiro por fora do boleto), não é estorno — fica.
+            if (origemDoPago(p) !== "omie") return false;
+            p.conferir = true;   // estorno real: o dinheiro voltou no banco
+          }
+          p.pago = it.pago ?? null;
+          p.pagoValor = it.pagoValor ?? null;
+          p.pagoOrigem = it.pago ? "omie" : null;
+          return true;
+        };
+        const marcarCancelada = (p: any): void => {
+          p.conferir = true;
+          if (!String(p.obs || "").includes("cancelado no Omie")) {
+            p.obs = p.obs ? p.obs + " · cancelado no Omie" : "cancelado no Omie";
+          }
         };
         for (const [vId, itens] of titulosPorVenda) {
           const venda = await lerVendaC(vId);
           if (!venda || venda.apagadoEm) continue;
-          const travadosFora = await tidsTravadosDoCpf(soDigitos(venda.clienteId), vId);
-          const itensValidos = itens.filter((it) => !travadosFora.has(it.tid));
+          const travadosFora = await travadosDoCpf(soDigitos(venda.clienteId), vId);
+          const itensValidos: any[] = [];
+          for (const it of itens) {
+            const la = travadosFora.get(String(it.tid));
+            if (la) redirecionados.push({ vendaId: la, it });   // o pagamento segue a parcela
+            else itensValidos.push(it);
+          }
           const atuais: any[] = Array.isArray(venda.parcelas) ? venda.parcelas.filter(Boolean) : [];
-          const porTid = new Map(atuais.filter((x) => x.tid).map((x) => [x.tid, x]));
+          const porTid = new Map(atuais.filter((x) => x.tid).map((x) => [String(x.tid), x]));
           for (const it of itensValidos) {
-            const velho = porTid.get(it.tid);
+            const velho = porTid.get(String(it.tid));
+            if (it.cancelado) {
+              // Título CANCELADO no Omie: sai do espelho. Parcela travada não
+              // some sozinha — fica marcada para o humano decidir.
+              if (velho && velho.trava) marcarCancelada(velho);
+              else if (velho) porTid.delete(String(it.tid));
+              continue;
+            }
             if (velho && velho.trava) {
-              velho.pago = it.pago ?? velho.pago;
-              velho.pagoValor = it.pagoValor ?? velho.pagoValor;
+              aplicarPagoNaTravada(velho, it);
             } else if (velho) {
-              Object.assign(velho, it, { obs: velho.obs || "" });
+              if (velho.pago && !it.pago && origemDoPago(velho) !== "omie") {
+                // baixa manual em parcela sem trava: agenda atualiza, pago fica
+                const { pago: _p, pagoValor: _pv, pagoOrigem: _po, ...agenda } = it;
+                Object.assign(velho, agenda, { obs: velho.obs || "" });
+              } else {
+                Object.assign(velho, it, { obs: velho.obs || "" });
+              }
             } else {
-              porTid.set(it.tid, { ...it, origem: "omie" });
+              porTid.set(String(it.tid), { ...it, origem: "omie" });
             }
           }
           const manuais = atuais.filter((x) => !x.tid);
@@ -456,6 +588,24 @@ Deno.serve(async (req) => {
           venda.atualizadoEm = agora();
           await gravarUm("venda", vId, venda);
           soma("vendasEspelhadas");
+        }
+        // Entrega o pagamento (ou o cancelamento) à parcela travada que mora
+        // em OUTRA venda — a trava continua mandando em venc/valor.
+        for (const { vendaId, it } of redirecionados) {
+          const venda = await lerVendaC(vendaId);
+          if (!venda || venda.apagadoEm) continue;
+          const alvo = (venda.parcelas || []).find((pz: any) => pz && String(pz.tid) === String(it.tid) && pz.trava);
+          if (!alvo) continue;
+          let mudou = false;
+          if (it.cancelado) {
+            if (!String(alvo.obs || "").includes("cancelado no Omie")) { marcarCancelada(alvo); mudou = true; }
+          } else {
+            mudou = aplicarPagoNaTravada(alvo, it);
+          }
+          if (!mudou) continue;
+          venda.atualizadoEm = agora();
+          await gravarUm("venda", vendaId, venda);
+          soma("pagamentosEmParcelaMovida");
         }
         if (titulosPorVenda.size) await marcarMudanca("venda");
 
@@ -506,7 +656,7 @@ Deno.serve(async (req) => {
             Date.now() - new Date(meta.quando).getTime() < 30 * 60e3) {
           return json({ ok: true, ...meta, cache: true });
         }
-        const hojeBR = isoParaBR(agora().slice(0, 10));
+        const hojeBR = isoParaBR(diaBrasil());
         const r = await omie("geral/contacorrente", "ListarContasCorrentes",
           { pagina: 1, registros_por_pagina: 50 });
         const contas: any[] = [];
@@ -525,8 +675,13 @@ Deno.serve(async (req) => {
         const bancario = contas
           .filter((c) => c.tipo === "CC" && !/inativ/i.test(c.nome) && c.saldo != null)
           .reduce((soma, c) => soma + c.saldo, 0);
-        const novo = { quando: agora(), contas, bancario };
-        await gravarMeta("omie_saldos", novo);
+        // Alguma conta falhou (rate limit do Omie devolve 500): o total está
+        // incompleto — responde com a flag `parcial` e NÃO grava o cache de
+        // 30 min, senão o número errado fica pregado no painel do Caixa.
+        const parcial = contas.some((c) => c.saldo == null);
+        const novo: any = { quando: agora(), contas, bancario };
+        if (parcial) novo.parcial = true;
+        else await gravarMeta("omie_saldos", novo);
         return json({ ok: true, ...novo });
       }
 

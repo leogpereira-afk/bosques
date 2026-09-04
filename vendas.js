@@ -26,6 +26,23 @@ function pctRecebido(recebido, vgv) {
 
 const vendasVivas = () => lista('venda').filter((v) => ['ativa', 'conferir'].includes(v.situacao || 'ativa'));
 
+/* Redesenhar a tela no meio da digitação destrói o input focado: o foco cai
+   no body e a tecla seguinte se perde. Guarda foco+caret e devolve depois.
+   Sem debounce (resposta imediata); local deste arquivo de propósito —
+   cada tela tem o seu conserto. */
+function vdRenderComFoco(render) {
+  const at = document.activeElement;
+  const id = at && at.id;
+  let pos = null;
+  try { pos = at && at.selectionStart != null ? at.selectionStart : null; } catch (e) { /* tipo sem seleção */ }
+  render();
+  const de = id && document.getElementById(id);
+  if (de) {
+    de.focus();
+    try { if (pos != null && de.setSelectionRange) de.setSelectionRange(pos, pos); } catch (e) { /* idem */ }
+  }
+}
+
 /* resumoVenda mora no espelho.js: espelho do Omie manda; derivado é reserva. */
 
 
@@ -63,6 +80,14 @@ function ultimaCobranca(v) {
   const cs = (v.cobrancas || []).filter(Boolean).map((c) => String(c.em || ''));
   return cs.length ? cs.sort().pop() : '';
 }
+// O carimbo `em` é instante UTC (toISOString): cortar em slice(0,10) dava o
+// dia UTC, que das 21h à meia-noite em MG já é "amanhã" — o dia tem que ser
+// o LOCAL do instante para comparar com hojeISO().
+function diaLocalDe(iso) {
+  const d = new Date(iso);
+  if (isNaN(d)) return String(iso).slice(0, 10);
+  return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+}
 function botaoCobranca(v, r, mini) {
   const tel = telDaVenda(v);
   // O boleto do Omie não depende de telefone: a linha digitável se copia
@@ -73,7 +98,7 @@ function botaoCobranca(v, r, mini) {
   if (!tel || !['ativa', 'conferir'].includes(v.situacao || 'ativa')) return btBoleto;
   const rot = r.qtdAtraso > 0 ? (mini ? '📱 cobrar' : '📱 Cobrar no WhatsApp') : (mini ? '📱 lembrar' : '📱 Lembrete da próxima parcela');
   const ult = ultimaCobranca(v);
-  const cobradoHoje = ult && ult.slice(0, 10) === hojeISO();
+  const cobradoHoje = ult && diaLocalDe(ult) === hojeISO();
   return (cobradoHoje ? '<span class="etiqueta et-quitada" title="cobrança registrada hoje">✓ cobrado hoje</span> ' : '') +
     '<a class="btn ' + (mini ? 'mini ' : '') + 'whats bt-cobrar" data-venda="' + esc(v.id) + '" target="_blank" rel="noopener" ' +
     'href="' + esc(linkWhats(tel, msgCobranca(v, r))) + '">' + rot + '</a>' +
@@ -203,7 +228,9 @@ TELAS.vendas = function () {
     const chave = /^\d{4}-\d{2}$/.test(m) ? m : 'sem-data';
     const b = porMesVenda[chave] = porMesVenda[chave] || { n: 0, vgv: 0, itens: [] };
     b.itens.push(x);
-    if (x.v.situacao !== 'distratada') { b.n++; b.vgv += x.r.total; }
+    // MESMA RÉGUA do TOTAL logo abaixo e do painel VGV (valores em dia):
+    // r.total é o boleto cheio sem entrada e as linhas de mês não fechavam.
+    if (x.v.situacao !== 'distratada') { b.n++; b.vgv += totalPlanoVenda(x.v); }
   }
   const mesesVenda = Object.keys(porMesVenda).sort().reverse();   // o mais novo em cima
   const maiorVgvMes = Math.max(1, ...mesesVenda.map((m) => porMesVenda[m].vgv));
@@ -312,7 +339,7 @@ TELAS.vendas = function () {
       else TELAS._mesesVdAbertos.delete(d.dataset.mesvd);
     });
   });
-  document.getElementById('vd-q').oninput = (e) => { filtro.q = e.target.value; TELAS.vendas(); };
+  document.getElementById('vd-q').oninput = (e) => { filtro.q = e.target.value; vdRenderComFoco(TELAS.vendas); };
   document.getElementById('vd-sit').onchange = (e) => { filtro.sit = e.target.value; TELAS.vendas(); };
   document.getElementById('vd-atraso').onclick = () => { filtro.so = filtro.so === 'atraso' ? '' : 'atraso'; TELAS.vendas(); };
   const pn = document.getElementById('pn-atraso');
@@ -336,7 +363,7 @@ function abrirFilaCobranca() {
     const { v, r } = fila[i];
     const tel = telDaVenda(v);
     const ult = ultimaCobranca(v);
-    const cobradoHoje = ult && ult.slice(0, 10) === hojeISO();
+    const cobradoHoje = ult && diaLocalDe(ult) === hojeISO();
     fundo.querySelector('header h2').textContent = '📣 Cobrança em série — ' + (i + 1) + ' de ' + fila.length;
     fundo.querySelector('.corpo').innerHTML =
       '<div class="lin" style="cursor:default"><div class="cresce">' +
@@ -616,6 +643,35 @@ function abrirBaixa(v, r, parcelaN, faltaSugerida) {
           parcelaN: nAlvo && nAlvo > 0 ? nAlvo : null,
           valor, data: c.data, forma: c.forma, obs: String(c.obs || '').slice(0, 300),
         });
+        // Venda espelhada: o resumo IGNORA recs — sem marcar a parcela no
+        // espelho ela seguiria 'atrasada' e a cobrança cobraria quem já pagou.
+        // PAGAMENTO REAL sempre atualiza pago/pagoValor (regra do espelho).
+        const vAtual = achar('venda', v.id) || v;   // reler do store, não do render
+        const psE = Array.isArray(vAtual.parcelas) ? vAtual.parcelas : [];
+        if (psE.length) {
+          let iAb = -1;
+          if (nAlvo && nAlvo > 0) {
+            // amarrou numa parcela: ela manda (se ainda estiver em aberto)
+            if (psE[nAlvo - 1] && !psE[nAlvo - 1].pago) iAb = nAlvo - 1;
+          } else {
+            // senão, a mais antiga em aberto (menor venc sem pago)
+            for (let j = 0; j < psE.length; j++) {
+              if (!psE[j].pago && (iAb < 0 || String(psE[j].venc || '') < String(psE[iAb].venc || ''))) iAb = j;
+            }
+          }
+          // O espelho não tem 'parcial': valor menor que a parcela em dia NÃO
+          // marca a parcela paga (senão quem deve R$400 sai da cobrança).
+          const devido = iAb >= 0 ? (psE[iAb].valorDia != null ? Number(psE[iAb].valorDia) : Number(psE[iAb].valor) || 0) : 0;
+          if (iAb >= 0 && valor >= devido - 0.01) {
+            const ps2 = psE.slice();
+            ps2[iAb] = { ...ps2[iAb], pago: c.data, pagoValor: valor, trava: true, pagoOrigem: 'manual',
+              obs: String((ps2[iAb].obs ? ps2[iAb].obs + ' · ' : '') + 'baixa manual').slice(0, 200) };
+            salvar('venda', { id: v.id, parcelas: ps2 });
+          } else if (iAb >= 0) {
+            toast('Baixa PARCIAL: a parcela segue em aberto no carnê (faltam ' + fmt.brl(Math.max(0, devido - valor)) + ') — complete pela ficha quando quitar', 'aviso');
+          }
+          // sem parcela em aberto: fica só o rec (dinheiro entrou mesmo assim)
+        }
         fecharSilencioso(fundo);
         toast('Baixa lançada — ' + fmt.brl(valor));
         TELAS.venda(v.id);
@@ -839,6 +895,9 @@ function abrirFichaProposta(id) {
         salvar('prop', { id: p.id, situacao: 'aceita' });
         fecharSilencioso(fundo);
         abrirNovaVenda(lote, {
+          // id manda: a proposta JÁ cadastrou o cliente — sem clienteId a
+          // atendente redigitava o nome e nascia um cliente sósia
+          clienteId: p.clienteId || '',
           entrada: p.entrada, qtde: p.qtdeParcelas, valorParcela: p.valorParcela,
           tipo: p.tipoParcela === 'À vista' ? 'Avista' : (p.tipoParcela || 'Fixa'),
           corretorId: p.corretorId || '', comissao: p.comissao || '', formaPg: p.formaPg || 'PIX',
@@ -861,11 +920,13 @@ TELAS.simulacao = function () {
   const mediaPreco = disp.length ? Math.round(disp.reduce((s, l) => s + (Number(l.preco) || 0), 0) / disp.length) : 45000;
   const mediaParc = disp.length ? Math.round(disp.reduce((s, l) => s + (Number(l.parcFixa) || 0), 0) / disp.length * 100) / 100 : 450;
 
-  const f = TELAS._sim || {
+  // Chave PRÓPRIA: TELAS._sim é do simulador da ficha do lote (espelho.js) e
+  // tem outro formato — compartilhar contaminava o plano do lote e esta tela.
+  const f = TELAS._simVendas || {
     qtde: 5, preco: mediaPreco, entrada: (S.cfg && S.cfg.entradaPadrao) || 3000,
     parcelas: 150, parcela: mediaParc, porMes: 1, tipo: 'Fixa', horizonte: 12,
   };
-  TELAS._sim = f;
+  TELAS._simVendas = f;
 
   // ── o cenário ─────────────────────────────────────────────────────────────
   const n = Math.max(0, Math.round(numeroBR(f.qtde)));
@@ -977,7 +1038,7 @@ TELAS.simulacao = function () {
 function abrirEditarParcela(v, idx, opts = {}) {
   const ps = Array.isArray(v.parcelas) ? v.parcelas.slice() : [];
   const nova = idx < 0;
-  const pp = nova ? { venc: hojeISO(), valor: '', valorDia: '', pago: null, obs: '', origem: 'manual' } : { ...ps[idx] };
+  const pp = nova ? { tid: 'man-' + Date.now(), venc: hojeISO(), valor: '', valorDia: '', pago: null, obs: '', origem: 'manual' } : { ...ps[idx] };
   if (opts.baixa && !pp.pago) { pp.pago = hojeISO(); pp.pagoValor = pp.valorDia != null ? pp.valorDia : pp.valor; }
   const outras = lista('venda').filter((x) => x.id !== v.id && x.clienteId === v.clienteId &&
     ['ativa', 'conferir'].includes(x.situacao || 'ativa'));
@@ -990,7 +1051,8 @@ function abrirEditarParcela(v, idx, opts = {}) {
       campo('Em dia −20% (R$)', entrada('valorDia', pp.valorDia != null ? pp.valorDia : '', { inputmode: 'decimal' }), 'vazio = calcula 80%') +
     '</div><div class="colunas-3">' +
       campo('Pago em', entrada('pago', pp.pago || '', { tipo: 'date' }), 'vazio = em aberto') +
-      campo('Valor pago (R$)', entrada('pagoValor', pp.pagoValor != null ? pp.pagoValor : '', { inputmode: 'decimal' })) +
+      // pré-preenchido com o valor em dia: vazio marcava pago pelo CHEIO e sem rec
+      campo('Valor pago (R$)', entrada('pagoValor', pp.pagoValor != null ? pp.pagoValor : (pp.valorDia != null ? pp.valorDia : pp.valor), { inputmode: 'decimal' }), 'só vale com "Pago em"') +
       campo('Observação', entrada('obs', pp.obs || '')) +
     '</div>' +
     (outras.length && !nova
@@ -1003,25 +1065,44 @@ function abrirEditarParcela(v, idx, opts = {}) {
       const c = lerCampos(fundo);
       const valor = numeroBR(c.valor);
       if (!(valor > 0) || !c.venc) { toast('Vencimento e valor do boleto são obrigatórios', 'ruim'); return; }
+      const valorDia = c.valorDia !== '' ? numeroBR(c.valorDia) : Math.round(valor * 0.8 * 100) / 100;
+      // 'Valor pago' vazio marcava a parcela paga pelo CHEIO (fallback do
+      // resumo) e sem lançar rec: o padrão da baixa é o valor em dia.
+      const pagoValor = c.pago
+        ? (numeroBR(c.pagoValor) > 0 ? numeroBR(c.pagoValor) : (valorDia > 0 ? valorDia : valor))
+        : null;
       const editada = {
         ...pp, venc: c.venc, valor,
-        valorDia: c.valorDia !== '' ? numeroBR(c.valorDia) : Math.round(valor * 0.8 * 100) / 100,
+        valorDia,
         pago: c.pago || null,
-        pagoValor: c.pago ? (c.pagoValor !== '' ? numeroBR(c.pagoValor) : null) : null,
+        pagoValor,
+        // quem pagou: edição humana marca 'manual'; pago intocado preserva a origem
+        pagoOrigem: c.pago ? (pp.pago === c.pago && pp.pagoOrigem ? pp.pagoOrigem : 'manual') : null,
         obs: String(c.obs || '').slice(0, 200),
         trava: true, conferir: false,
       };
+      // limpar o 'Pago em' é ordem explícita — o servidor só desfaz pago com ela
+      if (!c.pago && pp.pago) editada._desfazerPago = true;
       const virouPaga = !!editada.pago && !(idx >= 0 && ps[idx] && ps[idx].pago);
       if (c.mover) {
         // muda de venda: sai daqui, entra lá (com a trava junto)
         const destino = achar('venda', c.mover);
         if (destino) {
-          const psl = ps.slice(); psl.splice(idx, 1);
+          // remover é ordem explícita (_remover): lista com a parcela omitida
+          // não apaga mais nada no servidor (proteção contra tela desatualizada)
+          const psl = ps.slice(); psl[idx] = { tid: pp.tid || null, _remover: true };
           salvar('venda', { id: v.id, parcelas: psl });
           const psD = (Array.isArray(destino.parcelas) ? destino.parcelas.slice() : []);
           psD.push(editada);
           psD.sort((x, y) => String(x.venc || '').localeCompare(String(y.venc || '')));
           salvar('venda', { id: destino.id, parcelas: psD });
+          // baixa manual junto com a mudança também entra no caixa — o rec
+          // nasce na venda onde a parcela passou a morar
+          if (virouPaga && !editada.tid && editada.pagoValor > 0) {
+            salvar('rec', { vendaId: destino.id, tipo: 'parcela', parcelaN: null,
+              valor: editada.pagoValor, data: editada.pago, forma: 'PIX',
+              obs: 'baixa manual de parcela ✍️' });
+          }
           fecharSilencioso(fundo);
           toast('Parcela movida para ' + (destino.codigo || 'a outra venda'));
           TELAS.venda(v.id);
@@ -1044,7 +1125,7 @@ function abrirEditarParcela(v, idx, opts = {}) {
   ];
   if (!nova) acoes.push({ texto: 'Remover', classe: 'perigo', aoClicar: async (fundo) => {
     if (!(await confirmar('Remover esta parcela do carnê? (acordo/erro — fica no histórico da venda)', { perigo: true, ok: 'Remover' }))) return;
-    const psl = ps.slice(); psl.splice(idx, 1);
+    const psl = ps.slice(); psl[idx] = { tid: pp.tid || null, _remover: true };
     salvar('venda', { id: v.id, parcelas: psl,
       historico: [{ em: new Date().toISOString(), por: S.quem || '—',
         acao: 'removeu a parcela venc ' + (pp.venc || '?') + ' de ' + fmt.brl(pp.valor) + (pp.tid ? ' (boleto ' + pp.tid + ')' : '') }] });
@@ -1079,7 +1160,8 @@ function abrirEditarVenda(v) {
       '<div class="campo"><label>Corretor</label><select data-campo="corretorId"><option value="">—</option>' + opc(v.corretorId) + '</select></div>' +
       campo('Comissão (R$)', entrada('comissao', v.comissao != null ? v.comissao : '', { inputmode: 'decimal' })) +
     '</div><div class="colunas-3">' +
-      '<div class="campo"><label>2º corretor</label><select data-campo="cor2Id"><option value="">—</option>' + opc(v.cor2Id) + '</select></div>' +
+      // a venda usa corretor2Id (ranking e comissões leem dele); cor2Id era campo morto
+      '<div class="campo"><label>2º corretor</label><select data-campo="corretor2Id"><option value="">—</option>' + opc(v.corretor2Id) + '</select></div>' +
       campo('Comissão do 2º (R$)', entrada('comissao2', v.comissao2 != null ? v.comissao2 : '', { inputmode: 'decimal' })) +
       campo('Forma da entrada', entrada('formaEntrada', v.formaEntrada || '')) +
     '</div>' +
@@ -1098,7 +1180,9 @@ function abrirEditarVenda(v) {
           qtdeParcelas: Math.max(0, Math.round(numeroBR(c.qtdeParcelas))), valorParcela: numeroBR(c.valorParcela),
           tipoParcela: c.tipoParcela, inicioParcelas: c.inicioParcelas,
           corretorId: c.corretorId, corretorNome: (corrs.find((x) => x.id === c.corretorId) || {}).nome || '',
-          comissao: numeroBR(c.comissao), cor2Id: c.cor2Id, comissao2: numeroBR(c.comissao2),
+          comissao: numeroBR(c.comissao),
+          corretor2Id: c.corretor2Id, corretor2Nome: (corrs.find((x) => x.id === c.corretor2Id) || {}).nome || '',
+          comissao2: numeroBR(c.comissao2),
           formaEntrada: c.formaEntrada, obs: String(c.obs || '').slice(0, 300),
           historico: [{ em: new Date().toISOString(), por: S.quem || '—', acao: 'editou os dados da venda' }] });
         fecharSilencioso(fundo);

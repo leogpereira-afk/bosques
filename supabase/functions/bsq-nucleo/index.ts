@@ -78,8 +78,54 @@ function unirPorId(antigo: any, novo: any): any[] {
   return Array.from(vistos.values());
 }
 
+/* ── Espelho da venda: merge por tid NO SERVIDOR ───────────────────────────── */
+// Duas telas gravando venda.parcelas[] inteiro se atropelam: a desatualizada
+// apagaria pago/trava gravados pela outra. Regras: trava=true no que chega
+// vence (ação humana explícita); pago do atual não se desfaz por tela sem o
+// pagamento; parcela do Omie ausente no que chega fica (só o sync a remove);
+// manual ausente foi removida de propósito e sai; sem tid entra como veio.
+// Merge do espelho por tid — o servidor é o árbitro entre telas e sync.
+// Três leis: (1) remoção e desfazer-pago só por ORDEM EXPLÍCITA (_remover /
+// _desfazerPago) — lista com a parcela omitida é tela desatualizada, não
+// remoção; (2) trava ARMAZENADA resiste a gravação que chega sem trava
+// (venc/valores editados não voltam); (3) fato de pagamento não se desfaz
+// por omissão — só muda se o que chega AFIRMA pago ou manda desfazer.
+function mesclarParcelas(atuais: any[], chegam: any[]): any[] {
+  const porTid = new Map<string, any>();
+  for (const p of atuais) if (p && p.tid) porTid.set(String(p.tid), p);
+  const vistos = new Set<string>();
+  const saida: any[] = [];
+  const semMarcas = (p: any) => { const { _remover, _desfazerPago, ...limpa } = p; return limpa; };
+  for (const p of chegam) {
+    if (!p) continue;
+    if (p._remover === true) { if (p.tid) vistos.add(String(p.tid)); continue; }
+    const tid = p.tid ? String(p.tid) : "";
+    if (!tid) { saida.push(semMarcas(p)); continue; }   // manual antiga sem chave: como chega
+    vistos.add(tid);
+    const atual = porTid.get(tid);
+    if (!atual) { saida.push(semMarcas(p)); continue; }
+    // agenda: trava armazenada resiste a gravação sem trava; trava que chega é ação humana
+    const base = (atual.trava === true && p.trava !== true) ? atual : p;
+    const pago = p.pago != null ? p.pago : (p._desfazerPago === true ? null : (atual.pago ?? null));
+    const pagoValor = p.pago != null ? (p.pagoValor ?? null) : (p._desfazerPago === true ? null : (atual.pagoValor ?? null));
+    const pagoOrigem = p.pago != null ? (p.pagoOrigem || "manual") : (p._desfazerPago === true ? null : (atual.pagoOrigem ?? null));
+    saida.push({ ...semMarcas(base), pago, pagoValor, pagoOrigem });
+  }
+  // ausente ≠ removida: parcela com tid que a gravação não trouxe fica (tela velha não apaga)
+  let recolocou = false;
+  for (const p of atuais) {
+    if (p && p.tid && !vistos.has(String(p.tid))) { saida.push(p); recolocou = true; }
+  }
+  if (recolocou) saida.sort((a: any, b: any) => String(a.venc || "").localeCompare(String(b.venc || "")));
+  return saida;
+}
+
 const txt = (v: unknown, max?: number) => String(v == null ? "" : v).slice(0, max || 200).trim();
 const num = (v: unknown) => { const n = parseFloat(String(v).replace(",", ".")); return isFinite(n) ? n : 0; };
+
+// Deno roda em UTC: das 21h à meia-noite o dia ISO já é "amanhã" no Brasil.
+// Data padrão de lançamento usa o dia local (UTC-3; sem horário de verão).
+const diaBrasil = () => new Date(Date.now() - 3 * 3600 * 1000).toISOString().slice(0, 10);
 
 /* ── O status do lote é conta do servidor ──────────────────────────────────── */
 // Chamado depois de gravar/apagar/restaurar uma venda. A venda viva manda:
@@ -113,6 +159,12 @@ async function gravar(col: string, registro: any, por: string): Promise<any> {
 
   for (const campo of CAMPOS_UNIAO) {
     if (antigo && (antigo[campo] || registro[campo])) novo[campo] = unirPorId(antigo[campo], registro[campo]);
+  }
+
+  // O espelho não é substituído inteiro: merge por tid preserva pago/trava
+  // (o spread acima deixaria a tela desatualizada apagar pagamento real).
+  if (col === "venda" && antigo && Array.isArray(antigo.parcelas) && Array.isArray(registro.parcelas)) {
+    novo.parcelas = mesclarParcelas(antigo.parcelas, registro.parcelas);
   }
 
   // Venda distratada não "desdistrata" por um aparelho com cache velho: o
@@ -223,7 +275,7 @@ async function prepararItem(quem: Quem, col: string, registro: any, atual: any):
     const tipo = ["entrada", "parcela", "antecipacao", "acerto", "outro"].includes(registro.tipo)
       ? registro.tipo : "parcela";
     return { registro: { ...registro, vendaId, valor, tipo,
-      data: txt(registro.data, 10) || agora().slice(0, 10),
+      data: txt(registro.data, 10) || diaBrasil(),
       parcelaN: registro.parcelaN != null ? Math.max(0, Math.round(num(registro.parcelaN))) : null } };
   }
 
@@ -233,7 +285,7 @@ async function prepararItem(quem: Quem, col: string, registro: any, atual: any):
     const valor = num(registro.valor);
     if (!(valor > 0)) return { erro: "lançamento sem valor" };
     const tipo = registro.tipo === "entrada" ? "entrada" : "saida";
-    return { registro: { ...registro, valor, tipo, data: txt(registro.data, 10) || agora().slice(0, 10) } };
+    return { registro: { ...registro, valor, tipo, data: txt(registro.data, 10) || diaBrasil() } };
   }
 
   // PROPOSTA: o dono é carimbado aqui (corretor não assina pelo colega).
@@ -325,9 +377,14 @@ Deno.serve(async (req) => {
           return json({ ok: false, error: "Senha incorreta" }, 403);
         }
         if (quem!.proprio) {
-          const usuarios = (cfg.usuarios || []).map((u: any) =>
+          // A cfg é doc único (o upsert grava tudo): reler AGORA e mexer só no
+          // próprio usuário evita devolver um retrato velho por cima de acesso
+          // recém-criado ou senha recém-trocada. Janela mínima, não zero — o
+          // storage não tem patch por chave dentro do jsonb.
+          const fresca = await lerCfg();
+          const usuarios = (fresca.usuarios || []).map((u: any) =>
             u.id === quem!.id ? { ...u, ultimoAcesso: agora() } : u);
-          await gravarCfg({ ...cfg, usuarios });
+          await gravarCfg({ ...fresca, usuarios });
         }
         await registrarLog({ acao: "entrou", por, perfil: quem!.perfil });
         return json({
@@ -368,6 +425,12 @@ Deno.serve(async (req) => {
           const atual = it.registro.id ? await lerUm(it.colecao, it.registro.id) : null;
           const perfilRecusa = motivoRecusa(quem, it.colecao, it.registro, atual);
           if (perfilRecusa) { recusados.push({ colecao: it.colecao, id: it.registro.id, motivo: perfilRecusa }); continue; }
+          // Lixeira só desfaz por restaurarItem (direção, com log): a gravação
+          // comum que zera/omite apagadoEm ressuscitaria estorno/venda apagada.
+          if (atual && atual.apagadoEm && !it.registro.apagadoEm) {
+            recusados.push({ colecao: it.colecao, id: it.registro.id, motivo: "está na lixeira — restaurar primeiro" });
+            continue;
+          }
           const pronto = await prepararItem(quem!, it.colecao, it.registro, atual);
           if (pronto.erro) { recusados.push({ colecao: it.colecao, id: it.registro.id, motivo: pronto.erro }); continue; }
           salvos.push(await gravar(it.colecao, pronto.registro, por));

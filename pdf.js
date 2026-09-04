@@ -9,6 +9,14 @@ const PDF = (() => {
   const brl = (v) => (Number(v) || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
   const dataBR = (iso) => iso ? new Date(String(iso).length === 10 ? iso + 'T12:00:00' : iso).toLocaleDateString('pt-BR') : '';
 
+  // A Helvetica embutida só cobre cp1252: emoji (ex.: o ✍️ do rótulo de
+  // parcela manual) vira lixo no papel. Mantém latin-1 + extras do cp1252
+  // (…, –, —, aspas curvas); U+2212 vira '-' ASCII; o resto sai.
+  const CP1252_EXTRA = '€‚ƒ„…†‡ˆ‰Š‹ŒŽ‘’“”•–—˜™š›œžŸ';
+  const soLatin1 = (s) => String(s == null ? '' : s)
+    .replace(/−/g, '-')
+    .replace(/[^ -ÿ\n]/g, (ch) => (CP1252_EXTRA.indexOf(ch) >= 0 ? ch : ''));
+
   function novo() {
     const { jsPDF } = window.jspdf;
     return new jsPDF({ unit: 'mm', format: 'a4' });
@@ -136,8 +144,12 @@ const PDF = (() => {
     if (p.formaPg) linhas.push(['Forma de pagamento', '', String(p.formaPg)]);
     linhas.push(['TOTAL pagando sempre em dia', nParc > 0 ? brl(totalCheio) : '', brl(p.valor)]);
 
-    // cabeçalho do quadro (só quando é parcelado)
-    if (nParc > 0) {
+    // jsPDF não quebra página sozinho, e o plano PADRÃO (Reajustada 150×)
+    // tem 13 faixas: com cadastro completo o convite final saía fora do A4.
+    // Antes de cada linha/bloco conferimos o y e quebramos com continuação.
+    const rodTxt = 'Associação Campestre Portal dos Bosques · Montes Claros/MG · proposta ' + (p.codigo || '');
+    const cabQuadro = () => { // cabeçalho do quadro (só quando é parcelado)
+      if (!(nParc > 0)) return;
       doc.setFillColor(240, 246, 240);
       doc.rect(14, y - 4.5, 182, 6.5, 'F');
       doc.setFont('helvetica', 'bold'); doc.setFontSize(8.5); doc.setTextColor(...VERDE);
@@ -145,9 +157,21 @@ const PDF = (() => {
       doc.text('VALOR DO BOLETO', 152, y, { align: 'right' });
       doc.text('PAGANDO EM DIA*', 196, y, { align: 'right' });
       y += 6.5;
-    }
+    };
+    const quebrar = (reCabQuadro) => {
+      rodape(doc, rodTxt);
+      doc.addPage();
+      y = 20;
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(10); doc.setTextColor(...VERDE);
+      doc.text('PROPOSTA ' + (p.codigo || 'sem número') + ' — continuação', 14, y);
+      y += 8;
+      if (reCabQuadro) cabQuadro();
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(10);
+    };
+    cabQuadro();
     doc.setFontSize(10);
     for (const [a, cheio, emDia] of linhas) {
+      if (y > 276) quebrar(true); // mesmo corte da tabelaPaginada
       const total = a.indexOf('TOTAL') === 0;
       doc.setFont('helvetica', total ? 'bold' : 'normal');
       doc.setTextColor(...(total ? [30, 43, 33] : CINZA));
@@ -161,6 +185,7 @@ const PDF = (() => {
       doc.line(14, y - 3.8, 196, y - 3.8);
     }
     if (nParc > 0) {
+      if (y + 6 > 282) quebrar(false);
       doc.setFontSize(8); doc.setTextColor(...CINZA);
       doc.text('* desconto de pontualidade de 20% pagando até o vencimento do boleto.', 14, y + 1);
       y += 5;
@@ -168,10 +193,12 @@ const PDF = (() => {
 
     const conta = (cfg.empresa && cfg.empresa.contaBancaria || '').trim();
     if (conta) {
-      y += 6;
-      doc.setFillColor(240, 246, 240);
+      doc.setFontSize(9); // mede na fonte em que a conta sai impressa
       const linhasConta = doc.splitTextToSize(conta, 172);
       const altura = 12 + linhasConta.length * 4.6;
+      if (y + 2 + altura > 280) quebrar(false); // caixa inteira na mesma página
+      y += 6;
+      doc.setFillColor(240, 246, 240);
       doc.roundedRect(14, y - 4, 182, altura, 3, 3, 'F');
       doc.setTextColor(...VERDE);
       doc.setFont('helvetica', 'bold'); doc.setFontSize(9.5);
@@ -181,14 +208,19 @@ const PDF = (() => {
       doc.text(linhasConta, 19, y + 7);
       y += altura;
     }
-    y += 8;
-    doc.setFontSize(9); doc.setTextColor(...CINZA);
+    doc.setFontSize(9);
     const obsTxt = 'Esta proposta é uma simulação de compra e não vale como contrato. Valores sujeitos a ' +
       'confirmação de disponibilidade do lote no ato da assinatura. Documentação e condições finais são ' +
       'formalizadas no contrato de adesão.';
-    doc.text(doc.splitTextToSize(obsTxt, 182), 14, y);
+    const obsLinhas = doc.splitTextToSize(obsTxt, 182);
+    if (y + 8 + obsLinhas.length * 3.9 > 282) quebrar(false);
+    y += 8;
+    doc.setFontSize(9); doc.setTextColor(...CINZA);
+    doc.text(obsLinhas, 14, y);
 
     y += 22;
+    // o convite não pode encostar no rodapé (y=288) nem sair do A4 (297)
+    if (y + 16 > 284) quebrar(false);
     doc.setFillColor(...VERDE_CLARO);
     doc.roundedRect(14, y, 182, 16, 3, 3, 'F');
     doc.setTextColor(12, 32, 18);
@@ -196,7 +228,7 @@ const PDF = (() => {
     doc.text('Gostou? Responda no WhatsApp' + (p.donoNome ? ' do corretor ' + p.donoNome : '') +
       (p.corretorTel ? ' · ' + p.corretorTel : ''), 105, y + 10, { align: 'center' });
 
-    rodape(doc, 'Associação Campestre Portal dos Bosques · Montes Claros/MG · proposta ' + (p.codigo || ''));
+    rodape(doc, rodTxt);
     return doc.output('blob');
   }
 
@@ -257,7 +289,7 @@ const PDF = (() => {
         if (cel && typeof cel === 'object' && cel.cor) doc.setTextColor(...cel.cor);
         else doc.setTextColor(30, 43, 33);
         if (cel && typeof cel === 'object' && cel.negrito) doc.setFont('helvetica', 'bold');
-        doc.text(String(txt2 == null ? '' : txt2), cols[i].x, y, { align: cols[i].alinha || 'left' });
+        doc.text(soLatin1(txt2), cols[i].x, y, { align: cols[i].alinha || 'left' }); // cp1252 só
         if (cel && typeof cel === 'object' && cel.negrito) doc.setFont('helvetica', 'normal');
       }
       y += 5.2;
@@ -310,7 +342,15 @@ const PDF = (() => {
     atrasada: 'ATRASADA', parcial: 'paga em parte', hoje: 'vence hoje',
     paga: 'paga', aberta: 'em aberto',
   };
-  const trunca = (s, n) => { s = String(s || ''); return s.length > n ? s.slice(0, n - 1) + '…' : s; };
+  const trunca = (s, n) => { s = soLatin1(s || ''); return s.length > n ? s.slice(0, n - 1) + '…' : s; };
+  // Corta pela LARGURA impressa (mm), na fonte ATIVA no doc: contagem de
+  // chars deixa nome em CAIXA ALTA invadir a coluna vizinha.
+  const truncaLarg = (doc, s, mm) => {
+    s = soLatin1(s || '');
+    if (doc.getTextWidth(s) <= mm) return s;
+    while (s.length > 1 && doc.getTextWidth(s + '…') > mm) s = s.slice(0, -1);
+    return s.replace(/\s+$/, '') + '…';
+  };
 
   // ── Ficha da venda (o dash de UMA venda): dados + carnê + recebimentos ─────
   function venda(v, r, recs, cfg) {
@@ -327,13 +367,13 @@ const PDF = (() => {
     doc.setTextColor(...CINZA);
     y += 6;
     const sit = v.situacao || 'ativa';
-    doc.text('Situação: ' + sit.toUpperCase() +
+    doc.text(soLatin1('Situação: ' + sit.toUpperCase() +
       ' · venda em ' + dataBR(v.dataVenda || v.criadoEm) +
-      (v.corretorNome ? ' · corretor: ' + v.corretorNome + (v.comissao ? ' (comissão ' + brl(v.comissao) + ')' : '') : ''), 14, y);
+      (v.corretorNome ? ' · corretor: ' + v.corretorNome + (v.comissao ? ' (comissão ' + brl(v.comissao) + ')' : '') : '')), 14, y);
     y += 5;
-    doc.text('Plano: ' + brl(v.entrada) + ' de entrada + ' + (v.qtdeParcelas || 0) + '× ' +
+    doc.text(soLatin1('Plano: ' + brl(v.entrada) + ' de entrada + ' + (v.qtdeParcelas || 0) + '× ' +
       brl(v.valorParcela) + ' (' + (v.tipoParcela || 'Fixa') + ')' +
-      (sit === 'distratada' && v.distrato ? ' · DISTRATADA em ' + dataBR(v.distrato.em) : ''), 14, y);
+      (sit === 'distratada' && v.distrato ? ' · DISTRATADA em ' + dataBR(v.distrato.em) : '')), 14, y);
 
     // Painéis: contrato | pago | saldo | em atraso
     y += 8;
@@ -341,7 +381,10 @@ const PDF = (() => {
       ['CONTRATO', brl(r.total), [30, 43, 33]],
       ['PAGO (' + (r.total ? Math.round(r.pago / r.total * 100) : 0) + '%)', brl(r.pago), [46, 125, 50]],
       ['SALDO', brl(r.saldo), [30, 43, 33]],
-      ['EM ATRASO (' + r.qtdAtraso + ' parc.)', brl(r.emAtraso), r.qtdAtraso ? [198, 40, 40] : [95, 122, 102]],
+      // venda sem espelho não afirma atraso (regra da casa): o papel avisa como a tela
+      r.semEspelho
+        ? ['EM ATRASO: sem espelho', 'nao afirmado', [95, 122, 102]]
+        : ['EM ATRASO (' + r.qtdAtraso + ' parc.)', brl(r.emAtraso), r.qtdAtraso ? [198, 40, 40] : [95, 122, 102]],
     ];
     paineis.forEach(([rot, valTxt, cor], i) => {
       const x = 14 + i * 46.5;
@@ -441,8 +484,11 @@ const PDF = (() => {
       { t: 'Atraso', x: 196, alinha: 'right' },
     ];
     const abrevSit = { ativa: 'ativa', conferir: 'conferir', quitada: 'quitada', distratada: 'distrat.' };
+    // mede na fonte em que a linha SAI (9pt normal, a de tabelaPaginada):
+    // 27 chars em caixa alta passam dos 50mm até a coluna do corretor
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(9);
     const linhas = itens.map(({ v, r }) => [
-      v.codigo || '—', 'Q' + v.quadra + '-L' + v.lote, trunca(v.clienteNome, 27),
+      v.codigo || '—', 'Q' + v.quadra + '-L' + v.lote, truncaLarg(doc, v.clienteNome, 48),
       trunca((v.corretorNome || '—').split(' ')[0] + ' ' + ((v.corretorNome || '').split(' ')[1] || ''), 15),
       abrevSit[v.situacao || 'ativa'] || v.situacao,
       brl(r.total), brl(r.pago),

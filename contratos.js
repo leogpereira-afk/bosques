@@ -222,8 +222,13 @@ function gerarContratoPdf(v, cliente, l, cfg, plano) {
         for (let dg = 0; dg < degraus; dg++) {
           const ini2 = dg * (reajustada ? (reajCfg.aCada || 12) : nParc) + 1;
           const fim2 = reajustada ? Math.min(nParc, (dg + 1) * (reajCfg.aCada || 12)) : nParc;
-          const emDia = Math.round(parcDesc * Math.pow(1 + (reajCfg.pct || 6) / 100, dg) * 100) / 100;
-          const cheia = Math.round(emDia / 0.8 * 100) / 100;
+          // a base do boleto é a CHEIA do modal (editável) — a cláusula usa ela;
+          // recalcular por outra via imprimia dois boletos no mesmo contrato
+          const fator = Math.pow(1 + (reajCfg.pct || 6) / 100, dg);
+          const cheia = Math.round(parcCheia * fator * 100) / 100;
+          // o em-dia do degrau parte do EM DIA digitado no modal (a mesma régua
+          // da cláusula) — cheia×0,8 divergia quando a cheia foi editada à mão
+          const emDia = Math.round(parcDesc * fator * 100) / 100;
           totDia += emDia * (fim2 - ini2 + 1);
           totCheio += cheia * (fim2 - ini2 + 1);
           linhasQP.push(['Parcelas ' + ini2 + ' a ' + fim2,
@@ -231,18 +236,23 @@ function gerarContratoPdf(v, cliente, l, cfg, plano) {
         }
         if (ini) linhasQP.push(['Última parcela: ' + nParc + 'ª', vencDe(nParc), '', '']);
         linhasQP.push(['TOTAL (entrada + parcelas)', '', brl(Math.round(totCheio * 100) / 100), brl(Math.round(totDia * 100) / 100)]);
-        garante(12);
-        doc.setFillColor(240, 246, 240);
-        doc.rect(14, y - 4, 182, 6.5, 'F');
-        doc.setFont('helvetica', 'bold'); doc.setFontSize(8);
-        doc.text('PLANO DE PAGAMENTO', 16, y);
-        doc.text('VENCIMENTOS', 96, y);
-        doc.text('BOLETO', 152, y, { align: 'right' });
-        doc.text('EM DIA (-20%)', 194, y, { align: 'right' });
-        y += 6.5;
-        doc.setFontSize(9);
+        // o título das colunas nunca fica órfão: só entra se couber com 1 linha
+        garante(13);
+        const cabecalhoQP = () => {
+          doc.setFillColor(240, 246, 240);
+          doc.rect(14, y - 4, 182, 6.5, 'F');
+          doc.setFont('helvetica', 'bold'); doc.setFontSize(8);
+          doc.text('PLANO DE PAGAMENTO', 16, y);
+          doc.text('VENCIMENTOS', 96, y);
+          doc.text('BOLETO', 152, y, { align: 'right' });
+          doc.text('EM DIA (-20%)', 194, y, { align: 'right' });
+          y += 6.5;
+          doc.setFontSize(9);
+        };
+        cabecalhoQP();
         for (const [rot2, venc2, cheia2, dia2] of linhasQP) {
-          garante(6);
+          // quebrou no meio do quadro: repetir o título das colunas na página nova
+          if (y + 6 > 280) { doc.addPage(); cabecalhoCasa(); y = 40; cabecalhoQP(); }
           const totalLinha = rot2.indexOf('TOTAL') === 0 || rot2.indexOf('Última') === 0;
           doc.setFont('helvetica', totalLinha ? 'bold' : 'normal');
           doc.text(rot2, 16, y);
@@ -319,6 +329,9 @@ TELAS.contratos = function () {
       ' · modelo ' + (v.tipoParcela === 'Reajustada' ? 'REAJUSTE 6%' : 'FIXO') + '</span></div>' +
       '<span class="etiqueta et-hoje">gerar →</span></div>').join('') ||
       '<p class="nota">Nenhuma venda nesse recorte.</p>') +
+    // o corte em 40 esconderia as vendas antigas sem aviso — dizer que tem mais
+    (filtradas.length > 40
+      ? '<p class="nota">… e ' + (filtradas.length - 40) + ' contratos mais — use a busca.</p>' : '') +
     '</div>';
 
   document.getElementById('ct-q').oninput = (e) => { f.q = e.target.value; TELAS.contratos(); };
