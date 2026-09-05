@@ -86,7 +86,7 @@ TELAS.financeiro=function(){
   html+='<p class="nota">Valores confirmados e pendências ficam identificados. Amarelo: precisa de conferência. Lápis roxo: alteração manual.</p>';
   if(f.aba==='pendencias'&&f.grupo)html+='<h2>'+esc(FIN_GRUPOS[f.grupo])+'</h2><p>Abra cada linha para corrigir o vínculo. A lista é atualizada após salvar.</p>';
   if(f.aba==='pendencias')html+='<p class="nota">A soma das pendências não representa dívida adicional: o mesmo recebimento pode exigir mais de uma conferência.</p>';
-  if(f.aba==='centros'){app.innerHTML=html+finTelaCentros();finLigarCentros(app);app.querySelectorAll('[data-fin-aba]').forEach(b=>b.onclick=()=>{f.aba=b.dataset.finAba;TELAS.financeiro();});return;}
+  if(f.aba==='centros'){app.innerHTML=html+finTelaCentros();finLigarCentros(app);app.querySelectorAll('[data-fin-aba]').forEach(b=>b.onclick=()=>{f.aba=b.dataset.finAba;f.grupo='';f.centro='';f.pagina=0;TELAS.financeiro();});return;}
   if(f.aba==='visao') {
     const recebido=lista('rec').reduce((s,r)=>s+FINANCEIRO.cent(r.valor),0)/100;
     const aReceber=finLinhas('receber',ctx), pagar=finLinhas('pagar',ctx),diff=finDiferencas(ctx);
@@ -122,7 +122,7 @@ TELAS.financeiro=function(){
   }
   app.innerHTML=html;
   app.querySelectorAll('[data-fin-grupo]').forEach(b=>b.onclick=()=>finAbrirPendenciasGrupo(b.dataset.finGrupo));
-  app.querySelectorAll('[data-fin-aba]').forEach(b=>b.onclick=()=>{f.aba=b.dataset.finAba;f.grupo='';f.q='';f.pagina=0;TELAS.financeiro();});
+  app.querySelectorAll('[data-fin-aba]').forEach(b=>b.onclick=()=>{f.aba=b.dataset.finAba;f.grupo='';f.centro='';f.q='';f.pagina=0;TELAS.financeiro();});
   app.querySelectorAll('[data-fin-mes]').forEach(b=>b.onclick=()=>{f.mes=b.dataset.finMes;f.pagina=0;TELAS.financeiro();});
   app.querySelectorAll('[data-fin-row]').forEach(b=>{b.onclick=()=>finAbrirLinha(visiveis[Number(b.dataset.finRow)]);b.onkeydown=e=>{if(e.key==='Enter')b.click();};});
   const on=(id,fn)=>{const el=document.getElementById(id);if(el)el.onclick=fn;};
@@ -143,7 +143,7 @@ TELAS.financeiro=function(){
     statusOmieHome(document.getElementById('fin-sync'));
     apiOmie('saude').then(r=>{
       const el=document.getElementById('fin-sync');if(!el)return;
-      const pend=(r.sync?.pendencias||[]).filter(p=>p.tipo==='possivel_duplicidade');
+      const pend=(r.sync?.pendencias||[]).filter(p=>p.tipo==='possivel_duplicidade'&&!achar('titulo','CONTA_A_PAGAR-'+p.titulo)?.decisaoDuplicidade);
       if(f.aba!=='pendencias'||f.grupo||!pend.length)return;
       const bloco=document.createElement('div');bloco.innerHTML='<h3>Possíveis duplicidades — conferir comprovantes</h3>'+pend.slice(0,60).map((p,i)=>'<button class="btn" data-origem-pend="'+i+'">'+esc(p.categoria||'Conferir título')+' · '+fmt.brl(p.valor||0)+'</button>').join('');
       bloco.querySelectorAll('[data-origem-pend]').forEach(b=>b.onclick=()=>{

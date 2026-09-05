@@ -1,7 +1,7 @@
 const {chromium}=require('/Users/leonardopereira/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules/playwright');
 const fs=require('fs'),path=require('path'),assert=require('assert/strict');
 (async()=>{
-const backup=JSON.parse(fs.readFileSync('seed/backup-pre-publicacao.json'));
+const backup=JSON.parse(fs.readFileSync(process.env.BSQ_TEST_SNAPSHOT||'seed/backup-pre-publicacao.json'));
 const browser=await chromium.launch({channel:'chrome',headless:true});const context=await browser.newContext({serviceWorkers:'block'});const page=await context.newPage();const erros=[];page.on('pageerror',e=>erros.push(e.message));
 await context.route('**/*',async route=>{const req=route.request(),u=new URL(req.url());if(u.hostname==='bosques.test'){const file=path.resolve('.'+(u.pathname==='/'?'/index.html':u.pathname));if(!file.startsWith(process.cwd()+'/')||!fs.existsSync(file))return route.fulfill({status:404});let body=fs.readFileSync(file);if(u.pathname==='/config.js')body=Buffer.from(body.toString().replace('FINANCEIRO_EM_VALIDACAO = false','FINANCEIRO_EM_VALIDACAO = true'));return route.fulfill({body,contentType:u.pathname.endsWith('.js')?'text/javascript':u.pathname.endsWith('.css')?'text/css':u.pathname.endsWith('.png')?'image/png':'text/html'});}
 let body={ok:true,sync:{status:'completa',quando:new Date().toISOString()},contas:[],registros:backup.registros,cfg:backup.cfg,eu:{perfil:'direcao',nome:'Teste',proprio:true,id:'teste'}};return route.fulfill({json:body});});
