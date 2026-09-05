@@ -61,21 +61,21 @@ function movimentosDoMes(mes) {
 function totaisDoMes(mes) {
   let entradas = 0, saidas = 0;
   for (const m of movimentosDoMes(mes)) {
-    if (m.entrada) entradas += m.valor; else saidas += m.valor;
+    if (m.entrada) entradas += FINANCEIRO.cent(m.valor); else saidas += FINANCEIRO.cent(m.valor);
   }
-  return { entradas, saidas, resultado: entradas - saidas };
+  return { entradas:entradas/100, saidas:saidas/100, resultado:(entradas-saidas)/100 };
 }
 
 // Acumulado do empreendimento desde o início (inclui o que está sem data —
 // dinheiro sem data existe do mesmo jeito; o aviso da tela cobra a data).
 function totaisAcumulados() {
   let entradas = 0, saidas = 0;
-  for (const r of lista('rec')) entradas += Number(r.valor) || 0;
+  for (const r of lista('rec')) entradas += FINANCEIRO.cent(r.valor);
   for (const c of cxVivos()) {
-    if (c.tipo === 'entrada') entradas += Number(c.valor) || 0;
-    else saidas += Number(c.valor) || 0;
+    if (c.tipo === 'entrada') entradas += FINANCEIRO.cent(c.valor);
+    else saidas += FINANCEIRO.cent(c.valor);
   }
-  return { entradas, saidas, resultado: entradas - saidas };
+  return { entradas:entradas/100, saidas:saidas/100, resultado:(entradas-saidas)/100 };
 }
 
 /* ── DRE do empreendimento ──────────────────────────────────────────────────
@@ -667,6 +667,9 @@ TELAS.lancamentos = function () {
 // passado se disfarça de futuro.
 function aReceberPorMes() {
   const hoje = hojeISO();
+  const origem=lista('titulo').filter(t=>t.grupo==='CONTA_A_RECEBER');
+  if(origem.length){const meses={},vencidos=[];let total=0,parcelas=0;for(const t of origem){const saldo=FINANCEIRO.cent(t.original?.resumo?.nValAberto);if(t.status==='CANCELADO'||saldo<=0||!FINANCEIRO.dataValida(t.venc))continue;total+=saldo;parcelas++;if(t.venc<hoje)vencidos.push(saldo);else {const m=mesDe(t.venc);meses[m]=(meses[m]||0)+saldo;}}return {porMes:Object.fromEntries(Object.entries(meses).map(([m,v])=>[m,v/100])),vencido:vencidos.reduce((s,v)=>s+v,0)/100,total:total/100,parcelas,origemOmie:true};}
+
   const porMes = {};
   let vencido = 0, total = 0, parcelas = 0;
   for (const v of vendasVivas()) {
@@ -750,8 +753,9 @@ TELAS.relatorios = function () {
   const anoAtual = mesAtual.slice(0, 4);
 
   // vendido / recebido / gasto (sempre desde o início — é o retrato do negócio)
-  const vendasDePe = lista('venda').filter((v) => v.situacao !== 'distratada');
-  const vgv = vendasDePe.reduce((s, v) => s + totalPlanoVenda(v), 0);
+  const comercial=resumoComercial();
+  const vendasDePe = comercial.contratos;
+  const vgv = comercial.vgv;
   const ac = totaisAcumulados();
 
   // a receber e previstos DENTRO do horizonte
@@ -819,14 +823,14 @@ TELAS.relatorios = function () {
       '<button class="btn mini" id="rel-cobrar" style="margin-top:8px">📣 Ir cobrar (Vendas → só atraso)</button></div>'
     : '';
 
-  app.innerHTML =
+  app.innerHTML = painelInadimplenciaOmie()+
     '<div class="filtros"><div class="chips">' +
       [['mes', 'Este mês'], ['ano', 'Este ano'], ['total', 'Até acabar']].map(([v, t2]) =>
         '<button class="chip' + (hz === v ? ' on' : '') + '" data-hz="' + v + '">' + t2 + '</button>').join('') +
     '</div><button class="btn mini" id="rel-pdf">📄 PDF do relatório</button></div>' +
     '<div class="paineis">' +
-      '<div class="painel clicavel" data-acao="' + (vendasDePe.length !== new Set(vendasDePe.map((v) => v.loteId)).size ? 'duplicados' : 'vendas') + '"><div class="rot">Lotes vendidos</div><div class="num">' + new Set(vendasDePe.map((v) => v.loteId)).size + '</div>' +
-        (vendasDePe.length !== new Set(vendasDePe.map((v) => v.loteId)).size ? '<div class="sub">⚠ ' + vendasDePe.length + ' contratos — clique e veja os lotes com 2 vendas</div>' : '') + '</div>' +
+      '<div class="painel clicavel" data-acao="' + (vendasDePe.length !== comercial.vendidos ? 'duplicados' : 'vendas') + '"><div class="rot">Lotes vendidos</div><div class="num">' + comercial.vendidos + '</div>' +
+        (vendasDePe.length !== comercial.vendidos ? '<div class="sub">⚠ ' + vendasDePe.length + ' contratos — clique e veja os lotes com 2 vendas</div>' : '') + '</div>' +
       '<div class="painel clicavel" data-acao="vendas"><div class="rot">Valor total vendido (VGV)</div><div class="num pos">' + fmt.brl(vgv) + '</div></div>' +
       '<div class="painel clicavel" data-acao="recebido"><div class="rot">Já recebido</div><div class="num pos">' + fmt.brl(ac.entradas) + '</div>' +
         '<div class="sub">clique e veja por forma abaixo</div></div>' +
@@ -835,7 +839,7 @@ TELAS.relatorios = function () {
     '<div class="paineis">' +
       '<div class="painel clicavel" data-acao="caixa"><div class="rot">A receber ' + rotuloHz + '</div><div class="num pos">' + fmt.brl(aReceberHz) + '</div>' +
         '<div class="sub">' + (hz === 'total' ? ar.parcelas + ' parcela(s) em aberto' : 'parcelas a vencer no período') + '</div></div>' +
-      '<div class="painel clicavel" data-acao="vencido"><div class="rot">Vencido a cobrar</div><div class="num' + (ar.vencido ? ' neg' : '') + '">' + fmt.brl(ar.vencido) + '</div>' +
+      '<div class="painel clicavel" data-acao="vencido"><div class="rot">Vencido no Omie</div><div class="num' + (ar.vencido ? ' neg' : '') + '">' + fmt.brl(ar.vencido) + '</div>' +
         '<div class="sub">clique para ir cobrar</div></div>' +
       '<div class="painel clicavel" data-acao="previstos"><div class="rot">Gastos previstos ' + rotuloHz + '</div><div class="num">' + fmt.brl(previstoHz) + '</div>' +
         (previstoSemData > 0 ? '<div class="sub">⚠ + ' + fmt.brl(previstoSemData) + ' de etapas SEM PRAZO — defina no Cronograma</div>' : '') + '</div>' +
@@ -866,7 +870,7 @@ TELAS.relatorios = function () {
           '<tr style="font-weight:800"><td>TOTAL</td><td class="num">' + fmt.brl(aReceberHz) + '</td>' +
           '<td class="num">' + fmt.brl(previstoHz) + '</td><td class="num">' + fmt.brl(aReceberHz - previstoHz) + '</td></tr>' +
           '</tbody></table></div>' +
-          '<p class="nota" style="margin-top:8px">O "a receber" supõe as parcelas pagas em dia; o vencido acumulado (' + fmt.brl(ar.vencido) + ') fica fora destas linhas de propósito.</p>'
+          '<p class="nota" style="margin-top:8px">O "a receber" usa os saldos abertos da origem; o vencido acumulado (' + fmt.brl(ar.vencido) + ') fica fora destas linhas de propósito.</p>'
         : '<p class="nota">Nada a vencer nesse período.</p>') + '</div>' +
     (() => {
       const cap = comissoesAPagar();
@@ -953,7 +957,7 @@ TELAS.relatorios = function () {
       else if (acao === 'recebido') { TELAS._fLanc = { q: '', tipo: 'entrada', cat: '', mes: 'todos' }; location.hash = '#/lancamentos'; }
       else if (acao === 'gasto') { TELAS._fLanc = { q: '', tipo: 'saida', cat: '', mes: 'todos' }; location.hash = '#/lancamentos'; }
       else if (acao === 'caixa') { const c2 = document.getElementById('rel-tabela'); if (c2) c2.scrollIntoView({ behavior: 'smooth', block: 'start' }); else location.hash = '#/caixa'; }
-      else if (acao === 'vencido') { TELAS._fVendas = { q: '', sit: '', so: 'atraso' }; location.hash = '#/vendas'; }
+      else if (acao === 'vencido') finAbrirVencidosOmie();
       else if (acao === 'previstos') { const c2 = document.getElementById('rel-previstos'); if (c2) c2.scrollIntoView({ behavior: 'smooth', block: 'start' }); }
       else if (acao === 'tabela') { const c2 = document.getElementById('rel-tabela'); if (c2) c2.scrollIntoView({ behavior: 'smooth', block: 'start' }); }
     };
@@ -981,9 +985,9 @@ TELAS.relatorios = function () {
   });
   document.getElementById('rel-pdf').onclick = () => {
     PDF.relatorio({
-      rotuloHz, hz, vendidos: new Set(vendasDePe.map((v) => v.loteId)).size, vgv,
+      rotuloHz, hz, vendidos: comercial.vendidos, vgv,
       recebido: ac.entradas, gasto: ac.saidas,
-      aReceber: aReceberHz, vencido: ar.vencido, previsto: previstoHz, grupos,
+      aReceber: aReceberHz, vencido: ar.vencido, inadimplenciaOmie:resumoInadimplenciaOmie(), previsto: previstoHz, grupos,
       aging: aging.map((f) => ({ rotulo: f.rotulo, rs: f.rs, parcelas: f.parcelas, contratos: f.contratos.size })),
       comissoesAPagar: comissoesAPagar().reduce((s, x) => s + x.saldo, 0),
     }, S.cfg || {});

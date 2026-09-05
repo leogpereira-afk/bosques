@@ -292,3 +292,20 @@ button { font-family: inherit; }
 /* Textos secundários respeitam a coluna também em telas pequenas. */
 .lin .sub {display:block;max-width:100%;}
 @media(max-width:600px){.lin{min-width:0;}.lin .dinheiro{max-width:45%;white-space:normal;overflow-wrap:anywhere;}.acoes-linha{flex-wrap:wrap;}}
+
+.sl-sugestoes{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px}.sl-lote-rapido{display:flex;flex-direction:column;align-items:flex-start;gap:6px;padding:16px}.sl-lote-rapido span{font-size:13px;color:var(--tinta-fraca)}.sl-opcao{cursor:pointer}.sl-opcao.selecionada td{background:#edf6e9}.sl-opcao:hover td{background:#e3efd9}.sl-resumo{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin:16px 0}.sl-resumo>div{background:#edf6e9;border-radius:12px;padding:16px;min-width:0}.sl-resumo span,.sl-resumo strong{display:block;overflow-wrap:anywhere}.sl-resumo span{font-size:12px;margin-bottom:8px}.sl-resumo strong{font-size:20px;font-variant-numeric:tabular-nums}
+
+.fin-fila{max-height:60vh;overflow:auto}.fin-fila-item{width:100%;display:flex;flex-direction:column;align-items:flex-start;text-align:left;background:#fff7d6}.fin-fila-item b{white-space:normal}.fin-fila-item small{color:var(--tinta-fraca)}
+
+@media(max-width:600px){
+ .sl-comparacao,.sl-plano,.sl-comparacao tbody,.sl-plano tbody{display:block;width:100%;min-width:0!important}
+ .sl-comparacao thead,.sl-plano thead{display:none}
+ .sl-comparacao tr,.sl-plano tr{display:block;margin:12px 0;border:1px solid #dce6dc;border-radius:10px;overflow:hidden}
+ .sl-comparacao td,.sl-plano td{display:flex;justify-content:space-between;gap:10px;white-space:normal!important;text-align:right;overflow-wrap:anywhere;padding:10px;max-width:100%}
+ .sl-comparacao td:first-child,.sl-plano td:first-child{display:block;text-align:left;font-weight:700;background:#f2f6f0}
+ .sl-comparacao td:before,.sl-plano td:before{font-size:11px;font-weight:400;color:var(--tinta-fraca);text-align:left;flex:0 0 40%}
+ .sl-comparacao td:nth-child(2):before,.sl-plano td:nth-child(3):before{content:'Parcela cheia'}
+ .sl-comparacao td:nth-child(3):before,.sl-plano td:nth-child(4):before{content:'Pagando em dia'}
+ .sl-comparacao td:nth-child(4):before{content:'Total em dia'}
+ .sl-plano td:nth-child(2):before{content:'Vencimentos'}
+}

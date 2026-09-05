@@ -24,6 +24,9 @@ assert.equal(await page.locator('[data-fin-row] td').first().innerText(),'1');
 await page.locator('[data-fin-row]').click();assert.ok(await page.getByText('Associar comissão',{exact:true}).count());await page.evaluate(()=>fecharModal());
 await page.evaluate(()=>{S.reg.cx[0].corretorId='cor1';TELAS.financeiro();});
 assert.equal(await page.locator('[data-fin-row]').count(),0);console.log('OK pendência numerada abre vínculo e desaparece após resolução');
+const hashAntes=await page.evaluate(()=>location.hash);
+await page.evaluate(()=>{delete S.reg.cx[0].corretorId;finAbrirPendenciasGrupo('corretores');});
+assert.equal(await page.locator('[data-fila-item]').count(),1);await page.locator('[data-fila-item]').click();assert.ok(await page.getByText('Associar comissão',{exact:true}).count());assert.equal(await page.evaluate(()=>location.hash),hashAntes);await page.evaluate(()=>fecharModal());console.log('OK edição da fila permanece na mesma tela');
 await page.evaluate(()=>{S.reg.rec[0].valor=9876543210.99;});
 for(const width of [1440,1024,390,320]){
  await page.setViewportSize({width,height:900});

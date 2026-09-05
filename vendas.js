@@ -193,7 +193,8 @@ TELAS.vendas = function () {
   // VGV = o valor geral de vendas (soma dos contratos que estão de pé).
   const naoDistratadas = linhas.filter(({ v }) => v.situacao !== 'distratada');
   // MESMA RÉGUA do Espelho e dos Relatórios: o plano pagando em dia.
-  const vgv = naoDistratadas.reduce((s, x) => s + totalPlanoVenda(x.v), 0);
+  const comercial=resumoComercial();
+  const vgv = comercial.vgv;
 
   // Uma linha de venda — a mesma peça nos dois modos (dentro do mês e na busca).
   const linhaVenda = ({ v, r }) => {
@@ -272,13 +273,13 @@ TELAS.vendas = function () {
       '<span>' + fmt.brl(vgv) + '</span></div>' +
     '</div>';
 
-  app.innerHTML =
+  app.innerHTML = painelInadimplenciaOmie()+
     '<div class="paineis">' +
       '<div class="painel clicavel" data-pv="todas"><div class="rot">VGV vendido</div><div class="num pos">' + fmt.brl(vgv) + '</div>' +
         '<div class="sub">' + naoDistratadas.length + ' contrato(s) de pé</div></div>' +
-      '<div class="painel' + (lotesDuplicados().length ? ' clicavel" id="vd-duplicados' : '') + '"><div class="rot">Contratos vivos</div><div class="num">' + vendasVivas().length + '</div>' +
+      '<div class="painel' + (lotesDuplicados().length ? ' clicavel" id="vd-duplicados' : '') + '"><div class="rot">Lotes vendidos</div><div class="num">' + comercial.vendidos + '</div><div class="sub">'+comercial.contratos.length+' contratos: '+comercial.ativos+' ativos · '+comercial.quitados+' quitados</div>' +
         (lotesDuplicados().length ? '<div class="sub">⚠ ' + lotesDuplicados().length + ' lote(s) com 2 vendas — clique e veja quais</div>' : '') + '</div>' +
-      '<div class="painel clicavel" id="pn-atraso"><div class="rot">Em atraso</div><div class="num' + (emAtraso.length ? ' neg' : ' pos') + '">' + emAtraso.length + '</div>' +
+      '<div class="painel clicavel" id="pn-atraso"><div class="rot">Atraso nas fichas confirmadas</div><div class="num' + (emAtraso.length ? ' neg' : ' pos') + '">' + emAtraso.length + '</div>' +
         '<div class="sub">' + fmt.brl(totalAtraso) + ' vencidos</div></div>' +
       '<div class="painel clicavel" data-pv="recebido"><div class="rot">Recebido de vendas · ' + nomeMes(mesStr) + '</div><div class="num pos">' + fmt.brl(recebidoMes) + '</div>' +
         '<div class="sub">só parcelas e entradas; o Caixa soma tudo' +

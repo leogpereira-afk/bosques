@@ -32,10 +32,35 @@ function resumoVenda(v) {
 
 // O valor do plano (VGV): pagando sempre em dia — entrada + parcelas com desconto.
 function totalPlanoVenda(v) {
-  const ps = Array.isArray(v.parcelas) ? v.parcelas.filter(Boolean) : [];
+  const ps = Array.isArray(v.parcelas) ? v.parcelas.filter(p=>p&&!p.cancelado&&!p._remover) : [];
+  if (Array.isArray(v.parcelas)&&v.parcelas.length&&!ps.length) return Number(v.entrada)||0;
   if (!ps.length) return CARNE.resumo(v, cfgReajuste(), []).total;
   const soma = ps.reduce((s2, pp) => s2 + (pp.valorDia != null ? Number(pp.valorDia) : Number(pp.valor) || 0), 0);
   return Math.round(((Number(v.entrada) || 0) + soma) * 100) / 100;
+}
+
+// Indicadores comerciais compartilhados: contrato quitado continua sendo lote vendido.
+function resumoComercial(){
+  const contratos=lista('venda').filter(v=>v.situacao!=='distratada');
+  const ls=lotes(),ids=new Set(ls.map(l=>l.id));
+  const vendidos=new Set(contratos.map(v=>v.loteId).filter(id=>ids.has(id)));
+  return {contratos,ativos:contratos.filter(v=>v.situacao!=='quitada').length,quitados:contratos.filter(v=>v.situacao==='quitada').length,
+    vendidos:vendidos.size,totalLotes:ls.length,disponiveis:ls.filter(l=>l.status==='Disponível').length,
+    vgv:contratos.reduce((s,v)=>s+Math.round(totalPlanoVenda(v)*100),0)/100,
+    divergencias:ls.filter(l=>(l.status==='Vendido')!==vendidos.has(l.id)),semLote:contratos.filter(v=>!ids.has(v.loteId))};
+}
+
+// Inadimplência da origem inclui títulos ainda sem lote confirmado.
+function resumoInadimplenciaOmie(){
+  const todos=lista('titulo').filter(t=>t.grupo==='CONTA_A_RECEBER');if(!todos.length)return null;
+  const pendentes=new Set();for(const v of lista('venda'))for(const p of v.parcelas||[])if(p&&!p.conferir&&!p.cancelado)pendentes.add(String(p.tid));
+  const titulos=todos.filter(t=>t.status!=='CANCELADO'&&FINANCEIRO.dataValida(t.venc)&&t.venc<hojeISO()&&Number(t.original?.resumo?.nValAberto)>0).sort((a,b)=>a.venc.localeCompare(b.venc));
+  return {titulos,total:titulos.reduce((s,t)=>s+FINANCEIRO.cent(t.original.resumo.nValAberto),0)/100,
+    semVinculo:titulos.filter(t=>!pendentes.has(String(t.titulo))).reduce((s,t)=>s+FINANCEIRO.cent(t.original.resumo.nValAberto),0)/100};
+}
+function painelInadimplenciaOmie(){
+  const r=resumoInadimplenciaOmie();if(!r)return '<p class="nota">Vencido do Omie: aguardando leitura da origem.</p>';
+  return '<button class="cartao fin-conta" onclick="finAbrirVencidosOmie()"><b>Vencido no Omie · '+r.titulos.length+' títulos</b><div class="num">'+fmt.brl(r.total)+'</div><p>'+fmt.brl(r.semVinculo)+' aguardando confirmação do lote · abrir títulos</p></button>';
 }
 
 // Vendas em atraso por lote (para o "!" no espelho) — só direção/escritório.
@@ -139,11 +164,11 @@ TELAS.espelho = function () {
   const disponiveis = ls.filter((l) => l.status === 'Disponível');
   const disp = disponiveis.length;
   const estoqueRS = disponiveis.reduce((s, l) => s + (Number(l.preco) || 0), 0);
-  const vend = ls.filter((l) => l.status === 'Vendido').length;
+  const comercial=resumoComercial();
+  const vend = comercial.vendidos;
   // MESMA régua da tela Vendas (contratos de pé) — duas telas com números
   // diferentes para "vendido" é briga em reunião.
-  const vgvVendido = lista('venda').filter((v) => v.situacao !== 'distratada')
-    .reduce((s, v) => s + totalPlanoVenda(v), 0);
+  const vgvVendido = comercial.vgv;
   const atrasos = lotesComAtraso();
 
   const filtrados = ls.filter((l) =>
@@ -923,23 +948,23 @@ TELAS.simulador = function () {
 
   const l = f.loteId ? achar('lote', f.loteId) : null;
   const m2 = l ? Number(l.areaM2) || 0 : numeroBR(f.m2);
-  const preco = f.preco !== '' && !l ? numeroBR(f.preco)
+  const preco = f.preco !== '' ? numeroBR(f.preco)
     : (l && l.preco ? Number(l.preco) : m2 * PRECO_POR_M2);
   const entradaP = f.entradaV !== '' ? numeroBR(f.entradaV) : ((S.cfg && S.cfg.entradaPadrao) || 3000);
   const parc = (razao) => Math.round(preco * razao * 100) / 100;
-  const nParc = f.nParc !== '' ? Math.max(1, Math.round(numeroBR(f.nParc))) : 150;
+  const nParc = f.nParc !== '' ? Math.min(1200, Math.max(1, Math.round(numeroBR(f.nParc)))) : 150;
   /* Total pelo MESMO motor do quadro completo (totalDoPlano → CARNE):
      a Reajustada sobe +6% a cada 12 — multiplicar reto subestimava o plano
      e a tabela contradizia o quadro logo abaixo na mesma tela. */
   const linha = (rot, cheia, desc, tipoParc) =>
-    '<tr><td><b>' + rot + '</b></td>' +
+    '<tr tabindex="0" role="button" data-sl-plano="'+(tipoParc==='Fixa'?'fixa':'reaj')+'" class="sl-opcao '+((f.tipo==='reaj')===(tipoParc==='Reajustada')?'selecionada':'')+'"><td><b>' + rot + '</b></td>' +
     '<td class="num">' + fmt.brl(cheia) + '</td>' +
     '<td class="num" style="font-weight:700;color:var(--verde)">' + fmt.brl(desc) + '</td>' +
     '<td class="num">' + fmt.brl(totalDoPlano({ tipo: tipoParc, qtde: nParc, entrada: entradaP, valorParcela: desc }, cfgReajuste())) + '</td></tr>';
 
   app.innerHTML =
-    '<div class="cartao"><h2>🏷️ Simulador <span class="nota">— a tabela oficial na mão; nada é gravado</span></h2>' +
-    '<div class="colunas-3">' +
+    '<div class="cartao"><h2>Simule as condições do lote <span class="nota">Compare os planos e baixe o resultado em PDF.</span></h2>' +
+    '<p class="nota">1. Escolha um lote disponível ou informe a metragem. Os ajustes ficam apenas nesta simulação.</p><div class="colunas-3">' +
       '<div class="campo"><label>Lote do espelho</label><select id="sl-lote"><option value="">— digitar metragem —</option>' +
         disponiveis.map((x) => '<option value="' + esc(x.id) + '"' + (f.loteId === x.id ? ' selected' : '') + '>Q' +
           x.quadra + '-L' + x.lote + ' · ' + (Number(x.areaM2) || 0).toLocaleString('pt-BR') + ' m²</option>').join('') +
@@ -953,14 +978,14 @@ TELAS.simulador = function () {
       ? '<div class="paineis">' +
           '<div class="painel clicavel sl-foca" data-campo-alvo="preco"><div class="rot">Valor do lote</div><div class="num">' + fmt.brl(preco) + '</div>' +
             (m2 ? '<div class="sub">' + m2.toLocaleString('pt-BR') + ' m² × R$ ' + PRECO_POR_M2 + '</div>' : '') + '</div>' +
-          '<div class="painel clicavel sl-foca" data-campo-alvo="m2"><div class="rot">Entrada</div><div class="num">' + fmt.brl(entradaP) + '</div>' +
+          '<div class="painel clicavel sl-foca" data-campo-alvo="entradaV"><div class="rot">Entrada</div><div class="num">' + fmt.brl(entradaP) + '</div>' +
             '<div class="sub">padrão da casa · ' + nParc + ' parcelas</div></div>' +
         '</div>' +
-        '<div class="cartao"><h2>O plano, nas duas réguas</h2>' +
-        '<div class="rolagem"><table class="tabela">' +
+        '<div class="cartao"><h2>2. Compare os planos</h2>' +
+        '<div class="rolagem"><table class="tabela sl-comparacao">' +
         '<thead><tr><th>Tipo</th><th class="num">Boleto (cheio)</th><th class="num">Pagando em dia (−20%)</th><th class="num">Total do plano em dia</th></tr></thead><tbody>' +
         linha('Fixa', parc(RAZAO_PARC.parcFixa), parc(RAZAO_PARC.parcFixaDesc), 'Fixa') +
-        linha('Reajustada 6%', parc(RAZAO_PARC.parcReaj), parc(RAZAO_PARC.parcReajDesc), 'Reajustada') +
+        linha('Reajustada '+(cfgReajuste().pct??6)+'%', parc(RAZAO_PARC.parcReaj), parc(RAZAO_PARC.parcReajDesc), 'Reajustada') +
         '</tbody></table></div>' +
         '<p class="nota">Reajustada: +6% a cada 12 parcelas sobre o valor da parcela — começa menor e sobe com o tempo. ' +
         'Simulação de tabela: não cria orçamento, não reserva e não fica registrada. ' +
@@ -986,7 +1011,7 @@ TELAS.simulador = function () {
           for (let dg = 0; dg < degraus; dg++) {
             const ini2 = dg * (reajustada ? aCada : nParc) + 1;
             const fim2 = reajustada ? Math.min(nParc, (dg + 1) * aCada) : nParc;
-            const emDia = Math.round(parcDia * Math.pow(1 + (reajCfg.pct || 6) / 100, dg) * 100) / 100;
+            const emDia = Math.round(parcDia * Math.pow(1 + (reajCfg.pct ?? 6) / 100, dg) * 100) / 100;
             const cheia = Math.round(emDia / 0.8 * 100) / 100;
             totDia += emDia * (fim2 - ini2 + 1);
             totCheio += cheia * (fim2 - ini2 + 1);
@@ -1002,11 +1027,11 @@ TELAS.simulador = function () {
             '<td class="num" style="white-space:nowrap">' + c2 + '</td>' +
             '<td class="num">' + c3 + '</td>' +
             '<td class="num" style="color:var(--verde);font-weight:700">' + c4 + '</td></tr>';
-          return '<div class="cartao"><h2>📋 Plano de pagamento completo <span class="nota">— ajuste os campos e baixe em PDF; nada é gravado</span></h2>' +
+          return '<div class="cartao"><h2>3. Ajuste e confira o plano completo</h2>' +
             '<div class="colunas-3">' +
               '<div class="campo"><label>Tipo</label><select id="sl-tipo">' +
                 '<option value="fixa"' + (!reajustada ? ' selected' : '') + '>Fixa</option>' +
-                '<option value="reaj"' + (reajustada ? ' selected' : '') + '>Reajustada ' + (reajCfg.pct || 6) + '%</option></select></div>' +
+                '<option value="reaj"' + (reajustada ? ' selected' : '') + '>Reajustada ' + (reajCfg.pct ?? 6) + '%</option></select></div>' +
               campo('Entrada (R$)', entrada('entradaV', entradaP.toFixed(2), { inputmode: 'decimal' }), 'padrão da casa — pode ajustar') +
               campo('Quantas parcelas', entrada('nParc', nParc, { inputmode: 'numeric' })) +
             '</div><div class="colunas-3">' +
@@ -1014,7 +1039,7 @@ TELAS.simulador = function () {
               campo('Parcela em dia (R$)', entrada('parcDia', parcDia.toFixed(2), { inputmode: 'decimal' }),
                 'sugerida pela régua: ' + fmt.brl(parcSugerida)) +
             '</div>' +
-            '<div class="rolagem"><table class="tabela">' +
+            '<div class="sl-resumo"><div><span>Parcela inicial em dia</span><strong>'+fmt.brl(parcDia)+'</strong></div><div><span>Total com pagamentos em dia</span><strong>'+fmt.brl(totDia)+'</strong></div><div><span>Último vencimento</span><strong>'+esc(f.ini?vencDe(nParc):'Informe a data inicial')+'</strong></div></div><div class="rolagem"><table class="tabela sl-plano">' +
             '<thead><tr><th>Faixa</th><th class="num">Vencimentos</th><th class="num">Boleto (cheio)</th><th class="num">Em dia (−20%)</th></tr></thead><tbody>' +
             tr3('<b>Entrada</b>', f.ini ? 'no ato' : '', '', fmt.brl(entradaP)) +
             faixas.map((fx) => tr3(fx.rot, fx.venc, fmt.brl(fx.cheia), fmt.brl(fx.emDia))).join('') +
@@ -1023,8 +1048,10 @@ TELAS.simulador = function () {
             '</tbody></table></div>' +
             '<div class="acoes-linha"><button class="btn primario" id="sl-pdf">📄 Baixar simulação em PDF</button></div></div>';
         })()
-      : '<div class="cartao"><p class="nota">Escolha um lote ou digite a metragem para ver as parcelas.</p></div>');
+      : '<div class="cartao sl-inicio"><h2>Comece por um lote disponível</h2><p>Selecione acima ou abra uma das opções abaixo. Você verá entrada, parcela cheia, valor em dia e todas as faixas até a última parcela.</p><div class="sl-sugestoes">'+disponiveis.slice(0,6).map(x=>'<button class="btn sl-lote-rapido" data-lote="'+esc(x.id)+'"><b>Quadra '+x.quadra+' · Lote '+x.lote+'</b><span>'+Number(x.areaM2||0).toLocaleString('pt-BR')+' m²</span></button>').join('')+'</div><p class="nota">'+disponiveis.length+' lotes disponíveis no seletor. Para um estudo livre, preencha a metragem.</p></div>');
 
+  app.querySelectorAll('[data-sl-plano]').forEach(el=>{el.onclick=()=>{f.tipo=el.dataset.slPlano;f.parcDia='';TELAS.simulador();};el.onkeydown=e=>{if(e.key==='Enter')el.click();};});
+  app.querySelectorAll('.sl-lote-rapido').forEach(el=>el.onclick=()=>{f.loteId=el.dataset.lote;f.preco='';f.parcDia='';TELAS.simulador();});
   app.querySelectorAll('.sl-foca').forEach((el) => {
     el.onclick = () => { const c = app.querySelector('[data-campo="' + el.dataset.campoAlvo + '"]'); if (c) { c.focus(); c.scrollIntoView({ behavior: 'smooth', block: 'center' }); } };
   });
@@ -1032,7 +1059,7 @@ TELAS.simulador = function () {
     f.loteId = e.target.value; f.m2 = ''; f.preco = ''; TELAS.simulador();
   };
   const cm2 = app.querySelector('[data-campo="m2"]');
-  if (cm2) cm2.oninput = (e) => { f.m2 = e.target.value; f.loteId = ''; f.preco = ''; TELAS.simulador(); };
+  if (cm2) cm2.oninput = (e) => { const pos=e.target.selectionStart; f.m2 = e.target.value; f.loteId = ''; f.preco = ''; TELAS.simulador();const novo=app.querySelector('[data-campo="m2"]');novo.focus();novo.setSelectionRange(pos,pos); };
   const cpr = app.querySelector('[data-campo="preco"]');
   if (cpr) cpr.onchange = (e) => { f.preco = e.target.value; TELAS.simulador(); };
   const liga = (id2, ev) => { const el2 = app.querySelector('[data-campo="' + id2 + '"]'); if (el2) el2.onchange = (e) => { f[id2] = e.target.value; TELAS.simulador(); }; };

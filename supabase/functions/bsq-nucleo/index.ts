@@ -460,7 +460,7 @@ Deno.serve(async (req) => {
         if(!titulo || !txt(body.motivo,300))return json({error:"Título e motivo são obrigatórios"},400);
         if(body.decisao==="mesmo") {
           const c=await lerUm("cx",txt(body.manualId,80));
-          if(!c || c.apagadoEm || c.tipo!=="saida" || Math.round(num(c.valor)*100)!==Math.round(num(titulo.original?.resumo?.nValPago)*100))return json({error:"Lançamento e valor não conferem"},400);
+          if(!c || c.apagadoEm || c.tipo!=="saida" || Math.round(num(c.valor)*100)!==Math.round(num(titulo.original?.resumo?.nValLiquido??titulo.original?.resumo?.nValPago)*100))return json({error:"Lançamento e valor não conferem"},400);
           if(c.omie?.titulo && String(c.omie.titulo)!==tid)return json({error:"Lançamento já vinculado a outro título"},409);
           await gravarUm("cx",c.id,{...c,vinculoOmieConfirmado:true,omie:{titulo:tid,original:titulo.original},editadoAMao:true,atualizadoEm:agora(),historico:[...(c.historico||[]),{id:idNovo(),em:agora(),por,acao:"confirmou mesmo movimento Omie",motivo:body.motivo,titulo:tid}]});
           await marcarMudanca("cx");

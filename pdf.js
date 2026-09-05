@@ -647,7 +647,7 @@ const PDF = (() => {
     ];
     const paineis2 = [
       ['A RECEBER (' + d.rotuloHz.toUpperCase() + ')', brl(d.aReceber), [46, 125, 50]],
-      ['VENCIDO A COBRAR', brl(d.vencido), d.vencido ? [198, 40, 40] : [95, 122, 102]],
+      ['VENCIDO NO OMIE', brl(d.vencido), d.vencido ? [198, 40, 40] : [95, 122, 102]],
       ['GASTOS PREVISTOS', brl(d.previsto), [30, 43, 33]],
       ['SALDO PROJETADO', brl(d.aReceber - d.previsto), d.aReceber - d.previsto >= 0 ? [46, 125, 50] : [198, 40, 40]],
     ];
@@ -665,6 +665,7 @@ const PDF = (() => {
       });
       y += 19;
     }
+    if(d.inadimplenciaOmie){doc.setFont('helvetica','normal');doc.setFontSize(9);doc.setTextColor(...CINZA);doc.text('Vencido no Omie: '+brl(d.inadimplenciaOmie.total)+' | Sem lote confirmado: '+brl(d.inadimplenciaOmie.semVinculo),14,y);y+=8;}
     if (d.comissoesAPagar > 0.01) {
       doc.setFont('helvetica', 'normal'); doc.setFontSize(9.5);
       doc.setTextColor(...CINZA);
@@ -677,7 +678,7 @@ const PDF = (() => {
     if (d.aging && d.aging.some((f) => f.rs > 0)) {
       doc.setFont('helvetica', 'bold'); doc.setFontSize(11);
       doc.setTextColor(30, 43, 33);
-      doc.text('Inadimplência por idade', 14, y);
+      doc.text('Inadimplência das fichas confirmadas por idade', 14, y);
       y += 6;
       const colsA = [
         { t: 'Vencido há', x: 14 }, { t: 'Valor', x: 120, alinha: 'right' },
@@ -686,7 +687,7 @@ const PDF = (() => {
       const linhasA = d.aging.map((f) => [f.rotulo,
         f.rs ? { t: brl(f.rs), cor: [198, 40, 40] } : '—',
         f.parcelas || '—', f.contratos || '—']);
-      linhasA.push([{ t: 'TOTAL', negrito: true }, { t: brl(d.vencido), negrito: true, cor: [198, 40, 40] },
+      linhasA.push([{ t: 'TOTAL', negrito: true }, { t: brl(d.aging.reduce((s,f)=>s+f.rs,0)), negrito: true, cor: [198, 40, 40] },
         { t: String(d.aging.reduce((s, f) => s + f.parcelas, 0)), negrito: true }, '']);
       y = tabelaPaginada(doc, colsA, linhasA, y, rod) + 6;
     }

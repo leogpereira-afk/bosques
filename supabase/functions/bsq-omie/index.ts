@@ -375,7 +375,7 @@ Deno.serve(async (req) => {
                     tid: d.nCodTitulo, venc: brParaISO(d.dDtVenc), valor: cheio,
                     valorDia: cheio, descontoConfirmado: false,
                     pago: recebido ? brParaISO(d.dDtPagamento) : null,
-                    pagoValor: recebido ? (Number(res.nValPago) || cheio) : null,
+                    pagoValor: recebido ? Number(res.nValLiquido ?? res.nValPago) : null,
                     pagoOrigem: recebido ? "omie" : null,
                     liquidacao:{desconto:Number(res.nDesconto)||0,juros:Number(res.nJuros)||0,multa:Number(res.nMulta)||0,saldoOrigem:res.nValAberto},
                     ...(conferirT ? { conferir: true } : {}),
@@ -394,7 +394,7 @@ Deno.serve(async (req) => {
                 const dataPagto = brParaISO(d.dDtPagamento);
                 if (!dataPagto || dataPagto < corte) { soma("recAntesDoCorte"); continue; }
 
-                const valor = Number(res.nValPago) || 0;
+                const valor = Math.round(Number(res.nValLiquido ?? (Number(res.nValPago||0)-Number(res.nDesconto||0)+Number(res.nJuros||0)+Number(res.nMulta||0)))*100)/100;
                 if (existente && existente.apagadoEm && existente.apagadoPor !== "omie") {
                   // Uma PESSOA mandou este espelho para a lixeira (estorno
                   // local = lixeira + relançar): a sync respeita e não
@@ -422,6 +422,9 @@ Deno.serve(async (req) => {
                   omie: { original: {detalhes:d,resumo:res}, titulo: d.nCodTitulo, venc: brParaISO(d.dDtVenc), cpf, parcela: d.cNumParcela || "" },
                   criadoEm: existente?.criadoEm || agora(), criadoPor: existente?.criadoPor || "omie", atualizadoEm:agora(),
                 };
+                // Uma alocação integral do próprio título acompanha o valor líquido;
+                // distribuições manuais entre parcelas continuam explícitas.
+                if(existente?.alocacoes?.length===1&&String(existente.alocacoes[0].tid)===String(d.nCodTitulo)&&centavos(existente.alocacoes[0].valor)===centavos(existente.valor))registro.alocacoes=[{tid:String(d.nCodTitulo),valor}];
                 if (existente?.ajustes) for (const k of ["data","forma"]) {
                   if (existente.ajustes[k] != null) registro[k] = existente.ajustes[k];
                 }
@@ -456,7 +459,7 @@ Deno.serve(async (req) => {
                   historico:[...(jaCx.historico||[]),{em:agora(),por:"omie",acao:"pagamento não liquidado na origem",status:d.cStatus}]}});
                 continue;
               }
-              const valor = Number(res.nValPago) || 0;
+              const valor = Math.round(Number(res.nValLiquido ?? (Number(res.nValPago||0)-Number(res.nDesconto||0)+Number(res.nJuros||0)+Number(res.nMulta||0)))*100)/100;
               const dataPagto = brParaISO(d.dDtPagamento);
               if (!dataPagto) { pendNovas.push({titulo:d.nCodTitulo,valor,tipo:"sem_data",categoria:"pagamento sem data na origem"}); continue; }
               if (jaCx && jaCx.apagadoEm && jaCx.apagadoPor !== "omie") {

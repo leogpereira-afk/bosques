@@ -14,7 +14,7 @@ function finDiferencas(ctx=finIndices()){
   const out=[];
   for(const t of ctx.titulos){
     const col=t.grupo==='CONTA_A_RECEBER'?'rec':'cx', locais=ctx.pagamentos[col].get(String(t.titulo))||[];
-    const fonte=t.status==='CANCELADO'?0:FINANCEIRO.cent(t.pago),local=locais.reduce((s,r)=>s+FINANCEIRO.cent(r.valor),0);
+    const fonte=t.status==='CANCELADO'?0:FINANCEIRO.cent(t.original?.resumo?.nValLiquido??t.pago),local=locais.reduce((s,r)=>s+FINANCEIRO.cent(r.valor),0);
     const data=finDataOrigem(t.original?.detalhes?.dDtPagamento)||t.venc;
     if(fonte!==local)out.push({id:'valor-'+t.id,data,valor:(fonte-local)/100,valorOmie:fonte/100,valorSistema:local/100,descricao:(col==='rec'?'Recebimento':'Despesa')+' · título '+t.titulo,situacao:!locais.length?'Consta no Omie, sem lançamento correspondente':'Valor diferente do Omie',titulo:t,origemDiferenca:true,pendente:true});
     else if(locais.length&&data&&locais.some(r=>r.data!==data))out.push({id:'data-'+t.id,data,valor:0,valorOmie:fonte/100,valorSistema:local/100,descricao:'Título '+t.titulo,situacao:'Data diferente da origem',titulo:t,origemDiferenca:true,pendente:true});
@@ -52,7 +52,10 @@ function finLinhas(aba,ctx=finIndices()){
   if(aba==='pendencias')return finPendencias(ctx);
   if(aba==='recebimentos')return lista('rec').map(r=>({...r,rec:r,descricao:(ctx.porVenda.get(r.vendaId)?.clienteNome||r.codigo||'Recebimento sem lote'),situacao:r.vendaId?'Q'+(ctx.porVenda.get(r.vendaId)?.quadra||'?')+' · L'+(ctx.porVenda.get(r.vendaId)?.lote||'?'):'Sem lote vinculado',pendente:!r.vendaId,centroCusto:r.centroCusto||''}));
   if(aba==='despesas')return cxVivos().filter(c=>c.tipo==='saida').map(c=>({...c,cx:c,descricao:c.descricao||'Despesa',situacao:c.centroCusto||'Sem centro de custo',pendente:!c.centroCusto}));
-  if(aba==='receber')return ctx.vendas.flatMap(v=>resumoVenda(v).carne.map(p=>({...p,id:v.id+'-'+p.tid,data:p.venc,valor:p.saldo??Math.max(0,p.valor-p.pago),descricao:(v.clienteNome||'Cliente')+' · Q'+v.quadra+' L'+v.lote+' · '+p.rotulo,vendaId:v.id,parcela:p.n-1,pendente:p.conferir||p.descontoPendente}))).filter(p=>p.situacao!=='paga');
+  if(aba==='receber')return ctx.titulos.filter(t=>t.grupo==='CONTA_A_RECEBER'&&t.status!=='CANCELADO'&&Number(t.original?.resumo?.nValAberto)>0).map(t=>{
+    const vinculos=ctx.porParcela.get(String(t.titulo))||[],vinc=vinculos.find(x=>!x.p.conferir),v=vinc?.v;
+    return {id:t.id,data:t.venc,valor:Number(t.original.resumo.nValAberto),descricao:(v?v.clienteNome+' · Q'+v.quadra+' L'+v.lote:'Título Omie '+t.titulo),situacao:v?'Lote confirmado':'Sem lote confirmado',centroCusto:vinc?.p.centroCusto||'',pendente:!v,...(v?{vendaId:v.id,parcela:vinc.i}:{titulo:t})};
+  });
   if(aba==='pagar'){
     const manuais=lista('obrigacao').map(o=>{const pago=cxVivos().filter(c=>c.obrigacaoId===o.id).reduce((s,c)=>s+FINANCEIRO.cent(c.valor),0);return {...o,obrigacao:o,data:o.venc,valor:Math.max(0,FINANCEIRO.cent(o.valor)-pago)/100,situacao:o.centroCusto||'Sem centro de custo',pendente:!o.centroCusto};});
     const omie=ctx.titulos.filter(t=>t.grupo==='CONTA_A_PAGAR'&&t.status!=='CANCELADO').map(t=>({...t,data:t.ajustes?.venc||t.venc,valor:Math.max(0,t.ajustes?.valor!=null?Number(t.ajustes.valor)-Number(t.pago||0):Number(t.original?.resumo?.nValAberto??(t.valor-t.pago))),descricao:'Título Omie '+t.titulo,situacao:t.centroCusto||'Sem centro de custo',pendente:!t.centroCusto,titulo:t}));
@@ -88,12 +91,13 @@ TELAS.financeiro=function(){
   if(f.aba==='pendencias')html+='<p class="nota">A soma das pendências não representa dívida adicional: o mesmo recebimento pode exigir mais de uma conferência.</p>';
   if(f.aba==='centros'){app.innerHTML=html+finTelaCentros();finLigarCentros(app);app.querySelectorAll('[data-fin-aba]').forEach(b=>b.onclick=()=>{f.aba=b.dataset.finAba;f.grupo='';f.centro='';f.pagina=0;TELAS.financeiro();});return;}
   if(f.aba==='visao') {
+    html+=painelInadimplenciaOmie();
     const recebido=lista('rec').reduce((s,r)=>s+FINANCEIRO.cent(r.valor),0)/100;
     const aReceber=finLinhas('receber',ctx), pagar=finLinhas('pagar',ctx),diff=finDiferencas(ctx);
     html+='<div class="fin-status">'+(!ctx.titulos.length?'A origem Omie ainda não foi carregada. Sincronize antes de conferir.':diff.length?diff.length+' diferenças identificadas com o Omie. Confira na aba dedicada.':'Valores comparados por título sem diferenças nesta leitura. Confira também os vínculos e a cobertura da sincronização.')+'</div>'; 
     const saldo=totaisAcumulados();
     html+='<div class="paineis">'+[
-      ['recebimentos','Recebimentos registrados',recebido],['receber','Saldo de parcelas identificadas',aReceber.filter(x=>!x.pendente).reduce((s,x)=>s+x.valor,0)],
+      ['recebimentos','Recebimentos registrados',recebido],['receber','Saldo aberto no Omie',aReceber.reduce((s,x)=>s+x.valor,0)],
       ['pagar','Contas a pagar pendentes',pagar.reduce((s,x)=>s+x.valor,0)],['diferencas','Diferenças com Omie',diff.length],['pendencias','Itens para conferir',finPendencias(ctx).length]
     ].map(([aba,nome,valor])=>'<button class="painel clicavel" data-fin-aba="'+aba+'"><span class="rot">'+nome+'</span><b class="num">'+(['pendencias','diferencas'].includes(aba)?valor:fmt.brl(valor))+'</b></button>').join('')+'</div>';
     const pend=finPendencias(ctx);
@@ -164,19 +168,19 @@ async function finConta(c={}){
   let bancos=[];try{bancos=(await saldoBancosOmie()).contas||[];}catch(e){toast('Não foi possível consultar as contas Omie agora','aviso');}
   abrirModal({titulo:'Conta financeira',corpo:campo('Nome',entrada('nome',c.nome||''))+campo('Conta correspondente no Omie',seletor('omieId',c.omieId||'',bancos.map(b=>({v:String(b.id),t:b.nome})),'Sem vínculo'))+campo('Saldo de abertura (R$)',entrada('saldoInicial',c.saldoInicial||0,{inputmode:'decimal'}))+campo('Data inicial dos lançamentos (saldo ao início deste dia)',entrada('dataInicial',c.dataInicial||'',{tipo:'date'})),acoes:[{texto:'Voltar',aoClicar:fecharModal},{texto:'Salvar',classe:'primario',aoClicar:f=>{const x=lerCampos(f);if(!x.nome||!FINANCEIRO.dataValida(x.dataInicial)){toast('Nome e data inicial obrigatórios','ruim');return;}salvar('conta',{...c,...x,saldoInicial:numeroBR(x.saldoInicial),historico:historiar(c,'alterou conta e saldo de abertura')});fecharModal();TELAS.financeiro();}}]});
 }
-function finEditarRecebimento(r){
+function finEditarRecebimento(r,aoTerminar){
   const contas=lista('conta').map(c=>({v:c.id,t:c.nome}));
   const v=achar('venda',r.vendaId); const parcelas=v?resumoVenda(v).carne:[];
   const alocacoesIniciais=Array.isArray(r.alocacoes)?r.alocacoes:(r.omie?.titulo&&parcelas.some(p=>String(p.tid)===String(r.omie.titulo))?[{tid:String(r.omie.titulo),valor:r.valor}]:[]);
-  abrirModal({titulo:'Recebimento '+(r.codigo||r.id),corpo:'<button type="button" class="btn" id="fin-vincular-pagamento">Vincular / corrigir lote</button><p>'+fmt.brl(r.valor)+' em '+esc(r.data||'sem data')+'. O valor original é preservado.</p>'+campo('Conta financeira',seletor('contaId',r.contaId||'',contas,'Selecione'))+campo('Forma confirmada',seletor('forma',r.forma||'',(S.cfg&&S.cfg.formasPg)||['PIX','Dinheiro','Boleto','Cartão','Permuta'],'Não informada'))+(v?'<p>Distribua o valor recebido nas parcelas abaixo.</p><div style="max-height:320px;overflow:auto">'+parcelas.map((p,i)=>campo(p.rotulo+' · '+(p.venc||'Sem data')+' · saldo '+fmt.brl(p.saldo||0),entrada('alloc_'+i,(alocacoesIniciais.find(a=>String(a.tid)===String(p.tid))||{}).valor||'',{inputmode:'decimal'}))).join('')+'</div>':'<p>Associe a venda pela lista de recebimentos pendentes.</p><button type="button" class="btn" id="fin-vincular-solto">Escolher a venda</button>')+campo('Motivo da correção',entrada('motivo','')),acoes:[{texto:'Voltar',aoClicar:fecharModal},{texto:'Salvar correção',classe:'primario',aoClicar:f=>{const c=lerCampos(f);if(!c.motivo){toast('Informe o motivo','ruim');return;}let alocacoes=r.alocacoes;if(v){alocacoes=parcelas.map((p,i)=>({tid:String(p.tid),valor:numeroBR(c['alloc_'+i])})).filter(a=>a.valor!==0);if(alocacoes.some(a=>a.valor<=0||!resumoVenda(v).carne.some(p=>String(p.tid)===a.tid))||alocacoes.reduce((s,a)=>s+FINANCEIRO.cent(a.valor),0)>FINANCEIRO.cent(r.valor)){toast('Confira parcelas e valores. A soma não pode superar o recebido.','ruim');return;}}salvar('rec',{...r,contaId:c.contaId,forma:c.forma,alocacoes,ajustes:{...(r.ajustes||{}),forma:c.forma},editadoAMao:true,historico:historiar(r,c.motivo)});fecharModal();TELAS.financeiro();}}]});
-  const linkLote=document.getElementById('fin-vincular-pagamento');if(linkLote)linkLote.onclick=()=>{fecharModal();finVincularPagamento(r);};
-  const vincular=document.getElementById('fin-vincular-solto');if(vincular)vincular.onclick=()=>{fecharModal();finVincularPagamento(r);};
+  abrirModal({titulo:'Recebimento '+(r.codigo||r.id),corpo:'<button type="button" class="btn" id="fin-vincular-pagamento">Vincular / corrigir lote</button><p>'+fmt.brl(r.valor)+' em '+esc(r.data||'sem data')+'. O valor original é preservado.</p>'+campo('Conta financeira',seletor('contaId',r.contaId||'',contas,'Selecione'))+campo('Forma confirmada',seletor('forma',r.forma||'',(S.cfg&&S.cfg.formasPg)||['PIX','Dinheiro','Boleto','Cartão','Permuta'],'Não informada'))+(v?'<p>Distribua o valor recebido nas parcelas abaixo.</p><div style="max-height:320px;overflow:auto">'+parcelas.map((p,i)=>campo(p.rotulo+' · '+(p.venc||'Sem data')+' · saldo '+fmt.brl(p.saldo||0),entrada('alloc_'+i,(alocacoesIniciais.find(a=>String(a.tid)===String(p.tid))||{}).valor||'',{inputmode:'decimal'}))).join('')+'</div>':'<p>Associe a venda pela lista de recebimentos pendentes.</p><button type="button" class="btn" id="fin-vincular-solto">Escolher a venda</button>')+campo('Motivo da correção',entrada('motivo','')),acoes:[{texto:'Voltar',aoClicar:fecharModal},{texto:'Salvar correção',classe:'primario',aoClicar:f=>{const c=lerCampos(f);if(!c.motivo){toast('Informe o motivo','ruim');return;}let alocacoes=r.alocacoes;if(v){alocacoes=parcelas.map((p,i)=>({tid:String(p.tid),valor:numeroBR(c['alloc_'+i])})).filter(a=>a.valor!==0);if(alocacoes.some(a=>a.valor<=0||!resumoVenda(v).carne.some(p=>String(p.tid)===a.tid))||alocacoes.reduce((s,a)=>s+FINANCEIRO.cent(a.valor),0)>FINANCEIRO.cent(r.valor)){toast('Confira parcelas e valores. A soma não pode superar o recebido.','ruim');return;}}salvar('rec',{...r,contaId:c.contaId,forma:c.forma,alocacoes,ajustes:{...(r.ajustes||{}),forma:c.forma},editadoAMao:true,historico:historiar(r,c.motivo)});fecharModal();(aoTerminar||TELAS.financeiro)();}}]});
+  const linkLote=document.getElementById('fin-vincular-pagamento');if(linkLote)linkLote.onclick=()=>{fecharModal();finVincularPagamento(r,aoTerminar);};
+  const vincular=document.getElementById('fin-vincular-solto');if(vincular)vincular.onclick=()=>{fecharModal();finVincularPagamento(r,aoTerminar);};
 }
 
-function finVincularTitulo(t) {
+function finVincularTitulo(t,aoTerminar) {
   const cpf=String(t.cpf||'').replace(/\D/g,'');
   const vendas=lista('venda').filter(v=>v.situacao!=='distratada'&&String(v.clienteId||'').replace(/\D/g,'')===cpf);
-  abrirModal({titulo:'Associar título à venda correta',corpo:'<p>Escolha a venda após conferir o documento. O vínculo atual e o novo ficam no histórico.</p>'+campo('Venda',seletor('vendaId','',vendas.map(v=>({v:v.id,t:(v.codigo||'')+' · '+(v.clienteNome||'')+' · Q'+v.quadra+' L'+v.lote})),'Selecione'))+campo('Motivo / documento conferido',entrada('motivo','')),acoes:[{texto:'Voltar',aoClicar:fecharModal},{texto:'Confirmar vínculo',classe:'primario',aoClicar:async f=>{const c=lerCampos(f);if(!c.vendaId||!c.motivo){toast('Escolha a venda e informe a conferência realizada','ruim');return;}try{await api('vincularTitulo',{titulo:String(t.titulo),vendaId:c.vendaId,motivo:c.motivo});await puxar();fecharModal();TELAS.financeiro();}catch(e){toast(e.message,'ruim');}}}]});
+  abrirModal({titulo:'Associar título à venda correta',corpo:'<p>Escolha a venda após conferir o documento. O vínculo atual e o novo ficam no histórico.</p>'+campo('Venda',seletor('vendaId','',vendas.map(v=>({v:v.id,t:(v.codigo||'')+' · '+(v.clienteNome||'')+' · Q'+v.quadra+' L'+v.lote})),'Selecione'))+campo('Motivo / documento conferido',entrada('motivo','')),acoes:[{texto:'Voltar',aoClicar:fecharModal},{texto:'Confirmar vínculo',classe:'primario',aoClicar:async f=>{const c=lerCampos(f);if(!c.vendaId||!c.motivo){toast('Escolha a venda e informe a conferência realizada','ruim');return;}try{await api('vincularTitulo',{titulo:String(t.titulo),vendaId:c.vendaId,motivo:c.motivo});await puxar();fecharModal();(aoTerminar||TELAS.financeiro)();}catch(e){toast(e.message,'ruim');}}}]});
 }
 
 function finResolverDuplicidade(p){
@@ -199,13 +203,13 @@ function finEditarTitulo(t){
 }
 function finDetalheDiferenca(x){
   const ctx=finIndices(),t=x.titulo, col=t.grupo==='CONTA_A_RECEBER'?'rec':'cx';const locais=ctx.pagamentos[col].get(String(t.titulo))||[];
-  abrirModal({titulo:'Conferência · título '+t.titulo,corpo:'<p>'+esc(x.situacao)+'</p><div class="paineis"><div class="painel"><span class="rot">Omie</span><b class="num">'+fmt.brl(x.valorOmie||0)+'</b></div><div class="painel"><span class="rot">Sistema</span><b class="num">'+fmt.brl(x.valorSistema||0)+'</b></div></div><p>Identifique o motivo antes de corrigir. O documento original do Omie é preservado.</p>'+locais.map((r,i)=>'<button class="btn" data-diff-local="'+i+'">Abrir '+esc(r.codigo||r.descricao||'lançamento')+'</button>').join(''),acoes:[{texto:'Fechar',aoClicar:fecharModal},{texto:col==='rec'?'Vincular ao lote':'Conferir parcela / centro de custo',classe:'primario',aoClicar:()=>{fecharModal();col==='rec'?finVincularTitulo(t):finEditarTitulo(t);}}]});
+  abrirModal({titulo:'Conferência · título '+t.titulo,corpo:'<p>'+esc(x.situacao)+'</p><div class="paineis"><div class="painel"><span class="rot">Omie</span><b class="num">'+fmt.brl(x.valorOmie||0)+'</b></div><div class="painel"><span class="rot">Sistema</span><b class="num">'+fmt.brl(x.valorSistema||0)+'</b></div></div><p>Identifique o motivo antes de corrigir. O documento original do Omie é preservado.</p>'+locais.map((r,i)=>'<button class="btn" data-diff-local="'+i+'">Abrir '+esc(r.codigo||r.descricao||'lançamento')+'</button>').join(''),acoes:[{texto:'Fechar',aoClicar:fecharModal},...(col==='cx'&&!locais.length?[{texto:'Vincular despesa existente',aoClicar:()=>{fecharModal();const candidatos=cxVivos().filter(c=>c.tipo==='saida'&&!c.omie?.titulo&&FINANCEIRO.cent(c.valor)===FINANCEIRO.cent(x.valorOmie)).map(c=>c.id);finResolverDuplicidade({titulo:t.titulo,candidatos});}}]:[]),{texto:col==='rec'?'Vincular ao lote':'Conferir parcela / centro de custo',classe:'primario',aoClicar:()=>{fecharModal();col==='rec'?finVincularTitulo(t):finEditarTitulo(t);}}]});
   document.querySelectorAll('[data-diff-local]').forEach(b=>b.onclick=()=>{const r=locais[Number(b.dataset.diffLocal)];fecharModal();col==='rec'?finEditarRecebimento(r):abrirEdicaoLancamento(r.id,()=>TELAS.financeiro());});
 }
-function finVincularPagamento(r){
-  if(r.omie?.titulo)return finVincularTitulo({titulo:r.omie.titulo,cpf:r.omie.cpf||achar('venda',r.vendaId)?.clienteId});
+function finVincularPagamento(r,aoTerminar){
+  if(r.omie?.titulo)return finVincularTitulo({titulo:r.omie.titulo,cpf:r.omie.cpf||achar('venda',r.vendaId)?.clienteId},aoTerminar);
   const vs=lista('venda').filter(v=>v.situacao!=='distratada');
-  abrirModal({titulo:'Vincular pagamento a um lote',corpo:campo('Cliente e lote',seletor('vendaId',r.vendaId||'',vs.map(v=>({v:v.id,t:(v.clienteNome||'Cliente')+' · Q'+v.quadra+' L'+v.lote})),'Selecione'))+'<p>Após escolher o lote, distribua o pagamento pelas parcelas na ficha do recebimento.</p>'+campo('Motivo da associação',entrada('motivo','')),acoes:[{texto:'Voltar',aoClicar:fecharModal},{texto:'Vincular',classe:'primario',aoClicar:async f=>{const c=lerCampos(f);try{await api('vincularRecebimento',{id:r.id,...c});await puxar();fecharModal();finEditarRecebimento(achar('rec',r.id));}catch(e){toast(e.message,'ruim');}}}]});
+  abrirModal({titulo:'Vincular pagamento a um lote',corpo:campo('Cliente e lote',seletor('vendaId',r.vendaId||'',vs.map(v=>({v:v.id,t:(v.clienteNome||'Cliente')+' · Q'+v.quadra+' L'+v.lote})),'Selecione'))+'<p>Após escolher o lote, distribua o pagamento pelas parcelas na ficha do recebimento.</p>'+campo('Motivo da associação',entrada('motivo','')),acoes:[{texto:'Voltar',aoClicar:fecharModal},{texto:'Vincular',classe:'primario',aoClicar:async f=>{const c=lerCampos(f);try{await api('vincularRecebimento',{id:r.id,...c});await puxar();fecharModal();finEditarRecebimento(achar('rec',r.id),aoTerminar);}catch(e){toast(e.message,'ruim');}}}]});
 }
 
 const FIN_GRUPOS={outros:'Despesas sem categoria',corretores:'Comissões sem corretor',cronograma:'Despesas de obra sem etapa','rec-omie':'Recebimentos sem lote','centro':'Despesas sem centro de custo'};
@@ -219,7 +223,15 @@ function finPertenceGrupo(x,grupo){
   if(grupo==='centro')return !c.centroCusto;
   return false;
 }
-function finAbrirPendenciasGrupo(grupo){
-  TELAS._fin={aba:'pendencias',grupo,ano:'',mes:'',q:'',pagina:0};
-  if(location.hash==='#/financeiro')TELAS.financeiro();else location.hash='#/financeiro';
+function finAbrirPendenciasGrupo(grupo,pagina=0){
+  const itens=finPendencias().filter(x=>finPertenceGrupo(x,grupo)).sort((a,b)=>String(a.data||'9999').localeCompare(String(b.data||'9999')));
+  const pg=Math.max(0,Math.min(pagina,Math.ceil(itens.length/40)-1)),vis=itens.slice(pg*40,pg*40+40);
+  abrirModal({titulo:FIN_GRUPOS[grupo]+' · '+itens.length,corpo:'<p>Abra uma linha para editar. Após salvar, você retorna a esta lista.</p><div class="fin-fila">'+vis.map((x,i)=>'<button class="lin fin-fila-item" data-fila-item="'+i+'"><b>'+(pg*40+i+1)+'. '+esc(x.descricao)+'</b><span>'+esc(x.data||'Sem data')+' · '+fmt.brl(x.valor)+'</span><small>'+esc(x.situacao)+'</small></button>').join('')+(itens.length?'':'<p>Todos os vínculos deste grupo foram resolvidos.</p>')+'</div>',acoes:[{texto:'Fechar',aoClicar:fecharModal},...(pg>0?[{texto:'Anterior',aoClicar:()=>{fecharModal();finAbrirPendenciasGrupo(grupo,pg-1);}}]:[]),...((pg+1)*40<itens.length?[{texto:'Próximas',aoClicar:()=>{fecharModal();finAbrirPendenciasGrupo(grupo,pg+1);}}]:[])]});
+  document.querySelectorAll('[data-fila-item]').forEach(b=>b.onclick=()=>{const x=vis[Number(b.dataset.filaItem)];fecharModal();const voltar=()=>{if(typeof render==='function')render();finAbrirPendenciasGrupo(grupo,pg);};if(x.rec)finEditarRecebimento(x.rec,voltar);else if(grupo==='corretores')abrirAssociarComissao(x.cx.id,voltar);else abrirEdicaoLancamento(x.cx.id,voltar);});
+}
+
+function finAbrirVencidosOmie(){
+  const r=resumoInadimplenciaOmie();if(!r)return;
+  abrirModal({titulo:'Títulos vencidos no Omie · '+fmt.brl(r.total),corpo:'<p>Valores da origem, inclusive os títulos cujo lote ainda precisa ser confirmado. Ajustes locais ficam na aba Diferenças com Omie.</p>'+r.titulos.map((t,i)=>'<button class="lin fin-fila-item" data-vencido-omie="'+i+'"><b>'+(i+1)+'. Título '+t.titulo+'</b><span>'+esc(t.venc)+' · '+fmt.brl(t.original.resumo.nValAberto)+'</span></button>').join(''),acoes:[{texto:'Fechar',aoClicar:fecharModal}]});
+  document.querySelectorAll('[data-vencido-omie]').forEach(b=>b.onclick=()=>{const t=r.titulos[Number(b.dataset.vencidoOmie)];fecharModal();finVincularTitulo(t,()=>{if(typeof render==='function')render();finAbrirVencidosOmie();});});
 }

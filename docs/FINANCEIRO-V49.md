@@ -21,3 +21,13 @@ Em Centros de custo, cadastre ou renomeie. A renomeação acompanha os vínculos
 Testes de pagamentos parciais, estornos, desconto, vínculo transacional, renomeação e rejeição de centro duplicado. Revisão das 15 telas em 1440 e 390 pixels e das abas financeiras até 320 pixels. Testes usam cópias privadas ou dados fictícios, sem gravar no ERP.
 
 A conclusão da sincronização não significa conciliação integral: vínculos, classificações e correspondências pendentes permanecem identificados.
+
+## Revisão 51: simulador e auditoria
+
+O simulador permite escolher lote, comparar planos, editar preço e entrada e conferir todas as faixas. No celular, as linhas viram cartões para manter os valores visíveis.
+
+As filas de pendências permitem editar no mesmo contexto, sem mudar de aba. O valor de caixa da integração utiliza `resumo.nValLiquido` (pago menos desconto, mais juros e multa), preservando `nValPago` no original. Valores em aberto são obtidos de `nValAberto`. Isso impede tratar encargos de um título liquidado como nova dívida.
+
+Fonte técnica: https://app.omie.com.br/api/v1/financas/mf/
+
+Os indicadores comerciais distinguem contratos ativos, quitados e lotes vendidos. Um contrato quitado continua ocupando um lote vendido. A origem de cada indicador é explícita; pendências de vínculo não são escondidas no total do Omie.

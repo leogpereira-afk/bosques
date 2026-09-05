@@ -162,14 +162,14 @@ TELAS.home = function () {
   const propsQuentes = lista('prop').filter((p) => (p.situacao || 'enviada') === 'enviada' &&
     (p.eventos || []).some((e) => e.tipo === 'interesse'));
 
-  app.innerHTML =
+  app.innerHTML = painelInadimplenciaOmie()+
     '<div class="paineis">' +
       '<div class="painel clicavel" data-vai="caixa"><div class="rot">Entradas · ' + nomeMes(mes) + '</div>' +
         '<div class="num pos">' + fmt.brl(t.entradas) + '</div></div>' +
       '<div class="painel clicavel" data-vai="caixa"><div class="rot">Saídas · ' + nomeMes(mes) + '</div><div class="num">' + fmt.brl(t.saidas) + '</div></div>' +
       '<div class="painel clicavel" data-vai="caixa"><div class="rot">Resultado do mês</div>' +
         '<div class="num ' + (t.resultado >= 0 ? 'pos' : 'neg') + '">' + fmt.brl(t.resultado) + '</div></div>' +
-      '<div class="painel clicavel" data-vai="vendas"><div class="rot">Em atraso</div>' +
+      '<div class="painel clicavel" data-vai="vendas"><div class="rot">Atraso nas fichas confirmadas</div>' +
         '<div class="num' + (comAtraso.length ? ' neg' : ' pos') + '">' + fmt.brl(totalAtraso) + '</div>' +
         '<div class="sub">' + comAtraso.length + ' contrato(s)</div></div>' +
     '</div>' +
