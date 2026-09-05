@@ -27,47 +27,7 @@ function resumoVenda(v) {
     r.qtdAtraso = 0; r.emAtraso = 0; r.semEspelho = true;
     return r;
   }
-  const hoje = hojeISO();
-  const cent = (x) => Math.round(x * 100) / 100;
-  const carne = ps.map((pp, i) => {
-    const situacao = pp.pago ? 'paga' : (pp.venc < hoje ? 'atrasada' : pp.venc === hoje ? 'hoje' : 'aberta');
-    return {
-      n: i + 1, venc: pp.venc || '', valor: Number(pp.valor) || 0,
-      valorDia: pp.valorDia != null ? Number(pp.valorDia) : null,
-      pago: pp.pago ? (Number(pp.pagoValor) || Number(pp.valor) || 0) : 0,
-      pagoEm: pp.pago || null, situacao, tid: pp.tid || null,
-      trava: !!pp.trava, conferir: !!pp.conferir, obs: pp.obs || '',
-      rotulo: (i + 1) + 'ª' + (pp.tid ? '' : ' ✍️'),
-    };
-  });
-  /* RÉGUA ÚNICA DA FICHA: Contrato − Pago = Saldo tem que fechar, tudo EM DIA.
-     Misturar boleto cheio (total/saldo) com dinheiro real (pago, normalmente
-     80%) fazia venda quitada em dia mostrar "pagou 80%" e a subtração nunca
-     bater. Cheio só aparece rotulado (coluna "Boleto" e "Em atraso"). */
-  const total = totalPlanoVenda(v); // entrada + parcelas em dia
-  const entradaRS = cent(Number(v.entrada) || 0);
-  const recsEntrada = recsDaVenda(v.id).filter((rc) => rc.tipo === 'entrada');
-  // Sem rec de entrada nenhum = entrada recebida no ato (regra da casa: sinal
-  // à vista; o Omie não emite boleto de entrada, então rec dela só nasce à mão).
-  // Com rec, vale o que foi registrado (entrada parcelada/parcial de verdade).
-  const entradaPaga = recsEntrada.length
-    ? cent(recsEntrada.reduce((s2, rc) => s2 + (Number(rc.valor) || 0), 0))
-    : entradaRS;
-  const pago = cent(carne.reduce((s2, l) => s2 + l.pago, 0) + Math.min(entradaPaga, entradaRS));
-  const atrasadas = carne.filter((l) => l.situacao === 'atrasada');
-  // Atrasada deve o boleto CHEIO — o desconto de pontualidade já se perdeu.
-  const emAtraso = cent(atrasadas.reduce((s2, l) => s2 + l.valor, 0));
-  const proxima = carne.find((l) => ['aberta', 'hoje'].includes(l.situacao)) || null;
-  const abertas = carne.filter((l) => !l.pagoEm);
-  return {
-    carne, total, pago, sobra: 0,
-    // Saldo em dia: o que falta pagando em dia (abertas × valorDia + entrada em aberto).
-    saldo: cent(abertas.reduce((s2, l) => s2 + (l.valorDia != null ? l.valorDia : l.valor), 0) +
-      Math.max(0, entradaRS - entradaPaga)),
-    qtdAtraso: atrasadas.length, emAtraso, proxima,
-    quitada: carne.length > 0 && abertas.length === 0 && entradaPaga >= entradaRS - 0.01,
-    espelhoOmie: true,
-  };
+  return FINANCEIRO.resumo(v, recsDaVenda(v.id), hojeISO());
 }
 
 // O valor do plano (VGV): pagando sempre em dia — entrada + parcelas com desconto.

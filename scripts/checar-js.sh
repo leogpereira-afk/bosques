@@ -6,7 +6,7 @@ ok=0
 # Sem argumentos = confere TODOS os .js do app (chamar sem args e "passar"
 # era mentira: o laço nem rodava e o exit era 0).
 ARQS=("$@")
-if [ ${#ARQS[@]} -eq 0 ]; then ARQS=(config.js ui.js store.js carne.js pdf.js espelho.js vendas.js caixa.js cadastros.js cronograma.js apresentacao.js contratos.js omie.js app.js sw.js); fi
+if [ ${#ARQS[@]} -eq 0 ]; then ARQS=(config.js ui.js store.js carne.js financeiro-core.js financeiro.js pdf.js espelho.js vendas.js caixa.js cadastros.js cronograma.js apresentacao.js contratos.js omie.js app.js sw.js); fi
 for f in "${ARQS[@]}"; do
   if python3 - "$f" <<'PY' > /tmp/_wrap.js
 import sys, json

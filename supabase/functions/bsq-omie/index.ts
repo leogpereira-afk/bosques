@@ -7,20 +7,7 @@
 //   • cadastro de cliente      → completa os campos vazios do nosso;
 //   • boleto em aberto         → consultado na hora para a cobrança.
 //
-// Regras duras aprendidas na análise dos dados reais (24/08/2026):
-//   1. ListarMovimentos duplica cada baixa (título + espelho CONTA_CORRENTE_*).
-//      Só os grupos CONTA_A_RECEBER / CONTA_A_PAGAR contam.
-//   2. Entradas da planilha NÃO casam linha a linha com o Omie (a planilha
-//      agrega por venda/mês; 200 de 302 sem par). Por isso recebimento do
-//      Omie só entra a partir da DATA DE CORTE (cfg.omie.corteEntradas) —
-//      o passado continua sendo o da planilha.
-//   3. Saídas casam bem (85% dia+valor). Despesa do Omie com par exato na
-//      planilha é pulada; par no mesmo mês com dia diferente vira PENDÊNCIA
-//      listada (nunca lançamento automático — dois gastos iguais no mesmo
-//      mês existem de verdade).
-//   4. Filtros exóticos da API mentem em silêncio (devolvem "500"). Os dois
-//      confiáveis, validados contra o dump completo: dDtAltDe no
-//      ListarMovimentos e nCodCliente no PesquisarLancamentos.
+// Fonte original preservada. Vínculo por identificador; divergências não são descartadas.
 
 import { json, preflight } from "../_shared/cors.ts";
 import {
@@ -188,13 +175,11 @@ Deno.serve(async (req) => {
         // Primeira sincronização crava o corte: recebimento do Omie só vale
         // daqui em diante. A direção pode recuar a data nas Configurações.
         let corte = cfg.omie?.corteEntradas || "";
-        if (!corte) {
-          // Dia do BRASIL, não o UTC do Deno: às 21h+ daqui o UTC já é amanhã,
-          // e um corte em "amanhã" descartaria as baixas do próprio dia para sempre.
-          corte = diaBrasil();
-          await gravarCfg({ ...cfg, omie: { ...(cfg.omie || {}), corteEntradas: corte }, atualizadoEm: agora() });
-          await marcarMudanca("cfg");
-        }
+        if (!corte) throw new Error("Defina a data inicial da integração antes de sincronizar.");
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(corte)) throw new Error("Data inicial inválida");
+        const inicio = body.inicio || agora();
+        await gravarMeta("omie_sync", { ...(meta || {}), status:"em_andamento", inicio, erro:null });
+
 
         // Janela incremental: só o que o Omie alterou desde a última rodada
         // completa (3 dias de carência). Sem meta — ou a pedido — vem tudo.
@@ -207,9 +192,9 @@ Deno.serve(async (req) => {
 
         // Estado local, uma leitura por chamada.
         // lerColecaoBruta devolve linhas { id, registro } — aqui só o registro importa.
-        const [vendas, clientesLocais, corretores, recs, cxs] = (await Promise.all([
+        const [vendas, clientesLocais, corretores, recs, cxs, titulosLocais, movimentosLocais] = (await Promise.all([
           lerColecaoBruta("venda"), lerColecaoBruta("cliente"),
-          lerColecaoBruta("corretor"), lerColecaoBruta("rec"), lerColecaoBruta("cx"),
+          lerColecaoBruta("corretor"), lerColecaoBruta("rec"), lerColecaoBruta("cx"), lerColecaoBruta("titulo"), lerColecaoBruta("movbanco"),
         ])).map((linhas) => linhas.map((l: any) => l.registro));
         const vendasPorCpf = new Map<string, any[]>();
         for (const v of vendas) {
@@ -218,6 +203,8 @@ Deno.serve(async (req) => {
           if (!vendasPorCpf.has(cpf)) vendasPorCpf.set(cpf, []);
           vendasPorCpf.get(cpf)!.push(v);
         }
+        const titulosPorId=new Map(titulosLocais.map((r:any)=>[r.id,r]));
+        const bancoPorId=new Map(movimentosLocais.map((r:any)=>[r.id,r]));
         const recPorId = new Map(recs.map((r: any) => [r.id, r]));
         const cxPorId = new Map(cxs.map((c: any) => [c.id, c]));
         // Dedupe contra lançamento manual é por CONTAGEM, não por conjunto:
@@ -320,7 +307,7 @@ Deno.serve(async (req) => {
             m = new Map<string, string>();
             for (const vv of vendas) {
               if (vv.apagadoEm || soDigitos(vv.clienteId) !== cpf) continue;
-              for (const pz of (vv.parcelas || [])) if (pz && pz.tid) m.set(String(pz.tid), vv.id);
+              for (const pz of (vv.parcelas || [])) if (pz && pz.tid && !pz.conferir) m.set(String(pz.tid), vv.id);
             }
             tidDonoCache.set(cpf, m);
           }
@@ -344,6 +331,29 @@ Deno.serve(async (req) => {
             const d = mov.detalhes || {}; const res = mov.resumo || {};
             const grupo = d.cGrupo || "";
 
+            if (grupo.startsWith("CONTA_CORRENTE") && d.nCodMovCC) {
+              const id="banco-"+d.nCodMovCC;
+              const anterior=bancoPorId.get(id);
+              const original={detalhes:d,resumo:res};
+              gravar.push({colecao:"movbanco",id,registro:{...(anterior||{}),id,contaOmie:d.nCodCC,titulo:d.nCodTitulo||null,
+                data:brParaISO(d.dDtPagamento),valor:Number(d.nValorMovCC ?? res.nValPago)||0,
+                entrada:d.cNatureza==="R",transferencia:["TRAP","TRAR"].includes(d.cOrigem),
+                original,origem:"omie",atualizadoEm:agora(),
+                historico: anterior && JSON.stringify(anterior.original)!==JSON.stringify(original)?[...(anterior.historico||[]),{em:agora(),por:"omie",original:anterior.original}]:anterior?.historico||[]}});
+            }
+
+            if (["CONTA_A_RECEBER", "CONTA_A_PAGAR"].includes(grupo) && d.nCodTitulo) {
+              const tituloId = grupo + "-" + d.nCodTitulo;
+              const anterior = titulosPorId.get(tituloId);
+              const original = { detalhes:d, resumo:res };
+              const mudou = JSON.stringify(anterior?.original) !== JSON.stringify(original);
+              gravar.push({colecao:"titulo",id:tituloId,registro:{ ...(anterior || {}), id:tituloId,
+                grupo, titulo:d.nCodTitulo, valor:Number(d.nValorTitulo)||0, venc:brParaISO(d.dDtVenc),
+                pago:Number(res.nValPago)||0, status:d.cStatus, cpf:soDigitos(d.cCPFCNPJCliente),
+                original, atualizadoEm:agora(), origem:"omie",
+                historico: mudou && anterior ? [...(anterior.historico || []), {em:agora(),por:"omie",original:anterior.original}] : anterior?.historico || [] }});
+            }
+
             /* recebimento de venda baixado */
             if (grupo === "CONTA_A_RECEBER") {
               // espelho das parcelas: casa o título com a venda e anota
@@ -352,30 +362,22 @@ Deno.serve(async (req) => {
                 const minhasT = vendasPorCpf.get(cpfT) || [];
                 const cheio = Math.round((Number(d.nValorTitulo) || 0) * 100) / 100;
                 // Tid que já mora numa venda: atualiza LÁ. O casamento por
-                // valor e o tid % N só valem para título ainda desconhecido.
+                // títulos novos ficam pendentes até confirmação explícita do lote.
                 let vId = tidDono(cpfT).get(String(d.nCodTitulo)) || "";
                 let conferirT = false;
-                if (!vId) vId = minhasT.length === 1 ? minhasT[0].id : casarVenda(minhasT, cheio, cfg);
-                if (!vId && minhasT.length) {
-                  // Ambíguo (cliente com N vendas de parcela igual): distribui
-                  // por tid % N. N é o nº de vendas vivas e MUDA (nova venda,
-                  // distrato) — por isso o tid conhecido é procurado antes,
-                  // acima; só título novo cai aqui. Fica marcado; a edição
-                  // move se for o caso.
-                  const ordenadas = minhasT.slice().sort((x: any, y: any) =>
-                    String(x.dataVenda || "").localeCompare(String(y.dataVenda || "")) ||
-                    String(x.codigo || "").localeCompare(String(y.codigo || "")));
-                  vId = ordenadas[Number(d.nCodTitulo) % ordenadas.length].id;
-                  conferirT = true;
+                if (!vId) {
+                  pendNovas.push({ titulo:d.nCodTitulo, valor:cheio, data:brParaISO(d.dDtVenc),
+                    categoria:"título sem vínculo confirmado com a venda", cpf:cpfT, tipo:"vinculo" });
                 }
                 if (vId) {
                   const recebido = d.cStatus === "RECEBIDO" && res.cLiquidado === "S";
                   anotarTitulo(vId, {
                     tid: d.nCodTitulo, venc: brParaISO(d.dDtVenc), valor: cheio,
-                    valorDia: Math.round(cheio * 0.8 * 100) / 100,
+                    valorDia: cheio, descontoConfirmado: false,
                     pago: recebido ? brParaISO(d.dDtPagamento) : null,
                     pagoValor: recebido ? (Number(res.nValPago) || cheio) : null,
                     pagoOrigem: recebido ? "omie" : null,
+                    liquidacao:{desconto:Number(res.nDesconto)||0,juros:Number(res.nJuros)||0,multa:Number(res.nMulta)||0,saldoOrigem:res.nValAberto},
                     ...(conferirT ? { conferir: true } : {}),
                   });
                 }
@@ -388,11 +390,11 @@ Deno.serve(async (req) => {
               }
               const id = "rbomie-" + d.nCodTitulo;
               const existente = recPorId.get(id);
-              if (d.cStatus === "RECEBIDO" && res.cLiquidado === "S") {
+              if (Number(res.nValPago) > 0 && d.cStatus !== "CANCELADO") {
                 const dataPagto = brParaISO(d.dDtPagamento);
                 if (!dataPagto || dataPagto < corte) { soma("recAntesDoCorte"); continue; }
-                if (existente && !existente.apagadoEm) { soma("recJaEspelhado"); continue; }
-                const valor = Number(res.nValPago) || Number(d.nValorTitulo) || 0;
+
+                const valor = Number(res.nValPago) || 0;
                 if (existente && existente.apagadoEm && existente.apagadoPor !== "omie") {
                   // Uma PESSOA mandou este espelho para a lixeira (estorno
                   // local = lixeira + relançar): a sync respeita e não
@@ -407,29 +409,30 @@ Deno.serve(async (req) => {
                 }
                 const cpf = soDigitos(d.cCPFCNPJCliente);
                 const minhas = vendasPorCpf.get(cpf) || [];
-                const vendaId = casarVenda(minhas, valor, cfg);
-                const tidRec = String(d.nCodTitulo);
-                if (vendaId && (tidsCobertos.has(tidRec) ||
-                    consome(baixasManuais, vendaId + "|" + centavos(valor) + "|" + dataPagto))) {
-                  tidsCobertos.add(tidRec);
-                  soma("recBaixadoAMao"); continue;
-                }
-                const numero = await proximoNumero("rec");
+                const vendaId = existente?.vendaId || tidDono(cpf).get(String(d.nCodTitulo)) || "";
+                const numero = existente?.numero || await proximoNumero("rec");
                 // A forma REAL do pagamento vem do tipo do título no Omie (mapa lá em cima).
                 const registro: any = {
-                  id, origem: "omie", numero, codigo: "RB-" + String(numero).padStart(4, "0"),
+                  ...(existente || {}), id, apagadoEm:null, apagadoPor:null, origem: "omie", numero, codigo: "RB-" + String(numero).padStart(4, "0"),
                   vendaId, tipo: "parcela", parcelaN: null, valor, data: dataPagto,
-                  forma: FORMA[d.cTipo] || "Boleto", obs: "baixa automática do Omie" +
+                  contaOmie:d.nCodCC || null, forma: existente?.ajustes?.forma || "Não informada",
+                  tipoDocumento: FORMA[d.cTipo] || d.cTipo || "", obs: "baixa automática do Omie" +
                     (d.cNumBoleto ? " · boleto " + d.cNumBoleto : ""),
                   conferir: !vendaId || undefined,
-                  omie: { titulo: d.nCodTitulo, venc: brParaISO(d.dDtVenc), cpf, parcela: d.cNumParcela || "" },
-                  criadoEm: agora(), criadoPor: "omie",
+                  omie: { original: {detalhes:d,resumo:res}, titulo: d.nCodTitulo, venc: brParaISO(d.dDtVenc), cpf, parcela: d.cNumParcela || "" },
+                  criadoEm: existente?.criadoEm || agora(), criadoPor: existente?.criadoPor || "omie", atualizadoEm:agora(),
                 };
+                if (existente?.ajustes) for (const k of ["data","forma"]) {
+                  if (existente.ajustes[k] != null) registro[k] = existente.ajustes[k];
+                }
+                if (existente && (existente.valor !== registro.valor || existente.data !== registro.data)) {
+                  registro.historico = [...(existente.historico || []), {em:agora(),por:"omie",antes:{valor:existente.valor,data:existente.data},depois:{valor:registro.valor,data:registro.data}}];
+                }
                 if (!vendaId) registro.obsConferir = "não achei a venda deste CPF — vincular à mão";
                 await guardarIndiceNumero("rec", numero, id);
                 gravar.push({ colecao: "rec", id, registro });
                 recPorId.set(id, registro);
-                soma(vendaId ? "recNovos" : "recParaConferir");
+                soma(existente ? "recAtualizados" : vendaId ? "recNovos" : "recParaConferir");
               } else if (existente && !existente.apagadoEm) {
                 // O título deixou de estar RECEBIDO (estorno/cancelamento lá).
                 const morto = {
@@ -444,12 +447,18 @@ Deno.serve(async (req) => {
             }
 
             /* despesa paga */
-            if (grupo === "CONTA_A_PAGAR" && d.cStatus === "PAGO" && res.cLiquidado === "S") {
-              const id = "cxomie-" + d.nCodTitulo;
-              const jaCx = cxPorId.get(id);
-              if (jaCx && !jaCx.apagadoEm) { soma("cxJaEspelhado"); continue; }
-              const valor = Number(res.nValPago) || Number(d.nValorTitulo) || 0;
+            if (grupo === "CONTA_A_PAGAR") {
+              const conciliado=cxs.find((c:any)=>!c.apagadoEm && c.vinculoOmieConfirmado && String(c.omie?.titulo)===String(d.nCodTitulo));
+              const id = conciliado?.id || "cxomie-" + d.nCodTitulo;
+              const jaCx = conciliado || cxPorId.get(id);
+              if (!(Number(res.nValPago) > 0 && d.cStatus !== "CANCELADO")) {
+                if (jaCx && !jaCx.apagadoEm) gravar.push({colecao:"cx",id,registro:{...jaCx,apagadoEm:agora(),apagadoPor:"omie",
+                  historico:[...(jaCx.historico||[]),{em:agora(),por:"omie",acao:"pagamento não liquidado na origem",status:d.cStatus}]}});
+                continue;
+              }
+              const valor = Number(res.nValPago) || 0;
               const dataPagto = brParaISO(d.dDtPagamento);
+              if (!dataPagto) { pendNovas.push({titulo:d.nCodTitulo,valor,tipo:"sem_data",categoria:"pagamento sem data na origem"}); continue; }
               if (jaCx && jaCx.apagadoEm && jaCx.apagadoPor !== "omie") {
                 // Despesa que o dono excluiu de propósito não volta da lixeira.
                 if (centavos(jaCx.valor) !== centavos(valor)) {
@@ -459,33 +468,20 @@ Deno.serve(async (req) => {
                 }
                 soma("cxNaLixeira"); continue;
               }
-              const chaveDia = centavos(valor) + "|" + dataPagto;
-              const chaveMes = centavos(valor) + "|" + dataPagto.slice(0, 7);
-              const tidCx = String(d.nCodTitulo);
-              if (tidsCobertos.has(tidCx)) { soma("cxJaNaPlanilha"); continue; }
-              if (consome(saidasDia, chaveDia)) {
-                // A mesma linha manual alimentou os dois mapas: gasta os dois.
-                consome(saidasMes, chaveMes);
-                tidsCobertos.add(tidCx);
-                soma("cxJaNaPlanilha"); continue;
-              }
-              const categoria = categoriaLocal(d.cCodCateg || "");
+              const categoria = jaCx?.categoria || categoriaLocal(d.cCodCateg || "");
               const fornecedorCpf = soDigitos(d.cCPFCNPJCliente);
-              if (consome(saidasMes, chaveMes)) {
-                tidsCobertos.add(tidCx);
-                // Mesmo valor no mesmo mês com outro dia: pode ser o mesmo gasto
-                // anotado noutra data OU um gasto irmão. Ninguém decide no escuro.
-                pendNovas.push({ titulo: d.nCodTitulo, valor, data: dataPagto, categoria,
-                  categoriaOmie: d.cCodCateg || "" });
-                soma("cxDuvidosos");
-                continue;
+              const parecidas = cxs.filter((c:any)=>!c.apagadoEm && c.tipo==="saida" && !String(c.id).startsWith("cxomie-") && centavos(c.valor)===centavos(valor) && c.data===dataPagto);
+              const tituloOriginal=titulosPorId.get("CONTA_A_PAGAR-"+d.nCodTitulo);
+              if (parecidas.length && !conciliado && tituloOriginal?.decisaoDuplicidade!=="distintos") {
+                pendNovas.push({titulo:d.nCodTitulo,valor,data:dataPagto,tipo:"possivel_duplicidade",categoria:"mesmo valor e data de lançamento manual; conferir identidade", candidatos:parecidas.map((c:any)=>c.id)});
+                soma("cxAguardandoConciliacao"); continue; // original está preservado em titulo; ainda não lançar duas vezes
               }
               const registro: any = {
-                id, origem: "omie", tipo: "saida", valor, data: dataPagto,
-                forma: FORMA[d.cTipo] || "Transferência",
-                categoria, descricao: "despesa do Omie (" + (d.cCodCateg || "sem categoria") + ")",
-                omie: { titulo: d.nCodTitulo, categoria: d.cCodCateg || "" },
-                criadoEm: agora(), criadoPor: "omie",
+                ...(jaCx || {}), id, apagadoEm:null, apagadoPor:null, origem: "omie", tipo: "saida", valor, data: jaCx?.ajustes?.data || dataPagto,
+                contaOmie:d.nCodCC || null, forma: jaCx?.ajustes?.forma || "Não informada", tipoDocumento:FORMA[d.cTipo] || d.cTipo || "",
+                categoria, descricao: jaCx?.descricao || "Título Omie " + d.nCodTitulo,
+                omie: { original:{detalhes:d,resumo:res}, titulo: d.nCodTitulo, categoria: d.cCodCateg || "" },
+                criadoEm:jaCx?.criadoEm || agora(), criadoPor:jaCx?.criadoPor || "omie", atualizadoEm:agora(),
               };
               const corretorId = categoria === "Comissão" ? corretorPorDoc.get(fornecedorCpf) : "";
               if (corretorId) registro.corretorId = corretorId;
@@ -494,7 +490,7 @@ Deno.serve(async (req) => {
               // NÃO entra no dedupe: título do Omie nunca duplica outro título
               // (tids distintos) — o dedupe é só contra lançamento manual, e
               // marcá-lo aqui pulava despesas gêmeas legítimas do mesmo dia.
-              soma("cxNovos");
+              soma(jaCx ? "cxAtualizados" : "cxNovos");
             }
           }
           if (pagina >= totPaginas) { pagina = 0; break; }   // acabou
@@ -563,11 +559,12 @@ Deno.serve(async (req) => {
             if (it.cancelado) {
               // Título CANCELADO no Omie: sai do espelho. Parcela travada não
               // some sozinha — fica marcada para o humano decidir.
-              if (velho && velho.trava) marcarCancelada(velho);
+              if (velho && velho.trava) { marcarCancelada(velho); velho.cancelado=true; }
               else if (velho) porTid.delete(String(it.tid));
               continue;
             }
             if (velho && velho.trava) {
+              velho.liquidacao=it.liquidacao;
               aplicarPagoNaTravada(velho, it);
             } else if (velho) {
               if (velho.pago && !it.pago && origemDoPago(velho) !== "omie") {
@@ -575,7 +572,7 @@ Deno.serve(async (req) => {
                 const { pago: _p, pagoValor: _pv, pagoOrigem: _po, ...agenda } = it;
                 Object.assign(velho, agenda, { obs: velho.obs || "" });
               } else {
-                Object.assign(velho, it, { obs: velho.obs || "" });
+                Object.assign(velho, it, { obs: velho.obs || "", ...(velho.descontoConfirmado ? {valorDia:velho.valorDia,descontoConfirmado:true} : {}) });
               }
             } else {
               porTid.set(String(it.tid), { ...it, origem: "omie" });
@@ -628,12 +625,13 @@ Deno.serve(async (req) => {
             pendFinal = [...antigas, ...pendTotal];
           }
           pendFinal = pendFinal.filter((pnd: any) => {
+            if(pnd.tipo) return true; // pendência informativa não é resolvida só por existir lançamento
             const cx = cxPorId.get("cxomie-" + pnd.titulo);
             return !cx || cx.apagadoEm;
           });
           await gravarMeta("omie_sync", {
-            quando: agora(), por, completa, corte, contagens: cont,
-            pendencias: pendFinal.slice(0, 60),
+            quando: agora(), status:"completa", inicio, termino:agora(), por, completa, corte, contagens: cont,
+            pendencias: pendFinal,
           });
           await registrarLog({ acao: "sincronizou com o Omie", por, ...cont });
           // Faxina: a tela de conferência foi removida do produto (25/08) — o
@@ -641,10 +639,10 @@ Deno.serve(async (req) => {
           try { await db.from("bsq_meta").delete().eq("chave", "omie_conferencia"); } catch { /* best-effort */ }
         } else {
           // Rodada no meio: pendências parciais viajam pela meta para não se perderem.
-          await gravarMeta("omie_sync", { ...(meta || {}), pendenciasParciais: pendTotal.slice(0, 60) });
+          await gravarMeta("omie_sync", { ...(meta || {}), status:"em_andamento", inicio, pendenciasParciais: pendTotal });
         }
-        return json({ ok: true, continua: terminou ? null : pagina, contagens: cont,
-          pendencias: terminou ? pendTotal.slice(0, 60) : undefined });
+        return json({ ok: true, inicio, completa, continua: terminou ? null : pagina, contagens: cont,
+          pendencias: terminou ? pendTotal : undefined });
       }
 
       /* ── saldos: quanto tem em cada conta, segundo o Omie ────────────────── */
@@ -665,9 +663,9 @@ Deno.serve(async (req) => {
           try {
             const ex = await omie("financas/extrato", "ListarExtrato",
               { nCodCC: cc.nCodCC, dPeriodoInicial: hojeBR, dPeriodoFinal: hojeBR });
-            contas.push({ nome: cc.descricao || "", tipo: cc.tipo || "", saldo: Number(ex.nSaldoAtual) || 0 });
+            contas.push({ id:cc.nCodCC, nome: cc.descricao || "", tipo: cc.tipo || "", saldo: Number(ex.nSaldoAtual) || 0 });
           } catch {
-            contas.push({ nome: cc.descricao || "", tipo: cc.tipo || "", saldo: null });
+            contas.push({ id:cc.nCodCC, nome: cc.descricao || "", tipo: cc.tipo || "", saldo: null });
           }
         }
         // O número do painel: só conta bancária de verdade (tipo CC), viva de
@@ -721,6 +719,10 @@ Deno.serve(async (req) => {
         return json({ error: "Ação desconhecida: " + action }, 400);
     }
   } catch (e) {
+    if (action === "sincronizar") {
+      const anterior = await lerMeta("omie_sync");
+      await gravarMeta("omie_sync", {...(anterior || {}),status:"falhou",termino:agora(),erro:String((e as Error).message || e)});
+    }
     console.error("bsq-omie", action, e);
     return json({ error: String((e as Error).message || e) }, 500);
   }

@@ -98,7 +98,7 @@ function mesclarParcelas(atuais: any[], chegam: any[]): any[] {
   const semMarcas = (p: any) => { const { _remover, _desfazerPago, ...limpa } = p; return limpa; };
   for (const p of chegam) {
     if (!p) continue;
-    if (p._remover === true) { if (p.tid) vistos.add(String(p.tid)); continue; }
+    if (p._remover === true) { if (p.tid) { vistos.add(String(p.tid)); const atual=porTid.get(String(p.tid)); if(atual)saida.push({...atual,cancelado:true,trava:true,removidoLocal:true}); } continue; }
     const tid = p.tid ? String(p.tid) : "";
     if (!tid) { saida.push(semMarcas(p)); continue; }   // manual antiga sem chave: como chega
     vistos.add(tid);
@@ -157,8 +157,20 @@ async function gravar(col: string, registro: any, por: string): Promise<any> {
   const antigo = await lerUm(col, id);
   const novo: any = { ...(antigo || {}), ...registro, id };
 
+  if (antigo && ["rec","cx"].includes(col)) {
+    novo.omie = antigo.omie;
+    novo.historico = unirPorId(antigo.historico, registro.historico);
+    const campos=["data","forma","contaId","centroCusto","alocacoes","obrigacaoId"];
+    const antes:any={}, depois:any={};
+    for(const k of campos) if(JSON.stringify(antigo[k])!==JSON.stringify(novo[k])) {antes[k]=antigo[k]??null;depois[k]=novo[k]??null;}
+    if(Object.keys(depois).length) {
+      novo.editadoAMao=true;
+      novo.historico.push({id:idNovo(),em:agora(),por,antes,depois,acao:"ajuste financeiro"});
+      if(antigo.origem==="omie") novo.ajustes={...(antigo.ajustes||{}),...(registro.ajustes||{}),...Object.fromEntries(Object.entries(depois).filter(([k])=>["data","forma"].includes(k)))};
+    }
+  }
   for (const campo of CAMPOS_UNIAO) {
-    if (antigo && (antigo[campo] || registro[campo])) novo[campo] = unirPorId(antigo[campo], registro[campo]);
+    if (antigo && (antigo[campo] || registro[campo])) novo[campo] = unirPorId(antigo[campo], novo[campo]);
   }
 
   // O espelho não é substituído inteiro: merge por tid preserva pago/trava
@@ -246,6 +258,18 @@ async function prepararItem(quem: Quem, col: string, registro: any, atual: any):
 
   // RECEBIMENTO: fato contábil — nasce completo e com autor do servidor.
   if (col === "rec") {
+    if (Array.isArray(registro.alocacoes)) {
+      const vId = atual?.vendaId || registro.vendaId;
+      const venda = await lerUm("venda", vId);
+      const parcelas = (venda?.parcelas || []).filter((p:any)=>p && !p.cancelado);
+      const vistos = new Set<string>(); let alocado = 0;
+      for (const a of registro.alocacoes) {
+        const tid=String(a.tid || ""), valor=Math.round(num(a.valor)*100);
+        if (!tid || vistos.has(tid) || valor<=0 || !parcelas.some((p:any,i:number)=>String(p.tid || p.id || ("legado-"+i))===tid)) return {erro:"Alocação inválida: confira a parcela e o valor"};
+        vistos.add(tid); alocado+=valor;
+      }
+      if (alocado>Math.round(num(atual?.valor ?? registro.valor)*100)) return {erro:"A soma das alocações supera o recebido"};
+    }
     if (atual) {
       // Editar recebimento é permitido (corrigir forma/obs/data), mas o
       // VALOR e a venda de destino não mudam por edição — estorna (lixeira,
@@ -279,9 +303,15 @@ async function prepararItem(quem: Quem, col: string, registro: any, atual: any):
       parcelaN: registro.parcelaN != null ? Math.max(0, Math.round(num(registro.parcelaN))) : null } };
   }
 
+  if (["titulo","movbanco"].includes(col)) return {erro:"Título original só é atualizado pela integração Omie"};
+  if (col === "obrigacao" && (!(num(registro.valor)>0) || !registro.venc || !registro.descricao)) return {erro:"Obrigação precisa de descrição, valor e vencimento"};
+  if (col === "conta" && (!registro.nome || !registro.dataInicial)) return {erro:"Conta precisa de nome e data inicial"};
   // CAIXA avulso: tipo e valor saneados.
   if (col === "cx") {
-    if (atual) return { registro };
+    if (atual) {
+      if(atual.origem === "omie" && num(registro.valor)!==num(atual.valor)) return {erro:"Valor Omie deve ser corrigido na origem ou por ajuste separado"};
+      return { registro };
+    }
     const valor = num(registro.valor);
     if (!(valor > 0)) return { erro: "lançamento sem valor" };
     const tipo = registro.tipo === "entrada" ? "entrada" : "saida";
@@ -396,6 +426,57 @@ Deno.serve(async (req) => {
       }
 
       // Tudo que o app precisa numa requisição só.
+      case "editarCentroCusto": {
+        if(!["direcao","escritorio"].includes(perfilDe(quem)))return json({error:"Sem permissão"},403);
+        const {data,error}=await db.rpc("bsq_editar_centro",{p_anterior:txt(body.anterior,100),p_nome:txt(body.nome,100),p_por:por});
+        if(error)return json({error:error.message},400);
+        await marcarMudanca(["cfg","cx","rec","venda","titulo","obrigacao","prev"]);
+        await registrarLog({acao:"editou centro de custo",por,antes:body.anterior,nome:body.nome});
+        return json({ok:true,centrosCusto:data});
+      }
+      case "editarTitulo": {
+        if(!["direcao","escritorio"].includes(perfilDe(quem)))return json({error:"Sem permissão"},403);
+        const t=await lerUm("titulo",txt(body.id,100));
+        if(!t || !txt(body.motivo,300))return json({error:"Título e motivo obrigatórios"},400);
+        if(!(num(body.valor)>0)||!/^\d{4}-\d{2}-\d{2}$/.test(body.venc||''))return json({error:"Valor ou vencimento inválido"},400);
+        const ajuste={valor:num(body.valor),venc:body.venc};
+        const novo={...t,centroCusto:txt(body.centroCusto,100),ajustes:ajuste,editadoAMao:true,atualizadoEm:agora(),historico:[...(t.historico||[]),{id:idNovo(),em:agora(),por,acao:"corrigiu título localmente",antes:{ajustes:t.ajustes,centroCusto:t.centroCusto},depois:{ajustes:ajuste,centroCusto:body.centroCusto},motivo:body.motivo}]};
+        await gravarUm("titulo",t.id,novo);await marcarMudanca("titulo");return json({ok:true});
+      }
+      case "vincularRecebimento": {
+        if(!["direcao","escritorio"].includes(perfilDe(quem)))return json({error:"Sem permissão"},403);
+        const r=await lerUm("rec",txt(body.id,100)),v=await lerUm("venda",txt(body.vendaId,100));
+        if(!r||r.apagadoEm||!v||v.apagadoEm||v.situacao==="distratada"||!txt(body.motivo,300))return json({error:"Recebimento, venda ativa e motivo obrigatórios"},400);
+        if(r.omie?.titulo)return json({error:"Use a associação do título para mover a parcela e o recebimento juntos"},400);
+        const parcelas=(v.parcelas||[]);const tid=txt(body.tid,100);
+        if(tid&&!parcelas.some((p:any)=>String(p.tid)===tid&&!p.cancelado))return json({error:"Parcela não pertence a este lote"},400);
+        await gravarUm("rec",r.id,{...r,vendaId:v.id,alocacoes:tid?[{tid,valor:r.valor}]:[],conferir:false,editadoAMao:true,atualizadoEm:agora(),historico:[...(r.historico||[]),{id:idNovo(),em:agora(),por,acao:"vinculou recebimento ao lote",antes:r.vendaId,depois:v.id,motivo:body.motivo}]});
+        await marcarMudanca("rec");return json({ok:true});
+      }
+      case "resolverDuplicidade": {
+        if(!["direcao","escritorio"].includes(perfilDe(quem)))return json({error:"Sem permissão"},403);
+        const tid=txt(body.titulo,80), id="CONTA_A_PAGAR-"+tid;
+        const titulo=await lerUm("titulo",id);
+        if(!titulo || !txt(body.motivo,300))return json({error:"Título e motivo são obrigatórios"},400);
+        if(body.decisao==="mesmo") {
+          const c=await lerUm("cx",txt(body.manualId,80));
+          if(!c || c.apagadoEm || c.tipo!=="saida" || Math.round(num(c.valor)*100)!==Math.round(num(titulo.original?.resumo?.nValPago)*100))return json({error:"Lançamento e valor não conferem"},400);
+          if(c.omie?.titulo && String(c.omie.titulo)!==tid)return json({error:"Lançamento já vinculado a outro título"},409);
+          await gravarUm("cx",c.id,{...c,vinculoOmieConfirmado:true,omie:{titulo:tid,original:titulo.original},editadoAMao:true,atualizadoEm:agora(),historico:[...(c.historico||[]),{id:idNovo(),em:agora(),por,acao:"confirmou mesmo movimento Omie",motivo:body.motivo,titulo:tid}]});
+          await marcarMudanca("cx");
+        } else if(body.decisao!=="distintos")return json({error:"Decisão inválida"},400);
+        await gravarUm("titulo",id,{...titulo,decisaoDuplicidade:body.decisao,atualizadoEm:agora(),historico:[...(titulo.historico||[]),{id:idNovo(),em:agora(),por,acao:"conferiu duplicidade",decisao:body.decisao,motivo:body.motivo}]});
+        await marcarMudanca("titulo");
+        return json({ok:true});
+      }
+      case "vincularTitulo": {
+        if (!["direcao","escritorio"].includes(perfilDe(quem))) return json({error:"Sem permissão"},403);
+        const {error}=await db.rpc("bsq_vincular_titulo",{p_tid:txt(body.titulo,80),p_venda:txt(body.vendaId,80),p_por:por,p_motivo:txt(body.motivo,300)});
+        if(error) return json({error:error.message},400);
+        await marcarMudanca(["venda","rec"]);
+        await registrarLog({acao:"vinculou título",por,titulo:body.titulo,vendaId:body.vendaId,motivo:body.motivo});
+        return json({ok:true});
+      }
       case "snapshot": {
         const todos = await lerTudo(body.colecoes || null, NOMES_COLECOES);
         let registros = filtrarLeitura(quem, todos);
@@ -405,6 +486,15 @@ Deno.serve(async (req) => {
           registros = registros.map((r: any) => r._col === "corretor"
             ? { id: r.id, nome: r.nome, _col: "corretor" } : r);
         }
+        registros=registros.map((r:any)=>{
+          if(r._col==="titulo") {
+            const {original,historico,...resumo}=r;
+            return {...resumo, original:{resumo:original?.resumo||{},detalhes:{dDtPagamento:original?.detalhes?.dDtPagamento,cTipo:original?.detalhes?.cTipo,nCodCC:original?.detalhes?.nCodCC}},temHistorico:!!historico?.length};
+          }
+          if(r._col==="movbanco") {const {original,historico,...resumo}=r;return resumo;}
+          if(["rec","cx"].includes(r._col)&&r.omie?.original){const {original,...omie}=r.omie;return {...r,omie};}
+          return r;
+        });
         const cfgSaida = cfgSemSegredo(cfg);
         if (perfilDe(quem) === "corretor") cfgSaida.usuarios = [];
         return json({
@@ -616,123 +706,8 @@ Deno.serve(async (req) => {
         return json({ ok: true, em: agora(), cfg: limpo, registros, seq });
       }
 
-      // ── MODO HÍBRIDO: a planilha continua sendo digitada e é reimportada
-      // quantas vezes quiser (scripts/atualizar-da-planilha.sh). Regras:
-      //   • id determinístico: a mesma linha da planilha ATUALIZA, não duplica;
-      //   • o que o SISTEMA fez sobrevive: anexos e histórico são unidos, e a
-      //     situação de venda que JÁ EXISTE é a do sistema (distrato/quitação/
-      //     conferência feitos no app não voltam atrás por reimportação);
-      //   • registro de origem 'planilha' que sumiu do payload vai para a
-      //     LIXEIRA (nunca apagado de vez — reimportação errada se desfaz);
-      //   • registro nascido no app (sem origem 'planilha') não é tocado;
-      //   • no fim, o status de TODO lote é recalculado das vendas vivas.
-      case "importar": {
-        const vindos = Array.isArray(body.registros) ? body.registros : [];
-        const porCol = new Map<string, any[]>();
-        for (const r of vindos) {
-          if (!COLECOES[r._col] || !r.id) continue;
-          if (!porCol.has(r._col)) porCol.set(r._col, []);
-          porCol.get(r._col)!.push(r);
-        }
-        let gravados = 0, paraLixeira = 0, ressuscitados = 0;
-        const maiorNumero: Record<string, number> = {};
-        const MARCA_PRUNE = "importação (saiu da planilha)";
-
-        // Tudo em LOTE: um gravarUm por registro eram 861 idas ao banco e a
-        // função caía no meio, deixando gravação parcial.
-        for (const [col, itens] of porCol) {
-          const idsNovos = new Set(itens.map((x: any) => String(x.id)));
-          const paraGravar: { colecao: string; id: string; registro: any }[] = [];
-          // 1. o que era da planilha e saiu dela → lixeira
-          const existentes = await lerColecaoBruta(col, "id, registro");
-          const antigosPorId = new Map(existentes.map((l: any) => [String(l.id), l.registro]));
-          for (const l of existentes) {
-            const r: any = l.registro;
-            if (r.origem === "planilha" && !idsNovos.has(String(l.id)) && !r.apagadoEm) {
-              r.apagadoEm = agora();
-              r.apagadoPor = MARCA_PRUNE;
-              paraGravar.push({ colecao: col, id: String(l.id), registro: r });
-              paraLixeira++;
-            }
-          }
-          // 2. grava o payload, preservando o que o sistema mandou
-          for (const it of itens) {
-            const novo: any = { ...it };
-            delete novo._col;
-            const antigo: any = antigosPorId.get(String(it.id));
-            if (antigo) {
-              for (const campo of CAMPOS_UNIAO) {
-                if (antigo[campo]) novo[campo] = unirPorId(antigo[campo], novo[campo]);
-              }
-              // A situação de venda existente é do SISTEMA (distrato, quitação
-              // e conferência feitos no app valem mais que a planilha).
-              if (col === "venda") {
-                if (antigo.situacao) novo.situacao = antigo.situacao;
-                if (antigo.distrato) novo.distrato = antigo.distrato;
-              }
-              // Lançamento de caixa: o que foi ORGANIZADO no app sobrevive à
-              // reimportação — o vínculo com a etapa do cronograma, a categoria
-              // reclassificada e a data posta num sem-data. Sem isto, rodar a
-              // planilha de novo desfazia horas de classificação em silêncio.
-              if (col === "cx") {
-                if (antigo.etapaId) novo.etapaId = antigo.etapaId;
-                if (antigo.categoria) novo.categoria = antigo.categoria;
-                if (!novo.data && antigo.data) novo.data = antigo.data;
-                // associação de comissão feita no app (um corretor ou rateio
-                // entre vários) também sobrevive à reimportação
-                if (antigo.corretorId && !novo.corretorId) novo.corretorId = antigo.corretorId;
-                if (antigo.rateio && antigo.rateio.length) novo.rateio = antigo.rateio;
-              }
-              if (antigo.apagadoEm) {
-                if (antigo.apagadoPor === MARCA_PRUNE) { ressuscitados++; } // voltou à planilha
-                else { novo.apagadoEm = antigo.apagadoEm; novo.apagadoPor = antigo.apagadoPor; } // apagado no app segue apagado
-              }
-              if (antigo.criadoEm) { novo.criadoEm = antigo.criadoEm; novo.criadoPor = antigo.criadoPor; }
-            }
-            novo.atualizadoEm = agora();
-            novo.atualizadoPor = "importação";
-            paraGravar.push({ colecao: col, id: String(it.id), registro: novo });
-            gravados++;
-            if (novo.numero) maiorNumero[col] = Math.max(maiorNumero[col] || 0, Number(novo.numero) || 0);
-          }
-          await gravarVarios(paraGravar);
-        }
-        // 3. numeração acompanha o maior número importado
-        const atualSeq = await lerNumeracao();
-        for (const [col, maior] of Object.entries(maiorNumero)) {
-          const ja = atualSeq["ultimo_" + col];
-          if (!ja || (ja.n || 0) < maior) await definirNumeracao(col, maior);
-        }
-        // 4. o status de todo lote é recalculado das vendas vivas (inclusive
-        //    as que nasceram no app e a planilha não conhece)
-        const vendasTodas = await lerColecaoBruta("venda", "id, registro");
-        const vivaPorLote: Record<string, string> = {};
-        for (const l of vendasTodas) {
-          const r: any = l.registro;
-          if (!r.apagadoEm && r.loteId && ["ativa", "conferir", "quitada"].includes(r.situacao || "ativa")) {
-            vivaPorLote[r.loteId] = String(l.id);
-          }
-        }
-        let lotesAjustados = 0;
-        const lotesParaGravar: { colecao: string; id: string; registro: any }[] = [];
-        const lotesTodos = await lerColecaoBruta("lote", "id, registro");
-        for (const l of lotesTodos) {
-          const r: any = l.registro;
-          const statusNovo = vivaPorLote[String(l.id)] ? "Vendido" : (r.reservadoPor ? "Reservado" : "Disponível");
-          const vendaIdNovo = vivaPorLote[String(l.id)] || null;
-          if (r.status !== statusNovo || (r.vendaId || null) !== vendaIdNovo) {
-            r.status = statusNovo;
-            r.vendaId = vendaIdNovo;
-            r.atualizadoEm = agora();
-            lotesParaGravar.push({ colecao: "lote", id: String(l.id), registro: r });
-            lotesAjustados++;
-          }
-        }
-        await gravarVarios(lotesParaGravar);
-        await marcarMudanca([...porCol.keys()]);
-        await registrarLog({ acao: "importou da planilha", por, gravados, paraLixeira, ressuscitados, lotesAjustados });
-        return json({ ok: true, gravados, paraLixeira, ressuscitados, lotesAjustados });
-      }
+      case "importar":
+        return json({ok:false,error:"Importação financeira da planilha desativada. Use a conciliação com o Omie."},410);
 
       case "restaurar": {
         const registros = Array.isArray(body.registros) ? body.registros : [];

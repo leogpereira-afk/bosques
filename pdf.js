@@ -791,5 +791,22 @@ const PDF = (() => {
     return doc.output('blob');
   }
 
-  return { proposta, recibo, venda, vendasDash, dre, espelho, relatorio, cronograma, lancamentos, simulacao };
+  function financeiro(titulo, recorte, linhas, cfg) {
+    const doc=novo();cabecalho(doc,cfg,titulo);
+    doc.setFontSize(10);doc.setTextColor(30,30,30);doc.text(soLatin1(recorte),14,39);
+    const total=linhas.reduce((s,x)=>s+Math.round((Number(x.valor)||0)*100),0)/100;
+    let y=47;
+    const cab=()=>{doc.setFont('helvetica','bold');doc.text('Data',14,y);doc.text('Descrição',39,y);doc.text('Situação',120,y);doc.text('Valor',196,y,{align:'right'});doc.setFont('helvetica','normal');y+=7;};cab();
+    for(const x of linhas){
+      const desc=doc.splitTextToSize(soLatin1(x.descricao||''),77),sit=doc.splitTextToSize(soLatin1(x.situacao||''),43);
+      const h=Math.max(desc.length,sit.length,1)*5+3;
+      if(y+h>273){rodape(doc,titulo);doc.addPage();cabecalho(doc,cfg,titulo);y=42;cab();}
+      if(x.pendente){doc.setFillColor(255,243,196);doc.rect(13,y-4,184,h,'F');}
+      doc.text(dataBR(x.data)||'Sem data',14,y);doc.text(desc,39,y);doc.text(sit,120,y);doc.text(brl(x.valor),196,y,{align:'right'});y+=h;
+    }
+    if(y>265){doc.addPage();cabecalho(doc,cfg,titulo);y=42;}
+    doc.setFont('helvetica','bold');doc.text('TOTAL DO RECORTE: '+brl(total),196,y+7,{align:'right'});
+    rodape(doc,titulo+' · '+recorte);salvarNoAparelho(doc.output('blob'),'Financeiro-Bosques.pdf');
+  }
+  return { financeiro, proposta, recibo, venda, vendasDash, dre, espelho, relatorio, cronograma, lancamentos, simulacao };
 })();

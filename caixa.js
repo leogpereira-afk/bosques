@@ -215,7 +215,7 @@ TELAS.caixa = function () {
       (opts.cor ? ' style="color:' + (v >= 0 ? 'var(--verde)' : 'var(--ruim)') + '"' : '') + '>' +
       (v === 0 && opts.recuo ? '—' : fmt.brl(v)) + '</td>').join('') + '</tr>';
   const blocoDre =
-    '<div class="cartao"><h2>DRE — para onde o dinheiro está indo <span class="nota">— regime de caixa · clique num lançamento para reclassificar</span>' +
+    '<div class="cartao"><h2>Receitas e despesas realizadas <span class="nota">— regime de caixa · clique num lançamento para reclassificar</span>' +
       ' <button class="btn mini" id="dre-pdf" style="float:right">📄 PDF</button></h2>' +
     '<div class="rolagem"><table class="tabela"><thead><tr><th></th>' +
       '<th class="num">' + nomeMes(mes) + '</th><th class="num">' + dre.anoRotulo + '</th><th class="num">Desde o início</th></tr></thead><tbody>' +
@@ -241,7 +241,7 @@ TELAS.caixa = function () {
         '<div class="sub">carnês previam ' + fmt.brl(projecao) + '</div></div>' +
       '<div class="painel clicavel" data-lanc="saida"><div class="rot">Saídas · ' + nomeMes(mes) + '</div><div class="num neg">' + fmt.brl(t.saidas) + '</div></div>' +
       '<div class="painel clicavel" data-lanc=""><div class="rot">Resultado do mês</div><div class="num ' + (t.resultado >= 0 ? 'pos' : 'neg') + '">' + fmt.brl(t.resultado) + '</div></div>' +
-      '<div class="painel clicavel" id="pn-acum"><div class="rot">Caixa do empreendimento</div>' +
+      '<div class="painel clicavel" id="pn-acum"><div class="rot">Resultado acumulado dos lançamentos</div>' +
         '<div class="num ' + (ac.resultado >= 0 ? 'pos' : 'neg') + '">' + fmt.brl(ac.resultado) + '</div>' +
         '<div class="sub">' + fmt.brl(ac.entradas) + ' entraram · ' + fmt.brl(ac.saidas) + ' saíram</div></div>' +
       '<div class="painel clicavel" id="pn-banco" style="display:none"><div class="rot">🏦 No banco (Omie)</div>' +
@@ -297,10 +297,7 @@ TELAS.caixa = function () {
   app.querySelectorAll('.vinc-lin').forEach((el) => {
     el.onclick = () => {
       const acao = el.dataset.acao;
-      if (acao === 'outros') { TELAS._fLanc = { q: '', tipo: 'saida', cat: 'Outros', mes: 'todos' }; location.hash = '#/lancamentos'; }
-      else if (acao === 'corretores') location.hash = '#/corretores';
-      else if (acao === 'cronograma') location.hash = '#/cronograma';
-      else if (acao === 'rec-omie') vincularRecsOmie(TELAS.caixa);
+      finAbrirPendenciasGrupo(acao);
     };
   });
   app.querySelectorAll('.cx-datar').forEach((b) => {
@@ -350,9 +347,11 @@ function abrirEdicaoLancamento(id, aoTerminar) {
         campo('Etapa do cronograma', seletor('etapaId', c.etapaId || '',
           lista('etapa').map((e2) => ({ v: e2.id, t: e2.nome })), 'nenhuma'), 'soma no "pago" da etapa')
       : '') +
-    (((S.cfg && S.cfg.centrosCusto) || []).length && c.tipo === 'saida'
+    (c.tipo === 'saida'
       ? campo('Centro de custo', seletor('centroCusto', c.centroCusto || '', (S.cfg.centrosCusto || []), '— nenhum —'), 'onde esse dinheiro trabalhou')
       : '') +
+    campo('Conta financeira',seletor('contaId',c.contaId||'',lista('conta').map(x=>({v:x.id,t:x.nome})),'Selecione')) +
+    campo('Conta a pagar vinculada',seletor('obrigacaoId',c.obrigacaoId||'',lista('obrigacao').map(x=>({v:x.id,t:x.descricao})),'Nenhuma')) +
     campo('Observação', entrada('obs', c.obs || '')) + trilha;
   const fundoEd = abrirModal({
     titulo: (c.tipo === 'saida' ? 'Saída' : 'Receita') + ' — editar',
@@ -395,9 +394,12 @@ function abrirEdicaoLancamento(id, aoTerminar) {
         if (corNovo !== (c.corretorId || '')) {
           mud.push('corretor → ' + ((lista('corretor').find((x2) => x2.id === corNovo) || {}).nome || 'nenhum'));
         }
+        if((v.contaId||'')!==(c.contaId||''))mud.push('conta financeira alterada');
+        if((v.obrigacaoId||'')!==(c.obrigacaoId||''))mud.push('obrigação vinculada');
+        if((v.centroCusto||'')!==(c.centroCusto||''))mud.push('centro de custo alterado');
         if (!mud.length) { fecharSilencioso(fundo); return; }
         salvar('cx', {
-          id: c.id, valor, data: v.data, forma: v.forma, categoria: v.categoria,
+          id: c.id, valor, data: v.data, forma: v.forma, categoria: v.categoria, contaId:v.contaId||"", obrigacaoId:v.obrigacaoId||"",
           etapaId: etapaNova, corretorId: corNovo,
           centroCusto: v.centroCusto != null ? v.centroCusto : (c.centroCusto || ''),
           descricao: desc, obs: String(v.obs || '').slice(0, 300),
@@ -439,9 +441,11 @@ function abrirLancamento(tipo, aoTerminar, etapaPre) {
     (etapasVivas.length
       ? campo('Etapa do cronograma', seletor('etapaId', etapaPre || '', etapasVivas.map((e) => ({ v: e.id, t: e.nome })), 'nenhuma'), 'soma no "pago" da etapa')
       : '') +
-    (tipo === 'saida' && ((S.cfg && S.cfg.centrosCusto) || []).length
+    (tipo === 'saida'
       ? campo('Centro de custo', seletor('centroCusto', '', (S.cfg.centrosCusto || []), '— nenhum —'), 'onde esse dinheiro trabalhou')
       : '') +
+    campo('Conta financeira',seletor('contaId','',lista('conta').map(x=>({v:x.id,t:x.nome})),'Selecione')) +
+    campo('Conta a pagar vinculada',seletor('obrigacaoId','',lista('obrigacao').map(x=>({v:x.id,t:x.descricao})),'Nenhuma')) +
     campo('Observação', entrada('obs', ''));
   const fundoNv = abrirModal({
     titulo: tipo === 'saida' ? 'Nova despesa' : 'Outra receita',
@@ -454,7 +458,7 @@ function abrirLancamento(tipo, aoTerminar, etapaPre) {
         if (!c.descricao || !c.descricao.trim()) { toast('Descreva o lançamento', 'ruim'); return; }
         if (!(valor > 0)) { toast('Diga o valor', 'ruim'); return; }
         salvar('cx', {
-          tipo, valor, data: c.data, forma: c.forma, categoria: c.categoria,
+          tipo, valor, data: c.data, forma: c.forma, categoria: c.categoria, contaId:c.contaId||"", obrigacaoId:c.obrigacaoId||"",
           etapaId: c.etapaId || '',
           centroCusto: c.centroCusto || '',
           corretorId: c.categoria === 'Comissão' ? (c.corretorId || '') : '',
@@ -670,19 +674,19 @@ function aReceberPorMes() {
     for (const l of r.carne) {
       // Parcela PAGA está encerrada — quitar com o desconto de pontualidade
       // não deixa "falta"; contar a diferença criava vencido fantasma.
-      if (l.situacao === 'paga') continue;
+      if (l.situacao === 'paga' || l.conferir) continue;
       // A projeção usa SEMPRE o valor EM DIA (l.valorDia do espelho; sem
       // espelho l.valor já É o em dia do plano) — é o que a nota da tela
       // 'supõe as parcelas pagas em dia' promete. Cheio aqui inflava 25%.
       const vlr = l.valorDia != null ? l.valorDia : l.valor;
-      const falta = Math.max(0, Math.round((vlr - l.pago) * 100) / 100);
+      const falta = l.saldo != null ? l.saldo : Math.max(0, Math.round((vlr - l.pago) * 100) / 100);
       if (l.venc && l.venc < hoje) {
         // VENCIDO é só o que a régua marca 'atrasada' (parcela do espelho do
         // Omie sem pagamento). Parcela derivada do plano com data passada em
         // venda SEM boletos não é dívida provada — fica fora da conta toda.
         // Atrasada cobra o CHEIO (atrasou, perdeu o desconto) — outra régua,
         // de propósito.
-        const faltaCheia = Math.round((l.valor - Math.min(l.pago, l.valor)) * 100) / 100;
+        const faltaCheia = l.saldo != null ? l.saldo : Math.round((l.valor - Math.min(l.pago, l.valor)) * 100) / 100;
         if (l.situacao === 'atrasada' && faltaCheia > 0.004) { vencido += faltaCheia; total += faltaCheia; parcelas++; }
         continue;
       }
@@ -707,6 +711,11 @@ function previstoNoMes(m) {
       soma += Number(g.valor) || 0;
     }
   }
+  for (const o of lista('obrigacao')) {
+    if(String(o.venc||'').slice(0,7)!==m)continue;
+    const pago=cxVivos().filter(c=>c.obrigacaoId===o.id).reduce((s,c)=>s+(Number(c.valor)||0),0);
+    soma+=Math.max(0,(Number(o.valor)||0)-pago);
+  }
   return soma + previstoEtapasNoMes(m);
 }
 
@@ -723,7 +732,7 @@ function agingInadimplencia() {
     const r = resumoVenda(v);
     for (const l of r.carne) {
       if (l.situacao !== 'atrasada') continue;
-      const falta = Math.round((l.valor - Math.min(l.pago, l.valor)) * 100) / 100;
+      const falta = l.saldo != null ? l.saldo : Math.round((l.valor - Math.min(l.pago, l.valor)) * 100) / 100;
       if (falta <= 0.004) continue;
       const dias = Math.floor((hoje - new Date(l.venc + 'T00:00:00')) / 86400000);
       const f = faixas.find((x) => dias <= x.ate);
@@ -830,14 +839,14 @@ TELAS.relatorios = function () {
         '<div class="sub">clique para ir cobrar</div></div>' +
       '<div class="painel clicavel" data-acao="previstos"><div class="rot">Gastos previstos ' + rotuloHz + '</div><div class="num">' + fmt.brl(previstoHz) + '</div>' +
         (previstoSemData > 0 ? '<div class="sub">⚠ + ' + fmt.brl(previstoSemData) + ' de etapas SEM PRAZO — defina no Cronograma</div>' : '') + '</div>' +
-      '<div class="painel clicavel" data-acao="tabela"><div class="rot">Saldo projetado ' + rotuloHz + '</div>' +
+      '<div class="painel clicavel" data-acao="tabela"><div class="rot">Fluxo líquido previsto ' + rotuloHz + '</div>' +
         '<div class="num ' + (aReceberHz - previstoHz >= 0 ? 'pos' : 'neg') + '">' + fmt.brl(aReceberHz - previstoHz) + '</div>' +
         '<div class="sub">a receber − previstos (sem o vencido)</div></div>' +
     '</div>' + blocoAging +
     '<div class="cartao" id="rel-tabela"><h2>' + (hz === 'total' ? 'Ano a ano até o fim dos carnês <span class="nota">— clique no ano para abrir os meses</span>' : 'Mês a mês do período') + '</h2>' +
       (grupos.length
         ? '<div class="rolagem"><table class="tabela"><thead><tr><th>' + (hz === 'total' ? 'Ano' : 'Mês') + '</th>' +
-          '<th class="num">A receber</th><th class="num">Gastos previstos</th><th class="num">Saldo projetado</th></tr></thead><tbody>' +
+          '<th class="num">A receber</th><th class="num">Gastos previstos</th><th class="num">Fluxo líquido previsto</th></tr></thead><tbody>' +
           grupos.map((g) => {
             const aberto = hz === 'total' && TELAS._anoAbertoRel === g.rotulo;
             let sub = '';

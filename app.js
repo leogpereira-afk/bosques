@@ -4,6 +4,7 @@
 
 /* ── Rotas ─────────────────────────────────────────────────────────────────── */
 const ROTAS = {
+  financeiro: {titulo:'Financeiro',ic:'💰'},
   home:       { titulo: 'Início',        ic: '🏠' },
   espelho:    { titulo: 'Espelho',       ic: '🗺️' },
   lote:       { titulo: 'Lote',          ic: '🗺️', oculta: true },
@@ -28,8 +29,8 @@ const ROTAS = {
 // oferecer o que a pessoa não pode abrir.
 function rotasDoPerfil() {
   if (S.perfil === 'corretor') return ['espelho', 'simulador', 'propostas', 'apresentacao'];
-  if (S.perfil === 'escritorio') return ['home', 'espelho', 'simulador', 'vendas', 'contratos', 'propostas', 'caixa', 'lancamentos', 'relatorios', 'cronograma', 'clientes', 'corretores', 'apresentacao'];
-  return ['home', 'espelho', 'simulador', 'vendas', 'contratos', 'propostas', 'caixa', 'lancamentos', 'relatorios', 'cronograma', 'clientes', 'corretores', 'apresentacao', 'config'];
+  if (S.perfil === 'escritorio') return ['home', 'espelho', 'simulador', 'vendas', 'contratos', 'propostas', 'financeiro', 'cronograma', 'clientes', 'corretores', 'apresentacao'];
+  return ['home', 'espelho', 'simulador', 'vendas', 'contratos', 'propostas', 'financeiro', 'cronograma', 'clientes', 'corretores', 'apresentacao', 'config'];
 }
 
 function rotaAtual() {
@@ -57,7 +58,7 @@ function renderLateral() {
     '<div id="rodape-lateral">' + esc(S.quem || 'Equipe') + ' · ' + esc(({ direcao: 'Direção', escritorio: 'Escritório', corretor: 'Corretor' })[S.perfil] || S.perfil) +
       '<div class="acoes"><button id="bt-sync">↻ Sincronizar</button><button id="bt-sair">Sair</button></div></div>';
   const bs = el.querySelector('#bt-sync');
-  if (bs) bs.onclick = () => { puxar(); toast('Sincronizando…'); };
+  if (bs) bs.onclick = () => { puxar(); toast('Atualizando dados do aparelho. A integração Omie fica no Financeiro.'); };
   const bx = el.querySelector('#bt-sair');
   if (bx) bx.onclick = async () => {
     if (await confirmar('Sair e limpar este aparelho?')) {
@@ -83,7 +84,7 @@ function atualizarBadge() {
   el.textContent = S.sincronizando ? 'sincronizando…'
     : S.fila.length ? S.fila.length + ' a enviar'
     : !S.online ? 'offline — salvando no aparelho'
-    : S.ultimoPull ? '✓ em dia' : '';
+    : S.ultimoPull ? 'Dados locais atualizados' : '';
 }
 
 let _renderPendente = false;
@@ -96,7 +97,7 @@ function render() {
   const { nome, id } = rotaAtual();
   renderLateral();
   renderTopo();
-  const rotas = rotasDoPerfil().concat(['lote', 'venda', 'comissoes', 'simulacao']);
+  const rotas = rotasDoPerfil().concat(['lote', 'venda', 'comissoes', 'simulacao', 'caixa', 'lancamentos', 'relatorios']);
   const tela = rotas.includes(nome) && TELAS[nome] ? TELAS[nome] : null;
   if (tela) tela(id);
   else location.hash = '#/' + rotasDoPerfil()[0];

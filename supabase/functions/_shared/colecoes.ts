@@ -5,6 +5,10 @@
 //
 // `pre` é o prefixo do número do documento (VD-0001). Vazio = sem numeração.
 export const COLECOES: Record<string, { pre: string; nome: string }> = {
+  movbanco: {pre:"", nome:"Movimento bancário original"},
+  titulo: {pre:"", nome:"Título original Omie"},
+  obrigacao: {pre:"", nome:"Conta a pagar"},
+  conta: {pre:"", nome:"Conta financeira"},
   lote:     { pre: "",   nome: "Lote" },
   cliente:  { pre: "",   nome: "Cliente" },
   corretor: { pre: "",   nome: "Corretor" },

@@ -14,18 +14,19 @@ const apiOmie = (action, dados = {}, opts = {}) =>
 // Sincroniza em rodadas (o servidor pagina para caber no tempo dele).
 // Devolve a última resposta, com as contagens somadas de todas as rodadas.
 async function sincronizarOmie(aoVivo) {
-  let pagina = null, parcial = null, resp = null;
+  let pagina = null, parcial = null, resp = null, inicio = null;
   for (let volta = 0; volta < 25; volta++) {
-    resp = await apiOmie('sincronizar', pagina ? { pagina, parcial } : {});
+    resp = await apiOmie('sincronizar', pagina ? { pagina, parcial, inicio } : {});
     if (!resp.ok) throw new Error(resp.error || 'o Omie não respondeu');
-    parcial = resp.contagens || parcial;
+    parcial = resp.contagens || parcial; inicio = resp.inicio || inicio;
     if (!resp.continua) break;
     pagina = resp.continua;
     if (aoVivo) toast('Omie: sincronizando… (parte ' + Math.ceil(pagina / 15) + ')');
   }
+  if (resp && resp.continua) { registrarSyncOmie(false, "Sincronização parcial: ainda há páginas pendentes"); throw new Error("Sincronização incompleta. Retome pela central financeira."); }
   localStorage.setItem(K_OMIE_VISTO, String(Date.now()));
   registrarSyncOmie(true, resumoOmie(resp && resp.contagens));
-  puxar();                                   // traz para a tela o que a função gravou
+  await puxar();
   return resp;
 }
 
@@ -47,6 +48,9 @@ function statusOmieHome(el) {
     (local.detalhe ? ' — ' + esc(local.detalhe) : ''));
   apiOmie('saude').then((r) => {
     if (!r.sync || !r.sync.quando) { pinta(false, 'Omie: nunca sincronizou — abra Configurações e rode o ↻'); return; }
+    if (r.sync.status && r.sync.status !== 'completa') {
+      pinta(false, 'Omie: ' + r.sync.status + ' — ' + (r.sync.erro || 'aguardando conclusão') + ' · ' + fmt.quando(r.sync.inicio || r.sync.quando)); return;
+    }
     const horas = (Date.now() - new Date(r.sync.quando).getTime()) / 3600e3;
     pinta(horas < 26, 'Omie: última sincronização ' + fmt.quando(r.sync.quando) +
       (horas < 26 ? ' ✓' : ' — ATRASADA (mais de ' + Math.round(horas) + 'h)') +
@@ -70,6 +74,7 @@ function resumoOmie(c) {
 // Ninguém precisa lembrar de sincronizar: quem entra (direção/escritório)
 // dispara sozinho quando a última rodada tem mais de 20 horas.
 async function talvezSincronizarOmie() {
+  if (window.FINANCEIRO_EM_VALIDACAO) return;
   if (!['direcao', 'escritorio'].includes(S.perfil)) return;
   const visto = Number(localStorage.getItem(K_OMIE_VISTO) || 0);
   if (Date.now() - visto < 6 * 3600e3) return;     // conferido há pouco

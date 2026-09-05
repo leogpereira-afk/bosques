@@ -1,0 +1,26 @@
+const assert=require('node:assert/strict'), fs=require('node:fs'), vm=require('node:vm');
+const F=require('../financeiro-core.js');let testes=0;
+function test(nome,fn){fn();console.log('OK '+nome);testes++;}
+const v={id:'v1',entrada:0,parcelas:[{tid:'p1',valor:625,valorDia:500,descontoConfirmado:true,venc:'2026-09-20'}]};
+const rec=(valor,alocacoes,data='2026-09-05')=>({id:Math.random()+'',vendaId:'v1',valor,data,alocacoes});
+const r=(vs,rs=[],hoje='2026-09-05')=>F.resumo(vs,rs,hoje);
+test('Entrada sem prova não é recebida',()=>{const x=r({...v,entrada:3000});assert.equal(x.pago,0);assert.equal(x.entradaSaldo,3000);});
+test('Parcial reduz saldo',()=>{const x=r(v,[rec(200,[{tid:'p1',valor:200}])]);assert.equal(x.pago,200);assert.equal(x.saldo,300);assert.equal(x.carne[0].situacao,'parcial');});
+test('Duas baixas quitam a mesma parcela',()=>{const x=r(v,[rec(200,[{tid:'p1',valor:200}]),rec(300,[{tid:'p1',valor:300}])]);assert.equal(x.saldo,0);assert.equal(x.quitada,true);});
+test('Data sozinha não quita',()=>{const x=r({...v,parcelas:[{...v.parcelas[0],pago:'2026-09-05',pagoValor:100}]});assert.equal(x.pago,0);assert.equal(x.quitada,false);});
+test('Sem vencimento não cobra atraso',()=>{const x=r({...v,parcelas:[{...v.parcelas[0],venc:''}]});assert.equal(x.emAtraso,0);assert.equal(x.qtdConferir,1);});
+test('Data impossível fica pendente',()=>assert.equal(F.dataValida('2026-02-30'),false));
+test('Vínculo duvidoso não entra no atraso',()=>{const x=r({...v,parcelas:[{...v.parcelas[0],venc:'2026-01-01',conferir:true}]});assert.equal(x.emAtraso,0);});
+test('Recebimento sem parcela vira crédito não alocado',()=>{const x=r(v,[rec(100)]);assert.equal(x.naoAlocado,100);assert.equal(x.saldo,500);});
+test('Alocação acima do pagamento é recusada',()=>{const x=r(v,[rec(100,[{tid:'p1',valor:200}])]);assert.equal(x.saldo,500);assert.equal(x.pendencias.length,1);});
+test('Estorno retira pagamento do cálculo',()=>{const x=r(v,[{...rec(500,[{tid:'p1',valor:500}]),apagadoEm:'2026-09-06'}]);assert.equal(x.pago,0);});
+test('Título cancelado sai do saldo',()=>assert.equal(r({...v,parcelas:[{...v.parcelas[0],cancelado:true}]}).saldo,0));
+test('Desconto exige confirmação contratual',()=>assert.equal(r({...v,parcelas:[{...v.parcelas[0],descontoConfirmado:false}]}).saldo,625));
+test('Atraso perde desconto ainda não adquirido',()=>assert.equal(r(v,[],'2026-09-21').emAtraso,625));
+test('Quitação em dia preserva desconto depois',()=>assert.equal(r(v,[rec(500,[{tid:'p1',valor:500}])],'2026-09-21').saldo,0));
+test('Desconto realizado na origem fecha pagamento',()=>assert.equal(r({...v,parcelas:[{...v.parcelas[0],descontoConfirmado:false,liquidacao:{desconto:125}}]},[rec(500,[{tid:'p1',valor:500}])]).saldo,0));
+test('Um recebimento abate várias parcelas',()=>{const venda={...v,parcelas:[...v.parcelas,{...v.parcelas[0],tid:'p2',venc:'2026-10-20'}]};const als=F.alocar(venda,[],750,'2026-09-05');assert.deepEqual(als,[{tid:'p1',valor:500},{tid:'p2',valor:250}]);assert.equal(r(venda,[rec(750,als)]).saldo,250);});
+test('Excedente vira crédito sem quitar outras por suposição',()=>{const x=r(v,[rec(700,[{tid:'p1',valor:500}])]);assert.equal(x.naoAlocado,200);assert.equal(x.saldo,0);});
+test('Recebimento Omie identifica título por chave',()=>{const x=r(v,[{...rec(500),omie:{titulo:'p1'}}]);assert.equal(x.saldo,0);});
+test('Reordenação das parcelas mantém alocação por chave',()=>{const venda={...v,parcelas:[{...v.parcelas[0],tid:'p2'},v.parcelas[0]]};const x=r(venda,[rec(500,[{tid:'p1',valor:500}])]);assert.equal(x.carne.find(p=>p.tid==='p1').saldo,0);});
+(async()=>{const src=fs.readFileSync('omie.js','utf8');let chamadas=0,ok=null;const ctx={apiOmie:async()=>({ok:true,continua:++chamadas}),localStorage:{setItem(){}},K_OMIE_VISTO:'x',registrarSyncOmie:x=>ok=x,resumoOmie:()=>'',puxar:async()=>{}};vm.createContext(ctx);vm.runInContext(src.slice(src.indexOf('async function sincronizarOmie('),src.indexOf('// O registro')),ctx);await assert.rejects(()=>ctx.sincronizarOmie(false),/incompleta/);assert.equal(ok,false);console.log('OK Sincronização incompleta nunca informa sucesso');for(const f of fs.readdirSync('.').filter(f=>f.endsWith('.js')))new vm.Script(fs.readFileSync(f,'utf8'),{filename:f});console.log('PASSOU '+(testes+1)+' testes e sintaxe de todos os módulos');})();

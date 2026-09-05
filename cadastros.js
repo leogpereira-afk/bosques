@@ -368,7 +368,7 @@ TELAS.corretores = function () {
 /* ── Associar uma comissão órfã ao corretor certo ──────────────────────────
    O texto da planilha quase sempre TRAZ o nome ("COMISSAO RENATA") — o
    seletor já vem sugerido por ele; a pessoa só confirma. */
-function abrirAssociarComissao(cxId) {
+function abrirAssociarComissao(cxId, aoTerminar) {
   const c = achar('cx', cxId);
   if (!c) return;
   const corretores = lista('corretor');
@@ -417,7 +417,7 @@ function abrirAssociarComissao(cxId) {
               historico: historiar(c, 'Comissão dividida: ' + partes.map((x, i2) => nomes[i2] + ' ' + fmt.brl(x.valor)).join(' + ')) });
         fecharSilencioso(fundo);
         toast(partes.length === 1 ? 'Associada a ' + nomes[0] : 'Dividida entre ' + nomes.join(' e '));
-        TELAS.corretores();
+        (aoTerminar || TELAS.corretores)();
       } },
     ],
   });

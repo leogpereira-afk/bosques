@@ -261,3 +261,34 @@ button { font-family: inherit; }
    datas formarem coluna, e é a coluna que se lê como ordem. Sem isto, "1" e
    "8" ocupam larguras diferentes e a varredura com o olho não acontece. */
 .lin .sub .tnum { font-variant-numeric: tabular-nums; }
+
+.fin-nav {display:flex;flex-wrap:wrap;gap:8px;margin:12px 0}.fin-lapis{color:#7c3aed;font-size:20px}.fin-conta{display:block;width:100%;text-align:left;cursor:pointer}.ln-row.pendente td{background:#fff3c4}.ln-row.pendente:hover td{background:#ffe69a}
+
+/* Valores financeiros cabem no cartão; tabelas preservam a leitura com rolagem. */
+#palco, #app, .cartao, .painel, .campo, .lin .cresce {min-width:0;}
+.paineis {grid-template-columns:repeat(auto-fit,minmax(min(100%,225px),1fr));}
+.painel .num {display:block;font-size:clamp(17px,1.7vw,24px);font-variant-numeric:tabular-nums;line-height:1.3;overflow-wrap:anywhere;}
+.painel .rot,.painel .sub {display:block;overflow-wrap:anywhere;}
+.cartao h2,.lin b {overflow-wrap:anywhere;}
+.colunas,.colunas-3 {min-width:0;}
+.colunas>* , .colunas-3>* {min-width:0;}
+.campo input,.campo select,.campo textarea {max-width:100%;min-width:0;}
+.rolagem {width:100%;max-width:100%;overflow-x:auto;overscroll-behavior-x:contain;}
+.fin-nav {gap:8px;margin:12px 0;}
+.fin-nav .btn {white-space:normal;text-align:left;}
+.fin-toolbar {display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin:16px 0;}
+.fin-toolbar select,.fin-toolbar input {padding:10px 12px;border:1px solid var(--borda);border-radius:8px;background:white;min-width:0;font:inherit;}
+.fin-toolbar input {flex:1 1 180px;}
+.fin-status {padding:12px 16px;border-radius:10px;background:#fff3c4;margin:12px 0;}
+.fin-status.ok {background:var(--verde-palido);}
+.fin-pager {display:flex;gap:12px;justify-content:space-between;align-items:center;margin:14px 0;}
+.fin-table {min-width:680px;}
+.fin-table td {max-width:320px;overflow-wrap:anywhere;}
+.fin-table td.num {max-width:none;}
+.fin-meta {font-size:12px;color:var(--tinta-fraca);display:block;margin-top:4px;}
+.fin-form-linhas {max-height:340px;overflow:auto;padding:8px;}
+@media(max-width:600px){.paineis{grid-template-columns:1fr 1fr;}.painel{padding:10px;}.painel .num{font-size:18px;}.fin-nav .btn{font-size:12px;padding:8px;}.fin-toolbar>*{flex:1 1 140px;}.fin-pager{font-size:12px;}}
+@media(max-width:360px){.paineis{grid-template-columns:1fr;}}
+/* Textos secundários respeitam a coluna também em telas pequenas. */
+.lin .sub {display:block;max-width:100%;}
+@media(max-width:600px){.lin{min-width:0;}.lin .dinheiro{max-width:45%;white-space:normal;overflow-wrap:anywhere;}.acoes-linha{flex-wrap:wrap;}}

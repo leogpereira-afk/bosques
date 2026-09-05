@@ -613,10 +613,10 @@ function abrirBaixa(v, r, parcelaN, faltaSugerida) {
   const alvo = parcelaN != null ? r.carne.find((l) => l.n === parcelaN)
     : r.carne.find((l) => ['atrasada', 'hoje', 'parcial', 'aberta'].includes(l.situacao));
   const falta = faltaSugerida != null ? faltaSugerida
-    : alvo ? Math.max(0, Math.round((alvo.valor - alvo.pago) * 100) / 100) : 0;
+    : alvo ? (alvo.saldo != null ? alvo.saldo : Math.max(0, Math.round((alvo.valor - alvo.pago) * 100) / 100)) : 0;
   const corpo =
     '<p class="nota">' + (alvo ? 'Sugerido: <b>' + esc(alvo.rotulo) + '</b> (' + fmt.data(alvo.venc) + '), faltam ' + fmt.brl(falta) + '.' : '') +
-      ' Pagou mais ou menos que a parcela? Lança o valor REAL — o motor distribui certinho (parcial fica parcial, troco rola para a próxima).</p>' +
+      ' Informe o valor real. O pagamento abate o saldo das parcelas identificadas; o excedente fica como crédito a vincular.</p>' +
     '<div class="colunas-3">' +
       campo('Valor recebido (R$)', entrada('valor', falta || '', { inputmode: 'decimal' })) +
       campo('Em', entrada('data', hojeISO(), { tipo: 'date' })) +
@@ -637,41 +637,15 @@ function abrirBaixa(v, r, parcelaN, faltaSugerida) {
         if (!(valor > 0)) { toast('Diga o valor recebido', 'ruim'); return; }
         if (!c.data) { toast('Diga a data', 'ruim'); return; }
         const nAlvo = c.parcelaN !== '' ? Number(c.parcelaN) : null;
+        const vAtual = achar('venda', v.id) || v;
+        const parcelas = vAtual.parcelas || [];
+        const tid = nAlvo > 0 && parcelas[nAlvo-1] ? FINANCEIRO.chave(parcelas[nAlvo-1],nAlvo-1) : null;
+        const alocacoes = FINANCEIRO.alocar(vAtual, recsDaVenda(v.id), valor, c.data, tid);
         salvar('rec', {
-          vendaId: v.id,
-          tipo: nAlvo === 0 ? 'entrada' : 'parcela',
-          parcelaN: nAlvo && nAlvo > 0 ? nAlvo : null,
-          valor, data: c.data, forma: c.forma, obs: String(c.obs || '').slice(0, 300),
+          vendaId:v.id, tipo:nAlvo===0 ? 'entrada' : 'parcela', parcelaN:null,
+          alocacoes:nAlvo===0 ? [] : alocacoes, valor, data:c.data, forma:c.forma,
+          obs:String(c.obs||'').slice(0,300), editadoAMao:true,
         });
-        // Venda espelhada: o resumo IGNORA recs — sem marcar a parcela no
-        // espelho ela seguiria 'atrasada' e a cobrança cobraria quem já pagou.
-        // PAGAMENTO REAL sempre atualiza pago/pagoValor (regra do espelho).
-        const vAtual = achar('venda', v.id) || v;   // reler do store, não do render
-        const psE = Array.isArray(vAtual.parcelas) ? vAtual.parcelas : [];
-        if (psE.length) {
-          let iAb = -1;
-          if (nAlvo && nAlvo > 0) {
-            // amarrou numa parcela: ela manda (se ainda estiver em aberto)
-            if (psE[nAlvo - 1] && !psE[nAlvo - 1].pago) iAb = nAlvo - 1;
-          } else {
-            // senão, a mais antiga em aberto (menor venc sem pago)
-            for (let j = 0; j < psE.length; j++) {
-              if (!psE[j].pago && (iAb < 0 || String(psE[j].venc || '') < String(psE[iAb].venc || ''))) iAb = j;
-            }
-          }
-          // O espelho não tem 'parcial': valor menor que a parcela em dia NÃO
-          // marca a parcela paga (senão quem deve R$400 sai da cobrança).
-          const devido = iAb >= 0 ? (psE[iAb].valorDia != null ? Number(psE[iAb].valorDia) : Number(psE[iAb].valor) || 0) : 0;
-          if (iAb >= 0 && valor >= devido - 0.01) {
-            const ps2 = psE.slice();
-            ps2[iAb] = { ...ps2[iAb], pago: c.data, pagoValor: valor, trava: true, pagoOrigem: 'manual',
-              obs: String((ps2[iAb].obs ? ps2[iAb].obs + ' · ' : '') + 'baixa manual').slice(0, 200) };
-            salvar('venda', { id: v.id, parcelas: ps2 });
-          } else if (iAb >= 0) {
-            toast('Baixa PARCIAL: a parcela segue em aberto no carnê (faltam ' + fmt.brl(Math.max(0, devido - valor)) + ') — complete pela ficha quando quitar', 'aviso');
-          }
-          // sem parcela em aberto: fica só o rec (dinheiro entrou mesmo assim)
-        }
         fecharSilencioso(fundo);
         toast('Baixa lançada — ' + fmt.brl(valor));
         TELAS.venda(v.id);
@@ -1039,20 +1013,19 @@ function abrirEditarParcela(v, idx, opts = {}) {
   const ps = Array.isArray(v.parcelas) ? v.parcelas.slice() : [];
   const nova = idx < 0;
   const pp = nova ? { tid: 'man-' + Date.now(), venc: hojeISO(), valor: '', valorDia: '', pago: null, obs: '', origem: 'manual' } : { ...ps[idx] };
-  if (opts.baixa && !pp.pago) { pp.pago = hojeISO(); pp.pagoValor = pp.valorDia != null ? pp.valorDia : pp.valor; }
+  if (opts.baixa) { abrirBaixa(v, resumoVenda(v), idx + 1); return; }
   const outras = lista('venda').filter((x) => x.id !== v.id && x.clienteId === v.clienteId &&
     ['ativa', 'conferir'].includes(x.situacao || 'ativa'));
   const corpo =
-    (pp.tid ? '<p class="nota">Boleto do Omie nº ' + esc(String(pp.tid)) + ' — o pagamento chega sozinho pela sincronização. ' +
+    (pp.tid && !String(pp.tid).startsWith('man-') ? '<p class="nota">Boleto do Omie nº ' + esc(String(pp.tid)) + ' — o pagamento chega sozinho pela sincronização. ' +
       'O que você salvar aqui fica travado (🔒) e o Omie não sobrescreve.</p>' : '') +
     '<div class="colunas-3">' +
       campo('Vencimento', entrada('venc', pp.venc || '', { tipo: 'date' })) +
       campo('Valor do boleto (R$)', entrada('valor', pp.valor, { inputmode: 'decimal' })) +
-      campo('Em dia −20% (R$)', entrada('valorDia', pp.valorDia != null ? pp.valorDia : '', { inputmode: 'decimal' }), 'vazio = calcula 80%') +
+      campo('Valor com desconto contratual (R$)', entrada('valorDia', pp.valorDia != null ? pp.valorDia : '', { inputmode: 'decimal' }), 'informe a condição contratual') +
+      '<label><input type="checkbox" name="descontoConfirmado" '+(pp.descontoConfirmado?'checked':'')+'> Confirmo este desconto conforme o contrato</label>' +
     '</div><div class="colunas-3">' +
-      campo('Pago em', entrada('pago', pp.pago || '', { tipo: 'date' }), 'vazio = em aberto') +
-      // pré-preenchido com o valor em dia: vazio marcava pago pelo CHEIO e sem rec
-      campo('Valor pago (R$)', entrada('pagoValor', pp.pagoValor != null ? pp.pagoValor : (pp.valorDia != null ? pp.valorDia : pp.valor), { inputmode: 'decimal' }), 'só vale com "Pago em"') +
+      campo('Centro de custo',seletor('centroCusto',pp.centroCusto||'',finCentrosDisponiveis(),'Sem centro')) +
       campo('Observação', entrada('obs', pp.obs || '')) +
     '</div>' +
     (outras.length && !nova
@@ -1065,25 +1038,12 @@ function abrirEditarParcela(v, idx, opts = {}) {
       const c = lerCampos(fundo);
       const valor = numeroBR(c.valor);
       if (!(valor > 0) || !c.venc) { toast('Vencimento e valor do boleto são obrigatórios', 'ruim'); return; }
-      const valorDia = c.valorDia !== '' ? numeroBR(c.valorDia) : Math.round(valor * 0.8 * 100) / 100;
-      // 'Valor pago' vazio marcava a parcela paga pelo CHEIO (fallback do
-      // resumo) e sem lançar rec: o padrão da baixa é o valor em dia.
-      const pagoValor = c.pago
-        ? (numeroBR(c.pagoValor) > 0 ? numeroBR(c.pagoValor) : (valorDia > 0 ? valorDia : valor))
-        : null;
-      const editada = {
-        ...pp, venc: c.venc, valor,
-        valorDia,
-        pago: c.pago || null,
-        pagoValor,
-        // quem pagou: edição humana marca 'manual'; pago intocado preserva a origem
-        pagoOrigem: c.pago ? (pp.pago === c.pago && pp.pagoOrigem ? pp.pagoOrigem : 'manual') : null,
-        obs: String(c.obs || '').slice(0, 200),
-        trava: true, conferir: false,
-      };
-      // limpar o 'Pago em' é ordem explícita — o servidor só desfaz pago com ela
-      if (!c.pago && pp.pago) editada._desfazerPago = true;
-      const virouPaga = !!editada.pago && !(idx >= 0 && ps[idx] && ps[idx].pago);
+      const valorDia = c.valorDia !== '' ? numeroBR(c.valorDia) : valor;
+      if(valorDia<0||valorDia>valor){toast('O valor com desconto deve estar entre zero e o valor do boleto','ruim');return;}
+      const editada = { ...pp, venc:c.venc, valor, valorDia, centroCusto:c.centroCusto||'',
+        descontoConfirmado:!!fundo.querySelector('[name=descontoConfirmado]').checked, obs:String(c.obs||'').slice(0,200), trava:true, conferir:false };
+      const virouPaga = false;
+      if(c.mover && pp.tid){fecharModal();finVincularTitulo({titulo:pp.tid,cpf:v.clienteId});return;}
       if (c.mover) {
         // muda de venda: sai daqui, entra lá (com a trava junto)
         const destino = achar('venda', c.mover);
