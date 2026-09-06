@@ -2,7 +2,7 @@ const fs=require('fs'),assert=require('node:assert/strict');
 const {PGlite}=require((process.env.BSQ_TEST_DEPS||'/tmp/bosques-test-deps')+'/node_modules/@electric-sql/pglite');
 (async()=>{
  const db=new PGlite();await db.exec('create role anon;create role authenticated;create role service_role;create table bsq_registros(colecao text,id text,registro jsonb,atualizado_em timestamptz,apagado boolean default false,primary key(colecao,id));');
- for(const f of ['202609050001_vinculo_financeiro.sql','202609060005_identificar_pagamentos.sql','202609060007_identificar_titulos.sql'])await db.exec(fs.readFileSync('supabase/migrations/'+f,'utf8'));
+ for(const f of ['202609050001_vinculo_financeiro.sql','202609060005_identificar_pagamentos.sql','202609060007_identificar_titulos.sql','202609060008_identificacao_titulos_desempenho.sql'])await db.exec(fs.readFileSync('supabase/migrations/'+f,'utf8'));
  const put=(c,id,r)=>db.query('insert into bsq_registros(colecao,id,registro) values($1,$2,$3)',[c,id,JSON.stringify({id,...r})]);
  const get=async id=>(await db.query('select registro from bsq_registros where id=$1',[id])).rows[0].registro;
  const run=async a=>(await db.query('select bsq_identificar_titulos_omie($1) r',[a])).rows[0].r;
