@@ -1,5 +1,15 @@
 /* Uma área financeira; filtros e exportação consultam o mesmo recorte. */
 const FIN_ABAS = {visao:'Visão geral',recebimentos:'Recebimentos',despesas:'Despesas',receber:'Contas a receber',pagar:'Contas a pagar',diferencas:'Diferenças com Omie',centros:'Centros de custo',contas:'Contas e conciliação',pendencias:'Pendências e sincronização'};
+// A cor acompanha a natureza do lançamento, inclusive nas listas mistas.
+function finCor(x={},aba='') {
+  if (['recebimentos','receber'].includes(aba)) return 'fin-entrada';
+  if (['despesas','pagar'].includes(aba)) return 'fin-saida';
+  if (x.rec || x.vendaId || x.titulo?.grupo==='CONTA_A_RECEBER') return 'fin-entrada';
+  if (x.obrigacao || x.comissao || x.titulo?.grupo==='CONTA_A_PAGAR') return 'fin-saida';
+  const tipo=x.cx?.tipo || x.tipo;
+  return tipo==='entrada'?'fin-entrada':tipo==='saida'?'fin-saida':'';
+}
+function finValor(valor,cor) { return '<span class="'+cor+'">'+fmt.brl(valor)+'</span>'; }
 function finIndices(){
   const vendas=lista('venda').filter(v=>v.situacao!=='distratada'), titulos=lista('titulo');
   const porVenda=new Map(vendas.map(v=>[v.id,v])),porTitulo=new Map(),porParcela=new Map();
@@ -86,6 +96,7 @@ TELAS.financeiro=function(){
   const total=linhas.reduce((s,x)=>s+FINANCEIRO.cent(x.valor),0)/100;
   let html='<div class="fin-nav">'+Object.entries(FIN_ABAS).map(([id,nome])=>'<button class="btn '+(id===f.aba?'primario':'')+'" data-fin-aba="'+id+'">'+nome+'</button>').join('')+'</div>';
   if(window.FINANCEIRO_EM_VALIDACAO)html+='<div class="cartao" style="border-color:#e8b24a"><b>Versão em validação.</b> Os vínculos pendentes precisam ser conferidos antes da troca do financeiro.</div>';
+  html+='<div class="fin-legenda"><span class="fin-entrada">↙ Entradas em azul</span><span class="fin-saida">↗ Saídas em vermelho</span><a class="btn" href="#/relatorios">Ver relatórios →</a></div>';
   html+='<p class="nota">Valores confirmados e pendências ficam identificados. Amarelo: precisa de conferência. Lápis roxo: alteração manual.</p>';
   if(f.aba==='pendencias'&&f.grupo)html+='<h2>'+esc(FIN_GRUPOS[f.grupo])+'</h2><p>Abra cada linha para corrigir o vínculo. A lista é atualizada após salvar.</p>';
   if(f.aba==='pendencias')html+='<p class="nota">A soma das pendências não representa dívida adicional: o mesmo recebimento pode exigir mais de uma conferência.</p>';
@@ -97,12 +108,12 @@ TELAS.financeiro=function(){
     html+='<div class="fin-status">'+(!ctx.titulos.length?'A origem Omie ainda não foi carregada. Sincronize antes de conferir.':diff.length?diff.length+' diferenças identificadas com o Omie. Confira na aba dedicada.':'Valores comparados por título sem diferenças nesta leitura. Confira também os vínculos e a cobertura da sincronização.')+'</div>'; 
     const saldo=totaisAcumulados();
     html+='<div class="paineis">'+[
-      ['recebimentos','Recebimentos registrados',recebido],['receber','Saldo aberto no Omie',aReceber.reduce((s,x)=>s+x.valor,0)],
+      ['recebimentos','Recebimentos registrados',recebido],['receber','Parcelas a receber dos lotes',aReceber.reduce((s,x)=>s+x.valor,0)],
       ['pagar','Contas a pagar pendentes',pagar.reduce((s,x)=>s+x.valor,0)],['diferencas','Diferenças com Omie',diff.length],['pendencias','Itens para conferir',finPendencias(ctx).length]
-    ].map(([aba,nome,valor])=>'<button class="painel clicavel" data-fin-aba="'+aba+'"><span class="rot">'+nome+'</span><b class="num">'+(['pendencias','diferencas'].includes(aba)?valor:fmt.brl(valor))+'</b></button>').join('')+'</div>';
+    ].map(([aba,nome,valor])=>'<button class="painel clicavel" data-fin-aba="'+aba+'"><span class="rot">'+nome+'</span><b class="num '+finCor({},aba)+'">'+(['pendencias','diferencas'].includes(aba)?valor:fmt.brl(valor))+'</b>'+(aba==='receber'?'<span class="sub">Vencidas e futuras · não é saldo disponível. Títulos sem lote confirmado precisam de conferência.</span>':'')+'</button>').join('')+'</div>';
     const pend=finPendencias(ctx);
     html+='<div class="cartao"><h2>Resolver vínculos pendentes</h2>'+Object.entries(FIN_GRUPOS).map(([id,nome])=>{const n=pend.filter(x=>finPertenceGrupo(x,id)).length;return n?'<button class="lin vinc-lin" data-fin-grupo="'+id+'"><b>'+n+' · '+esc(nome)+'</b><span>Abrir lista →</span></button>':'';}).join('')+'</div><div id="fin-sync" class="cartao"></div>';
-    html+='<div class="cartao"><h2>Resultado dos lançamentos: '+fmt.brl(saldo.resultado)+'</h2><p>Entradas menos saídas registradas. Para saber o dinheiro disponível, confira o saldo de cada conta.</p><button class="btn" data-fin-aba="contas">Conferir contas</button></div>';
+    html+='<div class="cartao"><h2>Resultado dos lançamentos: '+finValor(saldo.resultado,saldo.resultado<0?'fin-saida':'fin-entrada')+'</h2><p>Entradas menos saídas registradas. Para saber o dinheiro disponível, confira o saldo de cada conta.</p><button class="btn" data-fin-aba="contas">Conferir contas</button></div>';
   } else if(f.aba==='contas') {
     html+='<button class="btn primario" id="fin-conta-nova">Cadastrar conta</button><div id="fin-bancos" class="cartao">Saldos do Omie ainda não consultados. <button class="btn" id="fin-consultar">Consultar saldos</button></div>';
     html+=lista('conta').map(c=>{
@@ -113,16 +124,16 @@ TELAS.financeiro=function(){
       const transferencias=banco.filter(m=>m.transferencia).reduce((s,m)=>s+(m.entrada?1:-1)*FINANCEIRO.cent(m.valor),0);
       return '<button class="cartao fin-conta" data-conta="'+esc(c.id)+'"><b>'+esc(c.nome)+'</b><p>Saldo pelos lançamentos desde '+esc(c.dataInicial)+': '+fmt.brl(registrado/100)+'</p><p>'+(banco.length?'Saldo pelo extrato importado: '+fmt.brl(bancario/100)+' · transferências líquidas: '+fmt.brl(transferencias/100)+' · diferença a conferir, após transferências: '+fmt.brl((bancario-registrado-transferencias)/100):'Extrato ainda não vinculado/importado. Conciliação não concluída.')+'</p><span>Conferir conta e saldo inicial</span></button>';
     }).join('');
-    html+='<div class="cartao"><h2>Movimentações bancárias</h2><p>Transferências internas não são receita nem despesa. O saldo do extrato depende da data inicial e da cobertura da importação.</p>'+lista('movbanco').map((m,i)=>'<button class="btn" data-fin-banco="'+esc(m.id)+'">'+esc(m.data||'Sem data')+' · '+(m.transferencia?'Transferência':m.titulo?'Movimento de título':'Movimento sem título')+' · '+fmt.brl(m.valor)+'</button>').join('')+'</div>';
+    html+='<div class="cartao"><h2>Movimentações bancárias</h2><p>Transferências internas não são receita nem despesa. O saldo do extrato depende da data inicial e da cobertura da importação.</p>'+lista('movbanco').map((m,i)=>'<button class="btn" data-fin-banco="'+esc(m.id)+'">'+esc(m.data||'Sem data')+' · '+(m.transferencia?'Transferência':m.titulo?'Movimento de título':'Movimento sem título')+' · '+finValor(m.valor,m.transferencia?'':m.entrada?'fin-entrada':'fin-saida')+'</button>').join('')+'</div>';
 
   } else {
     html+='<div class="fin-toolbar"><select id="fin-ano" aria-label="Ano"><option value="">Todos os anos</option>'+anos.map(a=>'<option '+(a===f.ano?'selected':'')+'>'+a+'</option>').join('')+'</select><input id="fin-busca" aria-label="Buscar" placeholder="Buscar" value="'+esc(f.q)+'"><button class="btn" id="fin-pdf">Baixar este recorte em PDF</button>'+(f.aba==='despesas'?'<button class="btn primario" id="fin-despesa">Nova despesa</button>':'')+(f.aba==='pagar'?'<button class="btn primario" id="fin-obrigacao">Nova conta a pagar</button>':'')+'</div>';
     html+='<div class="fin-nav">'+['','01','02','03','04','05','06','07','08','09','10','11','12'].map((m,i)=>'<button class="btn mini '+(f.mes===m?'primario':'')+'" data-fin-mes="'+m+'">'+(['Todos','Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'][i])+'</button>').join('')+'</div>';
     if(['despesas','pagar','recebimentos','receber'].includes(f.aba))html+='<div class="fin-toolbar"><label>Centro de custo <select id="fin-centro"><option value="">Todos</option>'+finCentrosDisponiveis().map(c=>'<option '+(f.centro===c?'selected':'')+'>'+esc(c)+'</option>').join('')+'</select></label><button class="btn" data-fin-aba="centros">Editar centros de custo</button></div>';
     if(f.aba==='diferencas')html+='<p class="fin-status">Origem e sistema são comparados por identificador. Coincidência de valor não é confirmação. Correções locais continuam visíveis como diferença.</p>';
-    html+='<p>'+linhas.length+' itens · Soma dos itens exibidos: <b>'+fmt.brl(total)+'</b> · '+todas.filter(x=>!x.data).length+' sem data (visíveis em Todos os anos / Todos).</p>';
+    html+='<p>'+linhas.length+' itens · Soma dos itens exibidos: <b>'+finValor(total,finCor({},f.aba))+'</b> · '+todas.filter(x=>!x.data).length+' sem data (visíveis em Todos os anos / Todos).</p>';
     if(f.aba==='pendencias') html+='<div id="fin-sync" class="cartao"></div><button class="btn" id="fin-sincronizar">Sincronizar Omie</button>';
-    html+='<div class="rolagem"><table class="tabela fin-table"><thead><tr><th>Nº</th><th>Data</th><th>Descrição</th><th>Situação / centro de custo</th><th class="num">Valor</th></tr></thead><tbody>'+visiveis.map((x,i)=>'<tr tabindex="0" role="button" data-fin-row="'+i+'" class="ln-row '+(x.pendente?'pendente':'')+'"><td>'+(pagina*60+i+1)+'</td><td>'+esc(x.data||'Sem data')+'</td><td>'+esc(x.descricao||'')+(x.editadoAMao?'<span class="fin-lapis" title="Editado manualmente"> ✎</span>':'')+'</td><td>'+esc(x.situacao||'')+'</td><td class="num">'+fmt.brl(x.valor)+'</td></tr>').join('')+'</tbody></table></div><div class="fin-pager"><button class="btn" id="fin-anterior" '+(!pagina?'disabled':'')+'>Anterior</button><span>Página '+(pagina+1)+' de '+Math.max(1,Math.ceil(linhas.length/60))+' · 60 itens por página</span><button class="btn" id="fin-proxima" '+((pagina+1)*60>=linhas.length?'disabled':'')+'>Próxima</button></div>';
+    html+='<div class="rolagem"><table class="tabela fin-table"><thead><tr><th>Nº</th><th>Data</th><th>Descrição</th><th>Situação / centro de custo</th><th class="num">Valor</th></tr></thead><tbody>'+visiveis.map((x,i)=>'<tr tabindex="0" role="button" data-fin-row="'+i+'" class="ln-row '+(x.pendente?'pendente':'')+'"><td>'+(pagina*60+i+1)+'</td><td>'+esc(x.data||'Sem data')+'</td><td>'+esc(x.descricao||'')+(x.editadoAMao?'<span class="fin-lapis" title="Editado manualmente"> ✎</span>':'')+'</td><td>'+esc(x.situacao||'')+'</td><td class="num '+finCor(x,f.aba)+'">'+fmt.brl(x.valor)+'</td></tr>').join('')+'</tbody></table></div><div class="fin-pager"><button class="btn" id="fin-anterior" '+(!pagina?'disabled':'')+'>Anterior</button><span>Página '+(pagina+1)+' de '+Math.max(1,Math.ceil(linhas.length/60))+' · 60 itens por página</span><button class="btn" id="fin-proxima" '+((pagina+1)*60>=linhas.length?'disabled':'')+'>Próxima</button></div>';
   }
   app.innerHTML=html;
   app.querySelectorAll('[data-fin-grupo]').forEach(b=>b.onclick=()=>finAbrirPendenciasGrupo(b.dataset.finGrupo));
