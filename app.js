@@ -40,6 +40,11 @@ function rotaAtual() {
 }
 
 /* ── Render ────────────────────────────────────────────────────────────────── */
+const DESCRICOES_TELA={home:'O empreendimento hoje, em um só lugar.',espelho:'Disponibilidade, reservas e vendas por lote.',lote:'Informações do lote e condições de venda.',vendas:'Acompanhe contratos, pagamentos e clientes.',venda:'Contrato, parcelas e histórico do cliente.',simulador:'Compare condições e monte um plano de pagamento.',simulacao:'Explore cenários de vendas e recebimentos.',contratos:'Prepare e consulte os contratos do empreendimento.',propostas:'Organize propostas e acompanhe cada negociação.',financeiro:'Recebimentos, despesas e vínculos para conferir.',caixa:'Acompanhe as entradas e saídas do período.',lancamentos:'Consulte e edite cada movimentação.',relatorios:'Resultados e previsões para orientar suas decisões.',cronograma:'Etapas, prazos e custos de cada projeto.',clientes:'Cadastros e informações dos seus clientes.',corretores:'Equipe comercial, desempenho e comissões.',apresentacao:'Fotos e materiais para apresentar o empreendimento.',config:'Preferências e acessos do sistema.'};
+const ICONES_MENU={home:'M3 10l9-7 9 7v10a1 1 0 0 1-1 1h-5v-7H9v7H4a1 1 0 0 1-1-1z',espelho:'M3 3h7v7H3z M14 3h7v7h-7z M3 14h7v7H3z M14 14h7v7h-7z',simulador:'M5 3h14v18H5z M8 7h8 M8 11h1 M15 11h1 M8 15h1 M15 15h1 M8 18h1 M15 18h1',vendas:'M4 20V8l8-5 8 5v12H4z M8 12h8 M8 16h5',contratos:'M6 3h9l4 4v14H6z M14 3v5h5 M9 12h7 M9 16h7',propostas:'M3 5h18v14H3z M3 5l9 7 9-7',financeiro:'M3 7h18v14H3z M3 7V4h15v3 M15 12h6v5h-6z',cronograma:'M4 5h16v16H4z M8 3v4 M16 3v4 M4 10h16 M8 14h3 M8 17h7',clientes:'M16 8a4 4 0 1 1-8 0 4 4 0 0 1 8 0 M4 21v-2a8 6 0 0 1 16 0v2',corretores:'M13 7a3 3 0 1 1-6 0 3 3 0 0 1 6 0 M3 20v-2a7 5 0 0 1 14 0v2 M16 4a3 3 0 0 1 0 6 M18 14a5 4 0 0 1 3 4v2',apresentacao:'M3 4h18v16H3z M3 16l6-6 5 5 3-3 4 4 M15 8h.01',config:'M12 3v3 M12 18v3 M3 12h3 M18 12h3 M5.6 5.6l2 2 M16.4 16.4l2 2 M5.6 18.4l2-2 M16.4 7.6l2-2 M17 12a5 5 0 1 1-10 0 5 5 0 0 1 10 0'};
+function iconeMenu(nome){return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="'+(ICONES_MENU[nome]||ICONES_MENU.financeiro)+'"/></svg>';}
+function grupoMenu(nome){return nome==='home'?'Visão geral':['espelho','simulador','vendas','contratos','propostas'].includes(nome)?'Comercial':['financeiro','cronograma'].includes(nome)?'Gestão':'Organização';}
+
 function renderLateral() {
   const el = document.getElementById('lateral');
   const { nome } = rotaAtual();
@@ -50,13 +55,14 @@ function renderLateral() {
   el.innerHTML =
     '<div class="marca"><img src="icons/icon-192.png" alt=""><b>Portal dos Bosques<span>gestão do loteamento</span></b></div>' +
     '<nav id="menu">' +
-      rotasDoPerfil().map((r) =>
-        '<a href="#/' + r + '" class="' + (nome === r || (r === 'vendas' && nome === 'venda') || (r === 'espelho' && nome === 'lote') ? 'on' : '') + '">' +
-        '<span class="ic">' + ROTAS[r].ic + '</span>' + ROTAS[r].titulo +
+      rotasDoPerfil().map((r,i,rs) =>
+        (i===0||grupoMenu(rs[i-1])!==grupoMenu(r)?'<div class="grupo">'+grupoMenu(r)+'</div>':'')+'<a href="#/' + r + '" class="' + (nome === r || (r === 'vendas' && nome === 'venda') || (r === 'espelho' && nome === 'lote') ? 'on' : '') + '">' +
+        '<span class="ic">' + iconeMenu(r) + '</span><span class="menu-texto">' + ROTAS[r].titulo+'</span>' +
         (r === 'vendas' && atrasos ? '<span class="selo">' + atrasos + '</span>' : '') + '</a>').join('') +
     '</nav>' +
     '<div id="rodape-lateral">' + esc(S.quem || 'Equipe') + ' · ' + esc(({ direcao: 'Direção', escritorio: 'Escritório', corretor: 'Corretor' })[S.perfil] || S.perfil) +
       '<div class="acoes"><button id="bt-sync">↻ Sincronizar</button><button id="bt-sair">Sair</button></div></div>';
+  const ativo=el.querySelector('#menu a.on');if(ativo)ativo.setAttribute('aria-current','page');
   const bs = el.querySelector('#bt-sync');
   if (bs) bs.onclick = () => { puxar(); toast('Atualizando dados do aparelho. A integração Omie fica no Financeiro.'); };
   const bx = el.querySelector('#bt-sair');
@@ -71,8 +77,8 @@ function renderLateral() {
 function renderTopo() {
   const { nome } = rotaAtual();
   document.getElementById('topo').innerHTML =
-    '<h1>' + (ROTAS[nome] ? ROTAS[nome].titulo : 'Portal dos Bosques') + '</h1>' +
-    '<span id="sync-badge"></span>';
+    '<div class="titulo-pagina"><span class="sobretitulo">Portal dos Bosques</span><h1>' + (ROTAS[nome] ? ROTAS[nome].titulo : 'Portal dos Bosques') + '</h1><p>'+esc(DESCRICOES_TELA[nome]||'')+'</p></div>' +
+    '<span id="sync-badge" role="status" aria-live="polite"></span>';
   atualizarBadge();
 }
 
@@ -95,6 +101,7 @@ function render() {
   // sync de 90s redesenharia a página toda vez, jogando a rolagem pro topo.
   if (S.assinaturaPendente) { S.assinatura = S.assinaturaPendente; S.assinaturaPendente = null; }
   const { nome, id } = rotaAtual();
+  document.body.dataset.tela=nome;
   renderLateral();
   renderTopo();
   const rotas = rotasDoPerfil().concat(['lote', 'venda', 'comissoes', 'simulacao', 'caixa', 'lancamentos', 'relatorios']);
