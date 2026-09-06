@@ -1,0 +1,17 @@
+const fs=require('fs'),assert=require('assert/strict');const {PGlite}=require(process.env.BSQ_TEST_DEPS+'/node_modules/@electric-sql/pglite');
+(async()=>{const db=new PGlite();await db.exec(`create role anon;create role authenticated;create role service_role;
+create table bsq_meta(chave text primary key,valor jsonb,atualizado_em timestamptz);
+create schema cron;create table cron.job(jobname text primary key,schedule text,command text);
+create function cron.schedule(text,text,text) returns bigint language plpgsql as $$begin insert into cron.job values($1,$2,$3) on conflict(jobname) do update set schedule=$2,command=$3;return 1;end$$;
+create schema vault;create table vault.secrets(name text,secret text);create view vault.decrypted_secrets as select name,secret decrypted_secret from vault.secrets;
+create function vault.create_secret(text,text,text) returns uuid language plpgsql as $$begin insert into vault.secrets values($2,$1);return gen_random_uuid();end$$;
+create schema net;create table net.test_calls(url text,headers jsonb,body jsonb);
+create function net.http_post(url text,headers jsonb,body jsonb,timeout_milliseconds integer) returns bigint language plpgsql as $$begin insert into net.test_calls values($1,$2,$3);return 77;end$$;`);
+await db.query('insert into cron.job values($1,$2,$3)',['bsq-rotina-diaria','10 6 * * *',"select net.http_post(url := 'https://teste.invalid/functions/v1/bsq-rotina',headers := jsonb_build_object('x-rotina-token', 'credencial-ficticia'))"]);
+await db.exec(fs.readFileSync('supabase/migrations/202609060003_omie_automatico.sql','utf8'));
+await db.exec(fs.readFileSync('supabase/migrations/202609060004_omie_agendamento.sql','utf8'));
+assert.equal((await db.query('select bsq_omie_disparar() r')).rows[0].r,77);
+const c=(await db.query('select * from net.test_calls')).rows[0];assert.equal(c.url,'https://teste.invalid/functions/v1/bsq-omie');assert.equal(c.headers['x-rotina-token'],'credencial-ficticia');assert.equal(c.body.automatico,true);
+await db.exec('select bsq_omie_reservar(true)');assert.equal((await db.query('select bsq_omie_disparar() r')).rows[0].r,null);
+assert.equal((await db.query("select count(*) n from cron.job where jobname='bsq-omie-automatico'")).rows[0].n,1);
+console.log('PASSOU: credencial privada reaproveitada, destino correto, disparo automático e bloqueio durante execução; rotina diária preservada.');await db.close();})().catch(e=>{console.error(e);process.exit(1)});

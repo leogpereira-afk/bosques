@@ -142,10 +142,15 @@ Deno.serve(async (req) => {
   const h = Object.fromEntries(req.headers);
   const token = h["x-token"] || body.token;
   const TOKEN = Deno.env.get("BSQ_TOKEN");
-  if (!TOKEN || token !== TOKEN) return json({ error: "Não autorizado" }, 401);
+  const segredoRotina = Deno.env.get("BSQ_ROTINA_TOKEN");
+  const automatico = body.action === "sincronizar" && body.automatico === true &&
+    !!segredoRotina && h["x-rotina-token"] === segredoRotina;
+  if (!automatico && (!TOKEN || token !== TOKEN)) return json({ error: "Não autorizado" }, 401);
 
   const cfg = await lerCfgBruta();
-  const quem: Quem | null = await identificar(cfg, h["x-senha"] || body.senha || "");
+  const quem: Quem | null = automatico
+    ? {id:"rotina-omie",nome:"Automático · servidor",cargo:"Integração",perfil:"direcao",proprio:true}
+    : await identificar(cfg, h["x-senha"] || body.senha || "");
   if (!quem) return json({ error: "Senha inválida", semSenha: true }, 403);
   const perfil = perfilDe(quem);
   // Corretor não mexe com o financeiro — nem para ler boleto de cliente.
@@ -153,6 +158,7 @@ Deno.serve(async (req) => {
   const por = (quem.proprio && quem.nome) || "—";
 
   const { action } = body;
+  let execucao: any = null;
 
   try {
     switch (action) {
@@ -160,7 +166,7 @@ Deno.serve(async (req) => {
       /* ── saúde: a última sincronização, para o indicador da tela ─────────── */
       case "saude": {
         const meta = await lerMeta("omie_sync");
-        return json({ ok: true, sync: meta || null, corte: cfg.omie?.corteEntradas || null });
+        return json({ ok: true, sync: meta || null, corte: cfg.omie?.corteEntradas || null, automacao: await lerMeta("omie_automacao") });
       }
 
       /* ── sincronizar: puxa do Omie o que mudou e espelha aqui ────────────── */
@@ -177,7 +183,14 @@ Deno.serve(async (req) => {
         let corte = cfg.omie?.corteEntradas || "";
         if (!corte) throw new Error("Defina a data inicial da integração antes de sincronizar.");
         if (!/^\d{4}-\d{2}-\d{2}$/.test(corte)) throw new Error("Data inicial inválida");
-        const inicio = body.inicio || agora();
+        const {data: reserva,error: erroReserva} = await db.rpc("bsq_omie_reservar", {
+          p_auto:automatico,p_inicio:automatico?null:(body.inicio||null),p_completa:!!body.completa,
+        });
+        if (erroReserva) throw new Error("Controle da sincronização: " + erroReserva.message);
+        if (!reserva?.adquirido) return json({ok:automatico,aguardando:true,error:reserva?.motivo},automatico?200:409);
+        execucao=reserva;
+        body={...body,pagina:reserva.pagina,parcial:reserva.parcial,completa:reserva.completa};
+        const inicio = reserva.inicio;
         await gravarMeta("omie_sync", { ...(meta || {}), status:"em_andamento", inicio, erro:null });
 
 
@@ -320,7 +333,7 @@ Deno.serve(async (req) => {
           }
           return m;
         };
-        const POR_CHAMADA = 15;
+        const POR_CHAMADA = automatico ? 3 : 15;
         let pagina = Number(body.pagina) || 1;
         let totPaginas = pagina;
         const fim = pagina + POR_CHAMADA;
@@ -669,6 +682,11 @@ Deno.serve(async (req) => {
           // Rodada no meio: pendências parciais viajam pela meta para não se perderem.
           await gravarMeta("omie_sync", { ...(meta || {}), status:"em_andamento", inicio, pendenciasParciais: pendTotal });
         }
+        const {data: liberado,error: erroLiberacao} = await db.rpc("bsq_omie_finalizar", {
+          p_lease:execucao.lease,p_pagina:terminou?0:pagina,p_parcial:cont,p_completa:completa,p_erro:null,
+        });
+        if(erroLiberacao || !liberado) throw new Error("Não foi possível guardar o progresso da sincronização");
+        execucao=null;
         return json({ ok: true, inicio, completa, continua: terminou ? null : pagina, contagens: cont,
           pendencias: terminou ? pendTotal : undefined });
       }
@@ -747,6 +765,10 @@ Deno.serve(async (req) => {
         return json({ error: "Ação desconhecida: " + action }, 400);
     }
   } catch (e) {
+    if (execucao) {
+      await db.rpc("bsq_omie_finalizar", {p_lease:execucao.lease,p_pagina:execucao.pagina,
+        p_parcial:execucao.parcial,p_completa:execucao.completa,p_erro:String((e as Error).message || e)});
+    }
     if (action === "sincronizar") {
       const anterior = await lerMeta("omie_sync");
       await gravarMeta("omie_sync", {...(anterior || {}),status:"falhou",termino:agora(),erro:String((e as Error).message || e)});

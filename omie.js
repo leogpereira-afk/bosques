@@ -52,8 +52,11 @@ function statusOmieHome(el) {
       pinta(false, 'Omie: ' + r.sync.status + ' — ' + (r.sync.erro || 'aguardando conclusão') + ' · ' + fmt.quando(r.sync.inicio || r.sync.quando)); return;
     }
     const horas = (Date.now() - new Date(r.sync.quando).getTime()) / 3600e3;
-    pinta(horas < 26, 'Omie: última sincronização ' + fmt.quando(r.sync.quando) +
-      (horas < 26 ? ' ✓' : ' — ATRASADA (mais de ' + Math.round(horas) + 'h)') +
+    const automatico=!!r.automacao?.ativa;
+    const emDia=horas<(automatico?0.75:26);
+    pinta(emDia, 'Omie: última sincronização ' + fmt.quando(r.sync.quando) +
+      (emDia ? ' ✓' : ' — ATRASADA') +
+      (automatico?' · automático a cada '+r.automacao.intervaloMinutos+' min, mesmo com o Portal fechado':'') +
       ' — ' + resumoOmie(r.sync.contagens));
   }).catch((e) => { if (!local) pinta(false, 'Omie: sem resposta agora (' + esc(e.message || 'rede') + ')'); });
 }

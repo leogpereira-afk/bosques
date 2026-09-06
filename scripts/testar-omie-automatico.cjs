@@ -1,0 +1,14 @@
+const fs=require('fs'),assert=require('assert/strict');
+const {PGlite}=require(process.env.BSQ_TEST_DEPS+'/node_modules/@electric-sql/pglite');
+(async()=>{const db=new PGlite();await db.exec('create role anon;create role authenticated;create role service_role;');
+await db.exec(fs.readFileSync('supabase/migrations/202609060003_omie_automatico.sql','utf8'));
+const reservar=async(auto=true,inicio=null)=>(await db.query('select bsq_omie_reservar($1,$2,false) r',[auto,inicio])).rows[0].r;
+const fim=async(s,pagina,erro=null)=>(await db.query("select bsq_omie_finalizar($1,$2,'{\"recNovos\":2}',false,$3) r",[s.lease,pagina,erro])).rows[0].r;
+const [a,b]=await Promise.all([reservar(),reservar()]);assert.equal([a,b].filter(r=>r.adquirido).length,1);const ativo=a.adquirido?a:b;
+assert.equal((await reservar(false)).adquirido,false);assert.equal(await fim({...ativo,lease:'00000000-0000-0000-0000-000000000000'},4),false);
+assert.equal(await fim(ativo,4),true);const retomada=await reservar();assert.equal(retomada.pagina,4);assert.equal(retomada.inicio,ativo.inicio);assert.equal(retomada.parcial.recNovos,2);
+await fim(retomada,7,'falha de rede');assert.equal((await reservar()).adquirido,false);
+await db.exec("update bsq_omie_execucao set proxima=now()-interval '1 minute'");const retry=await reservar();assert.equal(retry.pagina,4);
+await fim(retry,0);assert.equal((await reservar()).adquirido,false);const manual=await reservar(false);assert.equal(manual.adquirido,true);assert.equal(manual.pagina,1);
+await db.exec("update bsq_omie_execucao set reservado_ate=now()-interval '1 minute',proxima=now()-interval '1 minute'");assert.equal((await reservar()).adquirido,true);
+console.log('PASSOU: exclusão mútua, retomada de página, rejeição de lease antigo, retry após falha, intervalo de 15 minutos, sincronização manual e recuperação de interrupção.');await db.close();})().catch(e=>{console.error(e);process.exit(1)});
