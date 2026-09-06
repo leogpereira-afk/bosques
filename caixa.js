@@ -745,12 +745,62 @@ function agingInadimplencia() {
   return faixas;
 }
 
+/* Histórico realizado: os 12 meses são do calendário, inclusive os sem movimento. */
+function relHistoricoDados(mes) {
+  const ano = mes.slice(0, 4);
+  const meses = Array.from({length:12}, (_, i) => {
+    const chave = ano + '-' + String(i + 1).padStart(2, '0');
+    return {mes:chave, ...totaisDoMes(chave), quantidade:movimentosDoMes(chave).length};
+  });
+  const total = meses.reduce((s, m) => ({
+    entradas:s.entradas + FINANCEIRO.cent(m.entradas),
+    saidas:s.saidas + FINANCEIRO.cent(m.saidas), quantidade:s.quantidade + m.quantidade,
+  }), {entradas:0, saidas:0, quantidade:0});
+  return {mes, ano, meses, selecionado:meses[Number(mes.slice(5, 7)) - 1],
+    total:{entradas:total.entradas/100, saidas:total.saidas/100,
+      resultado:(total.entradas-total.saidas)/100, quantidade:total.quantidade},
+    dre:dreDados(mes), semData:[...lista('rec'), ...cxVivos()].filter(x=>!x.data).length};
+}
+function relHistoricoHTML(h) {
+  const valor = (v, tipo) => finValor(v, tipo || (v < 0 ? 'fin-saida' : 'fin-entrada'));
+  const d = h.dre, t = h.selecionado;
+  const linha = (nome, valores, tipo, forte=false) => '<tr'+(forte?' class="rel-total"':'')+'><th scope="row">'+esc(nome)+'</th>'+valores.map(v=>'<td class="num">'+valor(v,tipo)+'</td>').join('')+'</tr>';
+  const anos = [...new Set([...mesesComMovimento().map(m=>m.slice(0,4)),h.ano])].sort().reverse();
+  return '<section class="cartao" id="rel-mensal"><div class="rel-cabecalho"><div><h2>O que entrou e saiu, mês a mês</h2><p class="nota">Valores já lançados no caixa, pela data do recebimento ou pagamento. Escolha o mês para ver sua composição abaixo.</p></div><button class="btn" id="rel-historico-pdf">PDF mensal e anual</button></div>'+
+    '<div class="fin-toolbar"><label>Ano <select id="rel-hist-ano">'+anos.map(a=>'<option'+(a===h.ano?' selected':'')+'>'+a+'</option>').join('')+'</select></label><label>Mês <select id="rel-hist-mes">'+h.meses.map(m=>'<option value="'+m.mes+'"'+(m.mes===h.mes?' selected':'')+'>'+nomeMes(m.mes)+'</option>').join('')+'</select></label></div>'+
+    '<div class="paineis">'+[
+      ['Entrou em '+nomeMes(h.mes),t.entradas,'fin-entrada','entrada','Parcelas recebidas + outras receitas.'],
+      ['Saiu em '+nomeMes(h.mes),t.saidas,'fin-saida','saida','Despesas, comissões e devoluções pagas.'],
+      ['Resultado do mês',t.resultado,'','','Entradas menos saídas do mês.'],
+      ['Resultado do ano',h.total.resultado,'','ano','Soma dos lançamentos de janeiro a dezembro.']
+    ].map(([titulo,v,cor,tipo,exp])=>'<button class="painel clicavel" data-rel-lanc="'+tipo+'"><span class="rot">'+titulo+'</span><b class="num">'+valor(v,cor)+'</b><span class="sub">'+exp+'</span></button>').join('')+'</div>'+
+    '<p class="nota">Resultado positivo indica que entrou mais do que saiu. Não representa, sozinho, o saldo disponível no banco. Meses sem lançamentos aparecem zerados.</p>'+
+    '<div class="rolagem"><table class="tabela rel-historico"><thead><tr><th>Mês de '+h.ano+'</th><th class="num">Entrou</th><th class="num">Saiu</th><th class="num">Resultado</th><th class="num">Movimentos</th></tr></thead><tbody>'+
+    h.meses.map(m=>'<tr'+(m.mes===h.mes?' class="rel-mes-selecionado"':'')+'><th scope="row"><button class="btn mini" data-rel-mes="'+m.mes+'" aria-pressed="'+(m.mes===h.mes)+'">'+nomeMes(m.mes)+'</button></th><td class="num">'+valor(m.entradas,'fin-entrada')+'</td><td class="num">'+valor(m.saidas,'fin-saida')+'</td><td class="num">'+valor(m.resultado)+'</td><td class="num">'+m.quantidade+'</td></tr>').join('')+
+    '<tr class="rel-total"><th scope="row">Total do ano</th><td class="num">'+valor(h.total.entradas,'fin-entrada')+'</td><td class="num">'+valor(h.total.saidas,'fin-saida')+'</td><td class="num">'+valor(h.total.resultado)+'</td><td class="num">'+h.total.quantidade+'</td></tr></tbody></table></div>'+
+    (h.semData?'<p class="fin-status">'+h.semData+' lançamento(s) sem data: entram no acumulado desde o início, mas ficam fora dos meses e anos. <button class="btn mini" id="rel-sem-data">Conferir lançamentos sem data</button></p>':'')+'</section>'+
+    '<section class="cartao" id="rel-dre"><div class="rel-cabecalho"><div><h2>De onde veio e para onde foi o dinheiro</h2><p class="nota">Demonstrativo de receitas e despesas realizadas: compare '+nomeMes(h.mes)+', o ano '+h.ano+' e todo o histórico. Valores futuros não entram neste quadro.</p></div><button class="btn" id="rel-dre-pdf">PDF por categoria</button></div>'+
+    '<div class="rolagem"><table class="tabela"><thead><tr><th>Categoria</th><th class="num">'+nomeMes(h.mes)+'</th><th class="num">Ano '+h.ano+'</th><th class="num">Desde o início</th></tr></thead><tbody>'+
+    linha('Recebimentos das vendas de lotes',[d.mes.recVendas,d.ano.recVendas,d.total.recVendas],'fin-entrada')+
+    d.catsOutras.map(c=>linha('Outras receitas · '+c,[d.mes.outras[c]||0,d.ano.outras[c]||0,d.total.outras[c]],'fin-entrada')).join('')+
+    linha('Total de entradas',[d.mes.receita,d.ano.receita,d.total.receita],'fin-entrada',true)+
+    d.catsDesp.map(c=>linha(c,[d.mes.desp[c]||0,d.ano.desp[c]||0,d.total.desp[c]],'fin-saida')).join('')+
+    linha('Total de saídas',[d.mes.somaDesp,d.ano.somaDesp,d.total.somaDesp],'fin-saida',true)+
+    linha('Resultado: entradas − saídas',[d.mes.resultado,d.ano.resultado,d.total.resultado],'',true)+
+    '</tbody></table></div><p class="nota">As despesas são agrupadas pela categoria cadastrada no lançamento. Valores em “Outros” precisam de classificação para explicar melhor os gastos.</p><button class="btn" data-rel-lanc="">Ver os '+t.quantidade+' lançamentos de '+nomeMes(h.mes)+'</button></section>';
+}
+
 TELAS.relatorios = function () {
   const app = document.getElementById('app');
   const hz = TELAS._hz || 'ano';
   TELAS._hz = hz;
   const mesAtual = mesDe(hojeISO());
   const anoAtual = mesAtual.slice(0, 4);
+  const mesHistorico = TELAS._relMes || mesAtual;
+  const historico = relHistoricoDados(mesHistorico);
+  const detalhePeriodo = TELAS._relDetalhe || 'mes';
+  const rotuloRealizado = detalhePeriodo==='total'?'desde o início':detalhePeriodo==='ano'?'em '+historico.ano:'em '+nomeMes(mesHistorico);
+  const filtroDetalhe = {ano:detalhePeriodo==='total'?'':historico.ano,mes:detalhePeriodo==='mes'?mesHistorico:''};
 
   // vendido / recebido / gasto (sempre desde o início — é o retrato do negócio)
   const comercial=resumoComercial();
@@ -781,12 +831,8 @@ TELAS.relatorios = function () {
     .reduce((s2, e) => s2 + Math.max(0, (Number(e.valorPrevisto) || 0) - (pagoEtapas[e.id] || 0)), 0);
 
   const rotuloHz = { mes: 'em ' + nomeMes(mesAtual), ano: 'em ' + anoAtual, total: 'até acabar' }[hz];
-  // o recorte do horizonte para valores JÁ acontecidos (formas, centros)
-  const dentroHz = (d) => {
-    const m = mesDe(d || '');
-    if (!/^\d{4}-\d{2}$/.test(m)) return hz === 'total';
-    return hz === 'mes' ? m === mesAtual : hz === 'ano' ? m.startsWith(anoAtual) : true;
-  };
+  // Os recebimentos e despesas detalhados seguem o mês histórico selecionado.
+  const dentroHz = d => detalhePeriodo==='total' || (detalhePeriodo==='ano'?mesDe(d).slice(0,4)===historico.ano:mesDe(d)===mesHistorico);
 
   // tabela do horizonte: por mês (mês/ano) ou por ANO (até acabar — 150
   // parcelas vão até 2038; 13 linhas de ano leem melhor que 150 de mês)
@@ -824,8 +870,8 @@ TELAS.relatorios = function () {
     : '';
 
   app.innerHTML = '<div class="relatorios-layout"><div class="rel-intro"><div><h2>Relatórios do empreendimento</h2><p>Consulte os quadros de resultados, recebimentos e planejamento em um só lugar.</p></div><a class="btn" href="#/financeiro">Abrir financeiro</a></div>'+
-    '<nav class="rel-atalhos" aria-label="Seções do relatório">'+[['rel-resumo','Resumo'],['rel-tabela','Previsão de caixa'],['rel-formas','Recebimentos'],['rel-centros','Despesas'],['rel-previstos','Planejamento']].map(([id,nome])=>'<button class="btn" data-rel-secao="'+id+'">'+nome+'</button>').join('')+'</nav>'+painelInadimplenciaOmie()+
-    '<div class="filtros"><div class="chips">' +
+    '<nav class="rel-atalhos" aria-label="Seções do relatório">'+[['rel-mensal','Mês a mês'],['rel-dre','Receitas e despesas'],['rel-resumo','Acumulado'],['rel-tabela','Previsão de caixa'],['rel-formas','Recebimentos'],['rel-centros','Despesas'],['rel-previstos','Planejamento']].map(([id,nome])=>'<button class="btn" data-rel-secao="'+id+'">'+nome+'</button>').join('')+'</nav>'+relHistoricoHTML(historico)+painelInadimplenciaOmie()+
+    '<div class="rel-previsao-explica"><h2>Visão acumulada e previsões</h2><p class="nota">Escolha o horizonte das previsões a partir de hoje. Este filtro não altera o histórico mensal acima nem os totais desde o início.</p></div><div class="filtros"><div class="chips">' +
       [['mes', 'Este mês'], ['ano', 'Este ano'], ['total', 'Até acabar']].map(([v, t2]) =>
         '<button class="chip' + (hz === v ? ' on' : '') + '" data-hz="' + v + '">' + t2 + '</button>').join('') +
     '</div><button class="btn mini" id="rel-pdf">📄 PDF do relatório</button></div>' +
@@ -888,7 +934,8 @@ TELAS.relatorios = function () {
           '</div>').join('') +
         '<p class="nota" style="margin-top:6px">Este valor NÃO está dentro dos "gastos previstos" acima — comissão devida não tem mês marcado; paga quando você decidir.</p></div>';
     })() +
-    '<div class="cartao" id="rel-formas"><h2>💳 Recebido por forma <span class="nota">— ' + rotuloHz + '</span></h2>' +
+    '<div class="fin-toolbar"><label>Detalhar recebimentos e despesas <select id="rel-detalhe-periodo">'+[['mes','Mês selecionado'],['ano','Ano selecionado'],['total','Desde o início']].map(([v,n])=>'<option value="'+v+'"'+(v===detalhePeriodo?' selected':'')+'>'+n+'</option>').join('')+'</select></label></div>'+
+    '<div class="cartao" id="rel-formas"><h2>💳 Recebido por forma <span class="nota">— ' + rotuloRealizado + '</span></h2>' +
       (function () {
         const somaF = {};
         for (const r2 of lista('rec')) {
@@ -913,7 +960,7 @@ TELAS.relatorios = function () {
           '</tbody></table></div>';
       })() + '</div>' +
 
-      '<div class="cartao" id="rel-centros"><h2>🏗️ Gasto por centro de custo <span class="nota">— ' + rotuloHz + ' · despesas agrupadas por centro</span></h2>' +
+      '<div class="cartao" id="rel-centros"><h2>🏗️ Gasto por centro de custo <span class="nota">— ' + rotuloRealizado + ' · despesas agrupadas por centro</span></h2>' +
       (function () {
         const somaC = {}; let semC = 0;
         for (const c2 of cxVivos()) {
@@ -946,6 +993,23 @@ TELAS.relatorios = function () {
       '<button class="btn primario" id="prev-novo" style="margin-top:8px">+ Gasto previsto</button></div>' +
       '<section class="cartao rel-consultas"><h2>Consultas detalhadas</h2><p class="nota">Acesse também os demonstrativos e os detalhes do financeiro anterior.</p><div class="rel-atalhos"><a class="btn" href="#/caixa">Caixa mensal e receitas × despesas</a><a class="btn" href="#/lancamentos">Todos os lançamentos</a><a class="btn" href="#/comissoes">Comissões dos corretores</a></div></section></div>';
 
+  const inicioPrevisao = app.querySelector('.rel-previsao-explica');
+  const filtroDetalheEl = document.getElementById('rel-detalhe-periodo').closest('.fin-toolbar');
+  for(const el of [filtroDetalheEl,document.getElementById('rel-formas'),document.getElementById('rel-centros')]) inicioPrevisao.before(el);
+  document.getElementById('rel-detalhe-periodo').onchange = e => { TELAS._relDetalhe=e.target.value; TELAS.relatorios(); };
+  const escolherMes = mes => { TELAS._relMes = mes; TELAS.relatorios(); };
+  document.getElementById('rel-hist-ano').onchange = e => escolherMes(e.target.value + mesHistorico.slice(4));
+  document.getElementById('rel-hist-mes').onchange = e => escolherMes(e.target.value);
+  app.querySelectorAll('[data-rel-mes]').forEach(b => b.onclick = () => escolherMes(b.dataset.relMes));
+  app.querySelectorAll('[data-rel-lanc]').forEach(b => b.onclick = () => {
+    TELAS._fLanc = {q:'',cat:'',tipo:b.dataset.relLanc==='ano'?'':b.dataset.relLanc,
+      ano:historico.ano,mes:b.dataset.relLanc==='ano'?'':mesHistorico};
+    location.hash = '#/lancamentos';
+  });
+  const semData = document.getElementById('rel-sem-data');
+  if(semData) semData.onclick = () => { TELAS._fLanc={q:'',cat:'',tipo:'',ano:'',mes:'sem-data'}; location.hash='#/lancamentos'; };
+  document.getElementById('rel-dre-pdf').onclick = () => PDF.dre(historico.dre,S.cfg||{});
+  document.getElementById('rel-historico-pdf').onclick = () => PDF.historico(historico,S.cfg||{});
   app.querySelectorAll('[data-rel-secao]').forEach(b=>b.onclick=()=>document.getElementById(b.dataset.relSecao)?.scrollIntoView({behavior:'smooth',block:'start'}));
 
   app.querySelectorAll('.chip[data-hz]').forEach((c) => {
@@ -970,10 +1034,10 @@ TELAS.relatorios = function () {
     b.onclick = () => abrirPagarComissao(b.dataset.id, b.dataset.nome, Number(b.dataset.saldo));
   });
   app.querySelectorAll('.rc-lin').forEach((el) => {
-    el.onclick = () => { TELAS._fLanc = { q: '', tipo: 'saida', cat: '', mes: 'todos', cc: el.dataset.cc }; location.hash = '#/lancamentos'; };
+    el.onclick = () => { TELAS._fLanc = { q: '', tipo: 'saida', cat: '', ...filtroDetalhe, cc: el.dataset.cc }; location.hash = '#/lancamentos'; };
   });
   app.querySelectorAll('.rf-lin').forEach((el) => {
-    el.onclick = () => { TELAS._fLanc = { q: el.dataset.forma, tipo: '', cat: '', mes: 'todos' }; location.hash = '#/lancamentos'; };
+    el.onclick = () => { TELAS._fLanc = { q: el.dataset.forma, tipo: 'entrada', cat: '', ...filtroDetalhe }; location.hash = '#/lancamentos'; };
   });
   const bCobrar = document.getElementById('rel-cobrar');
   if (bCobrar) bCobrar.onclick = () => { TELAS._fVendas = { q: '', sit: '', so: 'atraso' }; location.hash = '#/vendas'; };

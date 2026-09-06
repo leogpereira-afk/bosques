@@ -535,7 +535,7 @@ const PDF = (() => {
       { t: d.anoRotulo, x: 156, alinha: 'right' },
       { t: 'Desde o início', x: 196, alinha: 'right' },
     ];
-    const VERDE_TXT = [46, 125, 50], VERM = [198, 40, 40];
+    const VERDE_TXT = [29, 78, 216], VERM = [198, 40, 40];
     const linha = (rot, vm, va, vt, o = {}) => [
       o.forte ? { t: rot, negrito: true } : (o.recuo ? '   · ' + rot : rot),
       ...[vm, va, vt].map((v) => {
@@ -629,6 +629,31 @@ const PDF = (() => {
   }
 
   // ── Relatório do empreendimento (a aba Relatórios, no papel) ───────────────
+  function historico(h, cfg) {
+    const doc = novo(), azul = [29,78,216], vermelho = [184,50,50];
+    const rod = 'Caixa realizado · ' + h.ano + ' · por ' + (S.quem || '—');
+    cabecalho(doc,cfg,'HISTÓRICO MENSAL · '+h.ano);
+    doc.setFont('helvetica','bold');doc.setFontSize(13);doc.setTextColor(30,43,33);
+    doc.text('Entradas, saídas e resultado mês a mês',14,43);
+    doc.setFont('helvetica','normal');doc.setFontSize(9);
+    doc.text('Valores já recebidos ou pagos, pela data do lançamento. Não inclui previsões.',14,50);
+    doc.text('Resultado = entradas menos saídas; não é o saldo bancário disponível.',14,56);
+    const cel=(v,cor)=>({t:brl(v),cor:cor||(v<0?vermelho:azul)});
+    const cols=[{t:'Mês',x:14},{t:'Entradas',x:83,alinha:'right'},{t:'Saídas',x:123,alinha:'right'},{t:'Resultado',x:165,alinha:'right'},{t:'Mov.',x:196,alinha:'right'}];
+    const linhas=h.meses.map(m=>[nomeMes(m.mes),cel(m.entradas,azul),cel(m.saidas,vermelho),cel(m.resultado),String(m.quantidade)]);
+    linhas.push([{t:'TOTAL DO ANO',negrito:true},cel(h.total.entradas,azul),cel(h.total.saidas,vermelho),cel(h.total.resultado),String(h.total.quantidade)]);
+    let y=tabelaPaginada(doc,cols,linhas,65,rod)+12;
+    doc.setTextColor(30,43,33);doc.setFont('helvetica','bold');doc.setFontSize(11);
+    doc.text('Mês selecionado: '+nomeMes(h.mes),14,y);y+=7;
+    doc.setFont('helvetica','normal');doc.setFontSize(9);
+    doc.text('Recebimentos das vendas de lotes: '+brl(h.dre.mes.recVendas),14,y);y+=6;
+    doc.text('Outras receitas: '+brl(h.dre.mes.somaOutras),14,y);y+=6;
+    doc.text('Despesas, comissões e devoluções pagas: '+brl(h.selecionado.saidas),14,y);y+=6;
+    if(h.semData)doc.text(h.semData+' lançamento(s) sem data ficam fora do histórico mensal e anual.',14,y);
+    rodape(doc,rod);
+    salvarNoAparelho(doc.output('blob'),'Historico-mensal-Bosques-'+h.mes+'.pdf');
+  }
+
   function relatorio(d, cfg) {
     const doc = novo();
     const hojeTxt = dataBR(new Date().toISOString());
@@ -809,5 +834,5 @@ const PDF = (() => {
     doc.setFont('helvetica','bold');doc.text('TOTAL DO RECORTE: '+brl(total),196,y+7,{align:'right'});
     rodape(doc,titulo+' · '+recorte);salvarNoAparelho(doc.output('blob'),'Financeiro-Bosques.pdf');
   }
-  return { financeiro, proposta, recibo, venda, vendasDash, dre, espelho, relatorio, cronograma, lancamentos, simulacao };
+  return { historico, financeiro, proposta, recibo, venda, vendasDash, dre, espelho, relatorio, cronograma, lancamentos, simulacao };
 })();

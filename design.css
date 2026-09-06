@@ -68,3 +68,14 @@ body:is([data-tela=financeiro],[data-tela=relatorios],[data-tela=caixa],[data-te
 @media(max-width:1000px){.relatorios-layout .paineis{grid-template-columns:repeat(2,minmax(0,1fr))}.relatorios-layout #rel-formas,.relatorios-layout #rel-centros{grid-column:1/-1}}
 @media(max-width:600px){.relatorios-layout{gap:16px}.rel-intro{align-items:flex-start;flex-direction:column;padding:16px}.relatorios-layout .paineis{gap:10px}.relatorios-layout .painel{padding:14px 10px}.relatorios-layout .painel .num{font-size:18px}.relatorios-layout .tabela{min-width:560px}.fin-legenda a{margin-left:0}.rel-intro h2{font-size:18px}}
 @media print{.rel-intro .btn,.rel-atalhos,.relatorios-layout .filtros{display:none}.relatorios-layout{display:block}.relatorios-layout .cartao{margin-top:16px}}
+
+/* Relatórios realizados: calendário completo e composição do mês selecionado. */
+.rel-cabecalho{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;margin-bottom:18px}
+.rel-cabecalho h2{margin:0 0 8px}.rel-cabecalho .nota{margin:0;max-width:760px}.rel-cabecalho>.btn{flex-shrink:0}
+#rel-mensal .paineis{margin:16px 0}#rel-mensal .painel{background:#f8fafc;text-align:left;font:inherit}
+#rel-mensal .painel .num{display:block;margin:8px 0}.relatorios-layout tbody th{background:transparent;font-size:12px;letter-spacing:0;color:var(--tinta);text-align:left;white-space:normal;font-weight:500;border-bottom:1px solid #ecf0e7}
+.relatorios-layout .rel-total :is(td,th){font-weight:750;border-top:2px solid var(--borda);background:#f5f7fa}
+.rel-mes-selecionado :is(td,th){background:#eef3ff!important}.rel-mes-selecionado .btn{border-color:#93b4fb;color:var(--entrada)}
+#rel-mensal .fin-toolbar label{display:flex;align-items:center;gap:10px}.rel-previsao-explica h2{margin-bottom:6px}
+@media(max-width:600px){.rel-cabecalho{flex-direction:column}.rel-cabecalho>.btn{width:100%}#rel-mensal .fin-toolbar label{flex:1 1 120px}.relatorios-layout #rel-mensal,.relatorios-layout #rel-dre{padding:14px}}
+@media print{.rel-cabecalho>.btn,#rel-mensal .fin-toolbar,[data-rel-lanc]{display:none}}
