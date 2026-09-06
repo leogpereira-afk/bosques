@@ -56,6 +56,17 @@ try {
   }).catch(() => {});
 } catch (e) { /* offline no primeiro uso: cabeçalho sai sem logo */ }
 
+// Os dois modelos oficiais usam parcelas fixas ou reajuste de 6% a cada 12 meses.
+function planoContratoResumo(plano) {
+  const n=Math.max(0,Math.min(1200,Math.round(Number(plano.qtdeParcelas)||0)));
+  const entrada=Number(plano.entrada)||0,cheia=Number(plano.parcCheia)||0,dia=Number(plano.valorParcela)||0;
+  const passo=plano.tipoParcela==='Reajustada'?12:Math.max(1,n),faixas=[];
+  const venc=(i)=>{if(!plano.inicioParcelas)return '';const d=new Date(plano.inicioParcelas+'T12:00:00');if(Number.isNaN(+d))return '';const x=new Date(d.getFullYear(),d.getMonth()+i-1,1);const dd=Math.min(d.getDate(),new Date(x.getFullYear(),x.getMonth()+1,0).getDate());return String(dd).padStart(2,'0')+'/'+String(x.getMonth()+1).padStart(2,'0')+'/'+x.getFullYear();};
+  let totalCheio=Math.round(entrada*100),totalDia=totalCheio;
+  for(let a=1;a<=n;a+=passo){const b=Math.min(n,a+passo-1),f=Math.pow(1.06,Math.floor((a-1)/passo));const c=Math.round(cheia*f*100),d=Math.round(dia*f*100);faixas.push({de:a,ate:b,inicio:venc(a),fim:venc(b),cheia:c/100,dia:d/100});totalCheio+=c*(b-a+1);totalDia+=d*(b-a+1);}
+  return {faixas,totalCheio:totalCheio/100,totalDia:totalDia/100,ultima:venc(n)};
+}
+
 /* ── o PDF do contrato ────────────────────────────────────────────────────── */
 function gerarContratoPdf(v, cliente, l, cfg, plano) {
   const { jsPDF } = window.jspdf;
@@ -66,9 +77,10 @@ function gerarContratoPdf(v, cliente, l, cfg, plano) {
   const reajustada = (plano.tipoParcela || v.tipoParcela) === 'Reajustada';
   const nParc = plano.qtdeParcelas != null ? plano.qtdeParcelas : (Number(v.qtdeParcelas) || 0);
   const parcDesc = plano.valorParcela != null ? plano.valorParcela : (Number(v.valorParcela) || 0);
-  const parcCheia = plano.parcCheia != null ? plano.parcCheia : Math.round(parcDesc / 0.8 * 100) / 100;
+  const parcCheia = plano.parcCheia != null ? plano.parcCheia : v.parcCheia != null ? Number(v.parcCheia) : Math.round(parcDesc / 0.8 * 100) / 100;
   const entradaV = plano.entrada != null ? plano.entrada : (Number(v.entrada) || 0);
-  const restante = Math.round(parcCheia * nParc * 100) / 100;
+  const totalModelo=planoContratoResumo({entrada:entradaV,qtdeParcelas:nParc,parcCheia,valorParcela:parcDesc,tipoParcela:reajustada?'Reajustada':'Fixa'});
+  const restante = Math.round((totalModelo.totalCheio-entradaV)*100)/100;
   const importancia = Math.round((entradaV + restante) * 100) / 100;
   const cota = (Number(v.quadra) || 0) * 1000 + (Number(v.lote) || 0);
   const area = (l && l.areaM2) ? Number(l.areaM2) : null;
@@ -100,7 +112,7 @@ function gerarContratoPdf(v, cliente, l, cfg, plano) {
       ' será parcelado em boletos bancários, emitidos pela promitente vendedora ou empresa de cobrança ' +
       'indicada pela mesma. Serão ' + nParc + ' (' + extensoNum(nParc) + ') parcelas com vencimento mensal ' +
       'consecutivos, sendo todo dia ' + (diaVenc || 'XX') + ' (' + (diaVenc ? extensoNum(diaVenc) : 'XX') + ') de cada mês, ' +
-      'vencendo a primeira no mês de ' + mesIni + ' de ' + anoIni + ', sendo cada parcela no valor de ' +
+      'vencendo a primeira no mês de ' + mesIni + ' de ' + anoIni + (reajustada ? ', sendo a parcela inicial no valor de ' : ', sendo cada parcela no valor de ') +
       dinheiroExt(parcCheia) + ', com desconto de 20% (vinte por cento) sobre valor total da parcela ' +
       'ficando assim no valor de ' + dinheiroExt(parcDesc) + ', para pagamento antes do vencimento.' +
       (reajustada ? ' As parcelas terão reajuste anual no índice de 6% (seis por cento) sobre o valor total da parcela atual.' : '')
@@ -207,35 +219,10 @@ function gerarContratoPdf(v, cliente, l, cfg, plano) {
       // O QUADRO DO PLANO DE PAGAMENTO, linha a linha — pedido do dono:
       // as faixas de parcela com o valor do boleto e o valor pagando em dia.
       if (nParc > 0) {
-        const reajCfg = (cfg && cfg.reajuste) || { pct: 6, aCada: 12 };
-        // vencimento da parcela N: mesmo dia, N-1 meses após a primeira
-        const vencDe = (nPar) => {
-          if (!ini) return '';
-          const d0 = new Date(ini + 'T12:00:00');
-          const dt = new Date(d0.getFullYear(), d0.getMonth() + (nPar - 1), 1);
-          const dia0 = Math.min(d0.getDate(), new Date(dt.getFullYear(), dt.getMonth() + 1, 0).getDate());
-          return String(dia0).padStart(2, '0') + '/' + String(dt.getMonth() + 1).padStart(2, '0') + '/' + dt.getFullYear();
-        };
-        const linhasQP = [['Entrada', '', '', brl(entradaV)]];
-        let totCheio = entradaV, totDia = entradaV;
-        const degraus = reajustada ? Math.ceil(nParc / (reajCfg.aCada || 12)) : 1;
-        for (let dg = 0; dg < degraus; dg++) {
-          const ini2 = dg * (reajustada ? (reajCfg.aCada || 12) : nParc) + 1;
-          const fim2 = reajustada ? Math.min(nParc, (dg + 1) * (reajCfg.aCada || 12)) : nParc;
-          // a base do boleto é a CHEIA do modal (editável) — a cláusula usa ela;
-          // recalcular por outra via imprimia dois boletos no mesmo contrato
-          const fator = Math.pow(1 + (reajCfg.pct || 6) / 100, dg);
-          const cheia = Math.round(parcCheia * fator * 100) / 100;
-          // o em-dia do degrau parte do EM DIA digitado no modal (a mesma régua
-          // da cláusula) — cheia×0,8 divergia quando a cheia foi editada à mão
-          const emDia = Math.round(parcDesc * fator * 100) / 100;
-          totDia += emDia * (fim2 - ini2 + 1);
-          totCheio += cheia * (fim2 - ini2 + 1);
-          linhasQP.push(['Parcelas ' + ini2 + ' a ' + fim2,
-            ini ? vencDe(ini2) + ' a ' + vencDe(fim2) : '', brl(cheia), brl(emDia)]);
-        }
-        if (ini) linhasQP.push(['Última parcela: ' + nParc + 'ª', vencDe(nParc), '', '']);
-        linhasQP.push(['TOTAL (entrada + parcelas)', '', brl(Math.round(totCheio * 100) / 100), brl(Math.round(totDia * 100) / 100)]);
+        const resumo=planoContratoResumo({entrada:entradaV,qtdeParcelas:nParc,valorParcela:parcDesc,parcCheia,tipoParcela:reajustada?'Reajustada':'Fixa',inicioParcelas:ini});
+        const linhasQP=[['Entrada','','',brl(entradaV)],...resumo.faixas.map(f=>['Parcelas '+f.de+' a '+f.ate,f.inicio?f.inicio+' a '+f.fim:'',brl(f.cheia),brl(f.dia)])];
+        if(ini)linhasQP.push(['Última parcela: '+nParc+'ª',resumo.ultima,'','']);
+        linhasQP.push(['TOTAL (entrada + parcelas)','',brl(resumo.totalCheio),brl(resumo.totalDia)]);
         // o título das colunas nunca fica órfão: só entra se couber com 1 linha
         garante(13);
         const cabecalhoQP = () => {
@@ -308,34 +295,36 @@ function gerarContratoPdf(v, cliente, l, cfg, plano) {
 /* ── Tela: Contratos ──────────────────────────────────────────────────────── */
 TELAS.contratos = function () {
   const app = document.getElementById('app');
-  const f = TELAS._fContr || { q: '' };
+  const foco=document.activeElement?.id==='ct-q',cursor=foco?document.activeElement.selectionStart:null;
+  const f = TELAS._fContr || { q: '', pagina:0, modelo:'' };
   TELAS._fContr = f;
   const vivas = lista('venda').filter((v) => ['ativa', 'conferir', 'quitada'].includes(v.situacao || 'ativa'));
-  const filtradas = f.q
+  const porBusca = f.q
     ? vivas.filter((v) => ((v.clienteNome || '') + ' Q' + v.quadra + '-L' + v.lote + ' ' + (v.codigo || ''))
         .toLowerCase().includes(f.q.toLowerCase()))
     : vivas;
+  const filtradas=porBusca.filter(v=>!f.modelo||(v.tipoParcela==='Reajustada'?'Reajustada':'Fixa')===f.modelo);
+  f.pagina=Math.max(0,Math.min(f.pagina||0,Math.ceil(filtradas.length/40)-1));
 
   app.innerHTML =
-    '<div class="cartao"><h2>📜 Contratos <span class="nota">— o termo de reserva preenchido pela venda, no modelo oficial</span></h2>' +
-    '<p class="nota">Escolha a venda: o contrato sai no modelo certo pelo tipo de parcela ' +
-    '(Fixa ou Reajustada 6%), com o quadro do título (cota = quadra×1000 + lote), os valores por extenso ' +
-    'e o desconto de pontualidade de 20% — igual aos modelos assinados. O PDF baixa e fica anexado à venda.</p>' +
-    '<div class="filtros"><input type="search" id="ct-q" placeholder="cliente, lote, código…" value="' + esc(f.q) + '"></div>' +
-    (filtradas.slice(0, 40).map((v) =>
-      '<div class="lin ct-lin" data-id="' + esc(v.id) + '">' +
+    '<div class="cartao"><h2>Contratos da venda</h2>' +
+    '<p class="nota">Abra uma venda, confira os dados do comprador e revise o plano completo antes de gerar o PDF.</p>' +
+    '<div class="filtros"><input aria-label="Buscar contrato" type="search" id="ct-q" placeholder="Cliente, lote ou código" value="'+esc(f.q)+'"><select id="ct-modelo" aria-label="Modelo do contrato">'+['','Fixa','Reajustada'].map(t=>'<option value="'+t+'"'+(f.modelo===t?' selected':'')+'>'+(t||'Todos os modelos')+'</option>').join('')+'</select></div><p class="nota">'+filtradas.length+' venda(s) neste recorte</p>' +
+    (filtradas.slice(f.pagina*40, (f.pagina+1)*40).map((v) =>
+      '<div role="button" tabindex="0" class="lin ct-lin" data-id="' + esc(v.id) + '">' +
       '<div class="cresce"><b>' + esc(v.codigo || '') + ' · Q' + v.quadra + '-L' + v.lote + ' · ' + esc(v.clienteNome || '—') + '</b>' +
       '<span class="sub">' + esc(v.tipoParcela || '') + (v.qtdeParcelas ? ' · ' + v.qtdeParcelas + '× de ' + fmt.brl(v.valorParcela) : '') +
       ' · modelo ' + (v.tipoParcela === 'Reajustada' ? 'REAJUSTE 6%' : 'FIXO') + '</span></div>' +
-      '<span class="etiqueta et-hoje">gerar →</span></div>').join('') ||
+      '<span class="etiqueta et-hoje">Revisar plano →</span></div>').join('') ||
       '<p class="nota">Nenhuma venda nesse recorte.</p>') +
-    // o corte em 40 esconderia as vendas antigas sem aviso — dizer que tem mais
-    (filtradas.length > 40
-      ? '<p class="nota">… e ' + (filtradas.length - 40) + ' contratos mais — use a busca.</p>' : '') +
-    '</div>';
+    '<div class="fin-pager"><button class="btn" id="ct-ant"'+(!f.pagina?' disabled':'')+'>Anterior</button><span>Página '+(f.pagina+1)+' de '+Math.max(1,Math.ceil(filtradas.length/40))+'</span><button class="btn" id="ct-prox"'+((f.pagina+1)*40>=filtradas.length?' disabled':'')+'>Próxima</button></div></div>';
+  document.getElementById('ct-q').oninput=e=>{f.q=e.target.value;f.pagina=0;TELAS.contratos();};
+  document.getElementById('ct-modelo').onchange=e=>{f.modelo=e.target.value;f.pagina=0;TELAS.contratos();};
+  document.getElementById('ct-ant').onclick=()=>{f.pagina--;TELAS.contratos();};
+  document.getElementById('ct-prox').onclick=()=>{f.pagina++;TELAS.contratos();};
+  app.querySelectorAll('.ct-lin').forEach(el=>{el.onclick=()=>abrirGerarContrato(el.dataset.id);el.onkeydown=e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();el.click();}};});
+  if(foco){const q=document.getElementById('ct-q');q.focus();q.setSelectionRange(cursor,cursor);}
 
-  document.getElementById('ct-q').oninput = (e) => { f.q = e.target.value; TELAS.contratos(); };
-  app.querySelectorAll('.ct-lin').forEach((el) => { el.onclick = () => abrirGerarContrato(el.dataset.id); });
 };
 
 function abrirGerarContrato(vendaId) {
@@ -373,14 +362,14 @@ function abrirGerarContrato(vendaId) {
       campo('Parcela pagando em dia (R$)', entrada('valorParcela', v.valorParcela != null ? v.valorParcela : '', { inputmode: 'decimal' }),
         'a cheia calcula sozinha (÷0,8)') +
       campo('Parcela cheia do boleto (R$)', entrada('parcCheia',
-        v.valorParcela ? (Math.round(Number(v.valorParcela) / 0.8 * 100) / 100).toFixed(2) : '', { inputmode: 'decimal' }),
+        v.parcCheia != null ? v.parcCheia : v.valorParcela ? (Math.round(Number(v.valorParcela) / 0.8 * 100) / 100).toFixed(2) : '', { inputmode: 'decimal' }),
         'mexeu aqui, vale o que digitar') +
       campo('1ª parcela vence em', entrada('inicioParcelas', iniPrefill, { tipo: 'date' }),
         'o dia desta data vale para todo mês') +
     '</div>' +
       campo('Condição da entrada (sai no contrato)', entrada('entradaDetalhe', v.entradaDetalhe || '',
         { placeholder: 'ex.: via PIX em 26/08/2026 · ou: cartão 4x de R$ 1.650,00' })) +
-    '<p class="nota" id="ct-detalhe" style="font-weight:600"></p>';
+    '<div class="doc-plano" id="ct-detalhe"></div>';
 
   abrirModal({
     titulo: '📜 Contrato — ' + (v.codigo || ''),
@@ -389,7 +378,7 @@ function abrirGerarContrato(vendaId) {
       { texto: 'Voltar', aoClicar: () => fecharModal() },
       { texto: 'Gerar contrato (PDF)', classe: 'primario', aoClicar: async (fundo) => {
         const c = lerCampos(fundo);
-        if (!c.nome || !c.cpf) { toast('Nome e CPF são obrigatórios no contrato', 'ruim'); return; }
+        if (!c.nome.trim() || !c.cpf.trim()) { toast('Nome e CPF são obrigatórios no contrato', 'ruim'); return; }
         const plano = {
           entrada: numeroBR(c.entrada),
           qtdeParcelas: Math.max(0, Math.round(numeroBR(c.qtdeParcelas))),
@@ -400,9 +389,14 @@ function abrirGerarContrato(vendaId) {
           diaVenc: c.inicioParcelas ? Number(c.inicioParcelas.slice(8, 10)) : null,
           entradaDetalhe: String(c.entradaDetalhe || '').slice(0, 160),
         };
+        if(plano.entrada<0||plano.valorParcela<0||plano.parcCheia<0||numeroBR(c.qtdeParcelas)<0||numeroBR(c.qtdeParcelas)>1200){toast('Informe valores positivos e até 1.200 parcelas.', 'ruim');return;}
+        if(plano.qtdeParcelas&&(!plano.inicioParcelas||!plano.valorParcela||!plano.parcCheia)){toast('Preencha o vencimento e os valores das parcelas.', 'ruim');return;}
+        if(plano.qtdeParcelas&&Math.abs(Math.round(plano.parcCheia*80)-Math.round(plano.valorParcela*100))>1){toast('O modelo prevê desconto de 20%. Ajuste a parcela cheia ou o valor em dia.', 'ruim');return;}
+        const l = achar('lote', v.loteId);
+        const blob = gerarContratoPdf({ ...v, codigo: v.codigo }, c, l, S.cfg || {}, plano);
         // a correção VOLTA para a venda — contrato e sistema contam a mesma história
         salvar('venda', { id: v.id, entrada: plano.entrada, qtdeParcelas: plano.qtdeParcelas,
-          valorParcela: plano.valorParcela, tipoParcela: plano.tipoParcela,
+          valorParcela: plano.valorParcela, parcCheia: plano.parcCheia, tipoParcela: plano.tipoParcela,
           inicioParcelas: plano.inicioParcelas, entradaDetalhe: plano.entradaDetalhe,
           historico: [{ em: new Date().toISOString(), por: S.quem || '—', acao: 'plano corrigido ao gerar o contrato' }] });
         if (cli.id) {
@@ -410,8 +404,6 @@ function abrirGerarContrato(vendaId) {
             nacionalidade: c.nacionalidade, email: c.email, endereco: c.endereco,
             bairro: c.bairro, cidade: c.cidade, cep: c.cep });
         }
-        const l = achar('lote', v.loteId);
-        const blob = gerarContratoPdf({ ...v, codigo: v.codigo }, c, l, S.cfg || {}, plano);
         const nomeArq = 'Contrato-Bosques-' + (v.codigo || 'Q' + v.quadra + 'L' + v.lote) + '-' +
           (c.nome || '').split(' ')[0] + '.pdf';
         salvarNoAparelho(blob, nomeArq);
@@ -440,23 +432,11 @@ function abrirGerarContrato(vendaId) {
     const cheia = numeroBR(cheiaCampo.value);
     const ini = pega('inicioParcelas').value;
     const ent = numeroBR(pega('entrada').value);
-    let datas = '';
-    if (ini && n > 0) {
-      const d0 = new Date(ini + 'T12:00:00');
-      const dFim = new Date(d0.getFullYear(), d0.getMonth() + (n - 1), Math.min(d0.getDate(), 28));
-      datas = '1ª: ' + fmt.data(ini) + ' · última (' + n + 'ª): ' +
-        String(d0.getDate()).padStart(2, '0') + '/' + String(dFim.getMonth() + 1).padStart(2, '0') + '/' + dFim.getFullYear() +
-        ' · todo dia ' + d0.getDate();
-    }
-    el.textContent = (datas ? '📅 ' + datas + '  ·  ' : '') +
-      (cheia > 0 ? '💵 boleto ' + fmt.brl(cheia) + ' / em dia ' + fmt.brl(emDia) : '') +
-      (n > 0 && cheia > 0 ? '  ·  total do contrato ' + fmt.brl(Math.round((ent + cheia * n) * 100) / 100) : '');
+    const resumo=planoContratoResumo({entrada:ent,qtdeParcelas:n,valorParcela:emDia,parcCheia:cheia,tipoParcela:pega('tipoParcela').value,inicioParcelas:ini});
+    el.innerHTML='<h3>Confira todas as faixas</h3><div class="rolagem"><table class="tabela"><thead><tr><th>Parcelas</th><th>Vencimentos</th><th>Cheia</th><th>Em dia</th></tr></thead><tbody>'+resumo.faixas.map(f=>'<tr><td>'+f.de+' a '+f.ate+'</td><td>'+esc(f.inicio)+' a '+esc(f.fim)+'</td><td>'+fmt.brl(f.cheia)+'</td><td>'+fmt.brl(f.dia)+'</td></tr>').join('')+'</tbody></table></div><p>Entrada: '+fmt.brl(ent)+' · Total cheio: '+fmt.brl(resumo.totalCheio)+' · Total em dia: '+fmt.brl(resumo.totalDia)+(n?' · Última parcela: '+esc(resumo.ultima):' · Pagamento à vista')+'</p>';
   };
-  ['entrada', 'qtdeParcelas', 'valorParcela', 'parcCheia', 'inicioParcelas'].forEach((nome) => {
-    const el = pega(nome);
-    if (el) el.addEventListener('input', detalhe);
-  });
-  const cc = pega('parcCheia');
-  if (cc) cc.addEventListener('keydown', () => { cc.dataset.mexido = '1'; });
+  ['entrada','qtdeParcelas','valorParcela','parcCheia','inicioParcelas','tipoParcela'].forEach(nome=>{const x=pega(nome);x.addEventListener('input',()=>{if(nome==='parcCheia')x.dataset.mexido='1';detalhe();});});
+  if(v.parcCheia!=null)pega('parcCheia').dataset.mexido='1';
+
   detalhe();
 }

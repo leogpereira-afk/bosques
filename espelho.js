@@ -921,6 +921,7 @@ function abrirNovaVenda(l, sim) {
           situacao: 'ativa', obs: String(v.obs || '').slice(0, 800),
           historico: [{ id: Date.now().toString(36), em: new Date().toISOString(), por: S.quem || '—', o_que: 'Venda registrada' }],
         });
+        if(sim.propostaId)salvar('prop',{id:sim.propostaId,situacao:'aceita',vendaId:venda.id});
         // Entrada já recebida vira RECEBIMENTO na hora — o caixa nasce certo.
         if (entradaRS > 0 && dataEntrada) {
           salvar('rec', { vendaId: venda.id, tipo: 'entrada', valor: entradaRS, data: dataEntrada, forma: v.formaEntrada });

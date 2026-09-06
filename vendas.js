@@ -765,13 +765,14 @@ TELAS.propostas = function () {
 
   // O corretor animado manda 10 numa tarde: dá para marcar várias e ARQUIVAR
   // de uma vez — elas saem da vista sem virar "recusada" (arquivar não julga).
-  const f = TELAS._fProps || { sit: 'enviada' };
+  const foco=document.activeElement?.id==='pr-q',cursor=foco?document.activeElement.selectionStart:null;
+  const f = TELAS._fProps || { sit: 'enviada', q:'' };
   TELAS._fProps = f;
   const sel = TELAS._propSel = TELAS._propSel || new Set();
 
   const abertas = props.filter((p) => (p.situacao || 'enviada') === 'enviada');
   const viradas = props.filter((p) => p.situacao === 'aceita');
-  const doFiltro = props.filter((p) => f.sit === 'todas' ? true : (p.situacao || 'enviada') === f.sit);
+  const doFiltro = props.filter(p=>(f.sit==='todas'||(p.situacao||'enviada')===f.sit)&&(!f.q||[p.codigo,p.cliente?.nome,p.donoNome,'Q'+p.quadra+'-L'+p.lote].join(' ').toLowerCase().includes(f.q.toLowerCase())));
   for (const id of [...sel]) if (!doFiltro.some((p) => p.id === id)) sel.delete(id);
 
   const chips = [['enviada', 'No ar (' + abertas.length + ')'], ['aceita', 'Viraram venda'],
@@ -783,7 +784,7 @@ TELAS.propostas = function () {
       '<div class="painel clicavel" data-pp="enviada"><div class="rot">No ar</div><div class="num">' + abertas.length + '</div></div>' +
       '<div class="painel clicavel" data-pp="aceita"><div class="rot">Viraram venda</div><div class="num pos">' + viradas.length + '</div></div>' +
     '</div>' +
-    '<div class="filtros"><div class="chips">' +
+    '<div class="filtros"><input id="pr-q" type="search" aria-label="Buscar proposta" placeholder="Cliente, lote, código ou corretor" value="'+esc(f.q||'')+'"><div class="chips">' +
       chips.map(([v, t2]) => '<button class="chip' + (f.sit === v ? ' on' : '') + '" data-sit="' + v + '">' + t2 + '</button>').join('') +
     '</div>' +
     '<button class="btn mini" id="pr-arquivar"' + (sel.size ? '' : ' disabled') + '>🗂 Arquivar marcadas (' + sel.size + ')</button>' +
@@ -802,6 +803,8 @@ TELAS.propostas = function () {
         etiqueta(p.situacao || 'enviada') + '</div>';
     }).join('') || vazio('🗂', 'Nada nesse filtro'));
 
+  document.getElementById('pr-q').oninput=e=>{f.q=e.target.value;TELAS.propostas();};
+  if(foco){const q=document.getElementById('pr-q');q.focus();q.setSelectionRange(cursor,cursor);}
   app.querySelectorAll('.chip[data-sit]').forEach((c) => {
     c.onclick = () => { f.sit = c.dataset.sit; sel.clear(); TELAS.propostas(); };
   });
@@ -850,6 +853,7 @@ function abrirFichaProposta(id) {
 
   const rerender = () => { if (TELAS[rotaAtual().nome]) TELAS[rotaAtual().nome](rotaAtual().id); };
   const acoes = [{ texto: 'Fechar', aoClicar: () => fecharModal() }];
+  acoes.push({texto:'Baixar proposta PDF',aoClicar:()=>{const c=achar('cliente',p.clienteId)||{};const blob=PDF.proposta({...p,cliente:{...c,...p.cliente}},lote||{quadra:p.quadra,lote:p.lote,areaM2:p.areaM2},S.cfg||{});salvarNoAparelho(blob,'Proposta-Bosques-'+(p.codigo||p.id)+'.pdf');}});
   if ((p.situacao || 'enviada') === 'arquivada') {
     acoes.push({ texto: 'Desarquivar', aoClicar: (fundo) => {
       salvar('prop', { id: p.id, situacao: 'enviada' });
@@ -867,12 +871,11 @@ function abrirFichaProposta(id) {
     } });
     if (!ehCorretorPerfil() && lote && lote.status === 'Disponível') {
       acoes.push({ texto: 'Virou venda!', classe: 'primario', aoClicar: (fundo) => {
-        salvar('prop', { id: p.id, situacao: 'aceita' });
         fecharSilencioso(fundo);
         abrirNovaVenda(lote, {
           // id manda: a proposta JÁ cadastrou o cliente — sem clienteId a
           // atendente redigitava o nome e nascia um cliente sósia
-          clienteId: p.clienteId || '',
+          propostaId:p.id, clienteId: p.clienteId || '',
           entrada: p.entrada, qtde: p.qtdeParcelas, valorParcela: p.valorParcela,
           tipo: p.tipoParcela === 'À vista' ? 'Avista' : (p.tipoParcela || 'Fixa'),
           corretorId: p.corretorId || '', comissao: p.comissao || '', formaPg: p.formaPg || 'PIX',

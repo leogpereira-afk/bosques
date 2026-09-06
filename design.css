@@ -39,3 +39,6 @@ body[data-tela=cronograma] .cartao,body[data-tela=clientes] .cartao,body[data-te
 /* Ajustes finais de leitura e alcance das ações. */
 a.btn{display:inline-flex;align-items:center;justify-content:center;text-decoration:none}.btn.whats{background:#e4f2e7;border-color:#bad6c0;color:#215937}.btn.whats:hover{background:#d3e9d8}button.painel{color:var(--tinta)}.vinc-lin{width:100%;text-align:left;justify-content:space-between}
 @media(min-width:1250px){body[data-tela=financeiro] #app>.paineis{grid-template-columns:repeat(5,minmax(0,1fr))}body[data-tela=financeiro] #app>.paineis .painel{padding:18px 14px}body[data-tela=financeiro] #app>.paineis .painel .num{font-size:clamp(18px,1.55vw,25px)}}
+
+/* Revisão de documentos */
+.doc-plano{border:1px solid var(--borda);background:#f8faf5;padding:18px;border-radius:12px;margin-top:20px}.doc-plano h3{font-size:15px;margin:0 0 14px}.doc-plano p{font-size:12px;line-height:1.8;margin-top:14px}.doc-plano .tabela{min-width:560px}.ct-lin:focus-visible{outline:3px solid #79a9e3;outline-offset:2px}
