@@ -48,17 +48,14 @@ function grupoMenu(nome){return nome==='home'?'Visão geral':['espelho','simulad
 function renderLateral() {
   const el = document.getElementById('lateral');
   const { nome } = rotaAtual();
-  const atrasos = (S.perfil !== 'corretor')
-    ? lista('venda').filter((v) => ['ativa', 'conferir'].includes(v.situacao || 'ativa') &&
-        resumoVenda(v).qtdAtraso > 0).length
-    : 0;
+  const totalVendas = resumoComercial().contratos.length;
   el.innerHTML =
     '<div class="marca"><img src="icons/icon-192.png" alt=""><b>Portal dos Bosques<span>gestão do loteamento</span></b></div>' +
     '<nav id="menu">' +
       rotasDoPerfil().map((r,i,rs) =>
         (i===0||grupoMenu(rs[i-1])!==grupoMenu(r)?'<div class="grupo">'+grupoMenu(r)+'</div>':'')+'<a href="#/' + r + '" class="' + (nome === r || (r === 'vendas' && nome === 'venda') || (r === 'espelho' && nome === 'lote') ? 'on' : '') + '">' +
         '<span class="ic">' + iconeMenu(r) + '</span><span class="menu-texto">' + ROTAS[r].titulo+'</span>' +
-        (r === 'vendas' && atrasos ? '<span class="selo">' + atrasos + '</span>' : '') + '</a>').join('') +
+        (r === 'vendas' ? '<span class="selo" title="Total de vendas, incluindo quitadas">' + totalVendas + '</span>' : '') + '</a>').join('') +
     '</nav>' +
     '<div id="rodape-lateral">' + esc(S.quem || 'Equipe') + ' · ' + esc(({ direcao: 'Direção', escritorio: 'Escritório', corretor: 'Corretor' })[S.perfil] || S.perfil) +
       '<div class="acoes"><button id="bt-sync">↻ Sincronizar</button><button id="bt-sair">Sair</button></div></div>';

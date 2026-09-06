@@ -276,7 +276,7 @@ TELAS.vendas = function () {
   app.innerHTML = painelInadimplenciaOmie()+
     '<div class="paineis">' +
       '<div class="painel clicavel" data-pv="todas"><div class="rot">VGV vendido</div><div class="num pos">' + fmt.brl(vgv) + '</div>' +
-        '<div class="sub">' + naoDistratadas.length + ' contrato(s) de pé</div></div>' +
+        '<div class="sub">' + naoDistratadas.length + ' contrato(s), incluindo quitados</div></div>' +
       '<div class="painel' + (lotesDuplicados().length ? ' clicavel" id="vd-duplicados' : '') + '"><div class="rot">Lotes vendidos</div><div class="num">' + comercial.vendidos + '</div><div class="sub">'+comercial.contratos.length+' contratos: '+comercial.ativos+' ativos · '+comercial.quitados+' quitados</div>' +
         (lotesDuplicados().length ? '<div class="sub">⚠ ' + lotesDuplicados().length + ' lote(s) com 2 vendas — clique e veja quais</div>' : '') + '</div>' +
       '<div class="painel clicavel" id="pn-atraso"><div class="rot">Atraso nas fichas confirmadas</div><div class="num' + (emAtraso.length ? ' neg' : ' pos') + '">' + emAtraso.length + '</div>' +
@@ -290,7 +290,7 @@ TELAS.vendas = function () {
       '<div class="painel clicavel" data-pv="recebido-total"><div class="rot">Recebido de vendas · total</div><div class="num pos">' + fmt.brl(recebidoTotal) + '</div>' +
         '<div class="sub">' + (vgv > 0 ? pctRecebido(recebidoTotal, vgv) + ' do VGV vendido' : 'sem VGV para comparar') +
           (semContratoTotal > 0 ? '<br>⚠ ' + fmt.brl(semContratoTotal) + ' sem contrato ligado' : '') + '</div></div>' +
-      '<div class="painel clicavel" data-pv="quitada"><div class="rot">Quitadas</div><div class="num">' + todas.filter((v) => v.situacao === 'quitada').length + '</div></div>' +
+      '<div class="painel clicavel" data-pv="quitada"><div class="rot">Quitadas · incluídas no total</div><div class="num">' + todas.filter((v) => v.situacao === 'quitada').length + '</div></div>' +
     '</div>' +
     '<div class="filtros">' +
       '<input type="search" id="vd-q" placeholder="cliente, lote, código…" value="' + esc(filtro.q) + '">' +
