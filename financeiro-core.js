@@ -65,7 +65,7 @@ const FINANCEIRO = (() => {
       sobra:rs(naoAlocado+Math.max(0,entradaPaga-entrada)+carne.reduce((s,l)=>s+cent(l.credito),0)),
       pendencias:erros, qtdConferir:carne.filter(l=>l.conferir).length,
       quitada:carne.length>0 && saldo===0 && !carne.some(l=>l.conferir) && !erros.length && naoAlocado===0,
-      proxima:carne.find(l=>['aberta','hoje','parcial'].includes(l.situacao)) || null,
+      proxima:carne.filter(l=>['aberta','hoje','parcial'].includes(l.situacao)).sort((a,b)=>a.venc.localeCompare(b.venc)||a.tid.localeCompare(b.tid))[0] || null,
       espelhoOmie:true };
   }
   function alocar(v, recs, valor, hoje, tid) {

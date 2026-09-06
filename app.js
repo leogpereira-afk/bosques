@@ -74,9 +74,14 @@ function renderLateral() {
 
 function renderTopo() {
   const { nome } = rotaAtual();
+  const pai={venda:'vendas',lote:'espelho',comissoes:'corretores',simulacao:'vendas',caixa:'financeiro',lancamentos:'financeiro'}[nome];
+  const retorno=pai&&(_origemDetalhe||'#/'+pai);
+  const nomeRetorno=retorno&&ROTAS[retorno.replace(/^#\/?/,'').split('/')[0]]?.titulo;
   document.getElementById('topo').innerHTML =
-    '<div class="titulo-pagina"><span class="sobretitulo">Portal dos Bosques</span><h1>' + (ROTAS[nome] ? ROTAS[nome].titulo : 'Portal dos Bosques') + '</h1><p>'+esc(DESCRICOES_TELA[nome]||'')+'</p></div>' +
+    '<div class="titulo-pagina">'+(retorno?'<a class="voltar-tela" href="'+esc(retorno)+'">← Voltar para '+esc(nomeRetorno||ROTAS[pai].titulo)+'</a>':'<span class="sobretitulo">Portal dos Bosques</span>')+'<h1 tabindex="-1">' + (ROTAS[nome] ? ROTAS[nome].titulo : 'Portal dos Bosques') + '</h1><p>'+esc(DESCRICOES_TELA[nome]||'')+'</p></div>' +
+    '<label class="atalho-telas">Ir para<select id="ir-tela" aria-label="Ir para outra tela">'+rotasDoPerfil().map(r=>'<option value="'+r+'" '+(r===(pai||nome)?'selected':'')+'>'+ROTAS[r].titulo+'</option>').join('')+'</select></label>'+
     '<span id="sync-badge" role="status" aria-live="polite"></span>';
+  document.getElementById('ir-tela').onchange=e=>{location.hash='#/'+e.target.value;};
   atualizarBadge();
 }
 
@@ -103,7 +108,7 @@ function render() {
   document.body.dataset.tela=nome;
   renderLateral();
   renderTopo();
-  const rotas = rotasDoPerfil().concat(['lote', 'venda', 'comissoes', 'simulacao', 'caixa', 'lancamentos', 'relatorios']);
+  const rotas = rotasDoPerfil().concat(S.perfil==='corretor'?['lote']:['lote', 'venda', 'comissoes', 'simulacao', 'caixa', 'lancamentos', 'relatorios']);
   const tela = rotas.includes(nome) && TELAS[nome] ? TELAS[nome] : null;
   if (S.cacheCompleto === false) {
     document.getElementById('app').innerHTML='<section class="cartao" role="status"><h2>'+ (S.erroSync?'Dados ainda indisponíveis':'Preparando os dados do sistema') +'</h2><p>'+esc(S.erroSync||'Aguarde a leitura completa. Os indicadores serão apresentados juntos, com a mesma base de dados.')+'</p><button class="btn" id="dados-tentar">Tentar carregar novamente</button></section>';
@@ -174,14 +179,14 @@ TELAS.home = function () {
 
   app.innerHTML = painelInadimplenciaOmie()+
     '<div class="paineis">' +
-      '<div class="painel clicavel" data-vai="caixa"><div class="rot">Entradas · ' + nomeMes(mes) + '</div>' +
-        '<div class="num pos">' + fmt.brl(t.entradas) + '</div></div>' +
-      '<div class="painel clicavel" data-vai="caixa"><div class="rot">Saídas · ' + nomeMes(mes) + '</div><div class="num">' + fmt.brl(t.saidas) + '</div></div>' +
-      '<div class="painel clicavel" data-vai="caixa"><div class="rot">Resultado do mês</div>' +
-        '<div class="num ' + (t.resultado >= 0 ? 'pos' : 'neg') + '">' + fmt.brl(t.resultado) + '</div></div>' +
-      '<div class="painel clicavel" data-vai="vendas"><div class="rot">Atraso nas fichas confirmadas</div>' +
-        '<div class="num' + (comAtraso.length ? ' neg' : ' pos') + '">' + fmt.brl(totalAtraso) + '</div>' +
-        '<div class="sub">' + comAtraso.length + ' contrato(s)</div></div>' +
+      '<button class="painel clicavel" data-vai="financeiro" data-aba="recebimentos"><span class="rot">Entradas · ' + nomeMes(mes) + '</span>' +
+        '<span class="num fin-entrada">' + fmt.brl(t.entradas) + '</span></button>' +
+      '<button class="painel clicavel" data-vai="financeiro" data-aba="despesas"><span class="rot">Saídas · ' + nomeMes(mes) + '</span><span class="num fin-saida">' + fmt.brl(t.saidas) + '</span></button>' +
+      '<button class="painel clicavel" data-vai="relatorios"><span class="rot">Resultado do mês</span>' +
+        '<span class="num ' + (t.resultado >= 0 ? 'fin-entrada' : 'fin-saida') + '">' + fmt.brl(t.resultado) + '</span></button>' +
+      '<button class="painel clicavel" data-vai="vendas"><span class="rot">Atraso nas fichas confirmadas</span>' +
+        '<span class="num fin-atraso">' + fmt.brl(totalAtraso) + '</span>' +
+        '<span class="sub">' + comAtraso.length + ' contrato(s)</span></button>' +
     '</div>' +
     (propsQuentes.length ? '<div class="cartao"><h2>🔥 Interesse nas propostas</h2>' +
       propsQuentes.slice(0, 5).map((p) => '<div class="lin prop-lin" data-id="' + esc(p.id) + '">' +
@@ -195,13 +200,13 @@ TELAS.home = function () {
         '<span class="sub">' + r.qtdAtraso + ' parcela(s) vencida(s)</span></div>' +
         botaoCobranca(v, r, true) +
         '<span class="dinheiro" style="color:var(--ruim)">' + fmt.brl(r.emAtraso) + '</span></div>').join('') ||
-        '<p class="nota">🎉 Ninguém em atraso.</p>') + '</div>' +
+        '<p class="nota">Sem atraso nas fichas confirmadas. Os títulos ainda sem lote aparecem no quadro do Omie.</p>') + '</div>' +
     '<div class="cartao"><h2>Últimos recebimentos</h2>' +
       (ultimosRecs.map((rc) => {
         const v = achar('venda', rc.vendaId);
-        return '<div class="lin venda-lin" data-id="' + esc(rc.vendaId) + '">' +
-          '<div class="cresce"><b>' + fmt.brl(rc.valor) + '</b>' +
-          '<span class="sub">' + fmt.data(rc.data) + ' · ' + (v ? 'Q' + v.quadra + '-L' + v.lote + ' · ' + esc(v.clienteNome || '') : '—') + '</span></div></div>';
+        return '<button class="lin home-rec" data-rec="' + esc(rc.id) + '">' +
+          '<span class="cresce"><b class="fin-entrada">' + fmt.brl(rc.valor) + '</b>' +
+          '<span class="sub">' + fmt.data(rc.data) + ' · ' + (v ? 'Q' + v.quadra + '-L' + v.lote + ' · ' + esc(v.clienteNome || '') : 'Sem lote confirmado · abrir recebimento') + '</span></span></button>';
       }).join('') || '<p class="nota">Nenhum dinheiro lançado ainda.</p>') + '</div>' +
     // O pulso da ponte com o Omie: quando sincronizou e se deu certo.
     (S.perfil !== 'corretor'
@@ -210,7 +215,13 @@ TELAS.home = function () {
 
   if (S.perfil !== 'corretor') statusOmieHome(document.getElementById('home-omie'));
   ligarBotoesCobranca(app);
-  app.querySelectorAll('[data-vai]').forEach((el) => { el.onclick = () => { location.hash = '#/' + el.dataset.vai; }; });
+  app.querySelectorAll('[data-vai]').forEach((el) => { el.onclick = () => {
+    if(el.dataset.aba)TELAS._fin={aba:el.dataset.aba,ano:mes.slice(0,4),mes:mes.slice(5),q:''};
+    if(el.dataset.vai==='relatorios')TELAS._relMes=mes;
+    if(el.dataset.vai==='vendas')TELAS._fVendas={q:'',sit:'',so:'atraso'};
+    location.hash = '#/' + el.dataset.vai;
+  }; });
+  app.querySelectorAll('[data-rec]').forEach(el=>{el.onclick=()=>finEditarRecebimento(achar('rec',el.dataset.rec),()=>render());});
   app.querySelectorAll('.venda-lin').forEach((el) => { el.onclick = () => { location.hash = '#/venda/' + el.dataset.id; }; });
   app.querySelectorAll('.prop-lin').forEach((el) => { el.onclick = () => abrirFichaProposta(el.dataset.id); });
 };
@@ -448,7 +459,19 @@ document.addEventListener('bsq:sempermissao', (e) => {
   const d = e.detail || {};
   toast('Não salvou: ' + (d.msg || 'seu acesso não permite'), 'ruim');
 });
-window.addEventListener('hashchange', render);
+let _origemDetalhe='';
+const _rolagemRotas=new Map();
+window.addEventListener('hashchange', e=>{
+  const anterior=(e.oldURL||'').split('#')[1]||'/home',nova=rotaAtual();
+  const antes=anterior.replace(/^\//,'').split('/')[0];
+  const detalhes=['venda','lote','comissoes','simulacao','caixa','lancamentos'];
+  if(detalhes.includes(nova.nome)) {if(!detalhes.includes(antes)&&ROTAS[antes])_origemDetalhe='#'+anterior;}
+  else _origemDetalhe='';
+  _rolagemRotas.set('#'+anterior,window.scrollY||0);
+  render();
+  document.querySelector('#topo h1')?.focus({preventScroll:true});
+  window.scrollTo(0,_rolagemRotas.get(location.hash)||0);
+});
 
 (async function iniciar() {
   lerCache();

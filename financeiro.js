@@ -1,5 +1,6 @@
 /* Uma área financeira; filtros e exportação consultam o mesmo recorte. */
 const FIN_ABAS = {visao:'Visão geral',recebimentos:'Recebimentos',despesas:'Despesas',receber:'Contas a receber',pagar:'A pagar no Omie',diferencas:'Diferenças com Omie',centros:'Centros de custo',contas:'Contas e conciliação',pendencias:'Pendências e sincronização'};
+let _finBuscaTimer=0;
 // A cor acompanha a natureza do lançamento, inclusive nas listas mistas.
 function finCor(x={},aba='') {
   if (x.transferencia) return '';
@@ -30,8 +31,18 @@ function finIndices(){
   for(const v of vendas)for(const [i,p] of (v.parcelas||[]).entries())if(p&&!p.cancelado){const k=String(p.tid);if(!porParcela.has(k))porParcela.set(k,[]);porParcela.get(k).push({v,p,i});}
   const pagamentos={rec:new Map(),cx:new Map()};
   for(const col of ['rec','cx'])for(const r of lista(col)){const tid=r.omie?.titulo || (String(r.id).startsWith(col==='rec'?'rbomie-':'cxomie-')?String(r.id).split('-').pop():null);if(tid){const k=String(tid);const arr=pagamentos[col].get(k)||[];arr.push(r);pagamentos[col].set(k,arr);}}
-  return {vendas,titulos,porVenda,porTitulo,porParcela,pagamentos};
+  const porCliente=new Map(lista('cliente').map(c=>[String(c.cpf||c.id).replace(/\D/g,''),c]));
+  return {vendas,titulos,porVenda,porTitulo,porParcela,pagamentos,porCliente};
 }
+function finEnriquecer(x,ctx){
+  const r=x.rec||x.cx,t=x.titulo||ctx.porTitulo.get((x.cx?'CONTA_A_PAGAR':'CONTA_A_RECEBER')+'|'+r?.omie?.titulo)||
+    ctx.porTitulo.get('CONTA_A_RECEBER|'+ctx.porVenda.get(x.vendaId)?.parcelas?.[x.parcela]?.tid);
+  const documento=String(t?.original?.detalhes?.cNumTitulo||'').trim(),cliente=ctx.porCliente.get(String(t?.cpf||r?.omie?.cpf||''));
+  const referencia=[t?.titulo?'Título '+t.titulo:'',documento?'Documento '+documento:''].filter(Boolean).join(' · ');
+  const descricao=(x.rec&&!ctx.porVenda.has(x.rec.vendaId)&&cliente?.nome)?cliente.nome:x.descricao;
+  return {...x,descricao,referencia,busca:[descricao,x.situacao,x.forma,x.id,r?.codigo,t?.titulo,documento,cliente?.nome,cliente?.cpf].join(' ')};
+}
+function finDescricaoFiltros(f){return [f.ano||'Todos os anos',f.mes?'Mês '+f.mes:'Todos os meses',f.centro?'Centro: '+f.centro:'',f.q?'Busca: '+f.q:'',f.grupo?FIN_GRUPOS[f.grupo]:'',f.fila?({realizados:'Realizados',vencidos:'Vencidos',futuros:'Futuros',cadastro:'Sem data'})[f.fila]:''].filter(Boolean).join(' · ');}
 const finDataOrigem=d=>/^\d{2}\/\d{2}\/\d{4}$/.test(d||'')?d.slice(6)+'-'+d.slice(3,5)+'-'+d.slice(0,2):d||'';
 function finDiferencas(ctx=finIndices()){
   const out=[];
@@ -88,7 +99,7 @@ function finLinhas(aba,ctx=finIndices()){
 }
 function finRecorte(linhas,f) {
   return linhas.filter(x=> (!f.fila||finGrupoFila(x)===f.fila) && (!f.grupo||finPertenceGrupo(x,f.grupo)) && (!f.ano||String(x.data||'').startsWith(f.ano)) && (!f.mes||String(x.data||'').slice(5,7)===f.mes) &&
-    (!f.centro || (x.centroCusto||'')===f.centro) && (!f.q || ((x.descricao||'')+' '+(x.situacao||'')+' '+(x.forma||'')).toLowerCase().includes(f.q.toLowerCase())));
+    (!f.centro || (x.centroCusto||'')===f.centro) && (!f.q || correspondeBusca(x.busca||[x.descricao,x.situacao,x.forma].join(' '),f.q)));
 }
 function finAbrirLinha(x) {
   if(x.origemDiferenca)return finDetalheDiferenca(x);
@@ -103,9 +114,9 @@ function finAbrirLinha(x) {
 }
 TELAS.financeiro=function(){
   const f=TELAS._fin || {aba:'visao',ano:'',mes:'',q:''};TELAS._fin=f;
-  const app=document.getElementById('app'),ctx=finIndices(),todas=finLinhas(f.aba,ctx),linhas=finRecorte(todas,f).sort((a,b)=>String(a.data||'9999').localeCompare(String(b.data||'9999'))||String(a.id).localeCompare(String(b.id)));
+  const app=document.getElementById('app'),ctx=finIndices(),todas=finLinhas(f.aba,ctx).map(x=>finEnriquecer(x,ctx)),linhas=finRecorte(todas,f).sort((a,b)=>String(a.data||'9999').localeCompare(String(b.data||'9999'))||String(a.id).localeCompare(String(b.id)));
   const pagina=Math.max(0,Math.min(f.pagina||0,Math.ceil(linhas.length/60)-1));f.pagina=pagina;const visiveis=linhas.slice(pagina*60,pagina*60+60);
-  const anos=[...new Set([String(new Date().getFullYear()),...todas.map(x=>String(x.data||'').slice(0,4)).filter(Boolean)])].sort().reverse();
+  const anos=[...new Set(['2025',String(new Date().getFullYear()),...todas.map(x=>String(x.data||'').slice(0,4)).filter(Boolean)])].sort().reverse();
   const total=linhas.reduce((s,x)=>s+FINANCEIRO.cent(x.valor),0)/100;
   let html='<div class="fin-nav">'+Object.entries(FIN_ABAS).map(([id,nome])=>'<button class="btn '+(id===f.aba?'primario':'')+'" data-fin-aba="'+id+'">'+nome+'</button>').join('')+'</div>';
   if(window.FINANCEIRO_EM_VALIDACAO)html+='<div class="cartao" style="border-color:#e8b24a"><b>Versão em validação.</b> Os vínculos pendentes precisam ser conferidos antes da troca do financeiro.</div>';
@@ -113,7 +124,7 @@ TELAS.financeiro=function(){
   html+='<p class="nota">'+esc(coberturaFinanceira())+'</p><p class="nota">Valores confirmados e pendências ficam identificados. Amarelo: precisa de conferência. Lápis roxo: alteração manual.</p>';
   if(f.aba==='pendencias'&&f.grupo)html+='<h2>'+esc(FIN_GRUPOS[f.grupo])+'</h2><p>Abra cada linha para corrigir o vínculo. A lista é atualizada após salvar.</p>';
   if(f.aba==='pendencias')html+='<p class="nota">A soma das pendências não representa dívida adicional: o mesmo recebimento pode exigir mais de uma conferência.</p>';
-  if(f.aba==='centros'){app.innerHTML=html+finTelaCentros();finLigarCentros(app);app.querySelectorAll('[data-fin-aba]').forEach(b=>b.onclick=()=>{f.aba=b.dataset.finAba;f.grupo='';f.centro='';f.pagina=0;TELAS.financeiro();});return;}
+  if(f.aba==='centros'){app.innerHTML=html+finTelaCentros();finLigarCentros(app);app.querySelectorAll('[data-fin-aba]').forEach(b=>b.onclick=()=>{f.aba=b.dataset.finAba;f.grupo='';f.fila='';f.centro='';f.q='';f.pagina=0;TELAS.financeiro();});return;}
   if(f.aba==='visao') {
     html+=painelInadimplenciaOmie();
     const recebido=lista('rec').reduce((s,r)=>s+FINANCEIRO.cent(r.valor),0)/100;
@@ -143,13 +154,14 @@ TELAS.financeiro=function(){
   } else {
     if(f.aba==='pagar')html+=finCompromissosHTML();
     if(f.aba==='pendencias')html+=finResumoFila(todas);
-    html+='<div class="fin-toolbar"><select id="fin-ano" aria-label="Ano"><option value="">Todos os anos</option>'+anos.map(a=>'<option '+(a===f.ano?'selected':'')+'>'+a+'</option>').join('')+'</select><input id="fin-busca" aria-label="Buscar" placeholder="Buscar" value="'+esc(f.q)+'"><button class="btn" id="fin-pdf">Baixar este recorte em PDF</button>'+(f.aba==='despesas'?'<button class="btn primario" id="fin-despesa">Nova despesa</button>':'')+''+'</div>';
+    html+='<div class="fin-toolbar"><select id="fin-ano" aria-label="Ano"><option value="">Todos os anos</option>'+anos.map(a=>'<option '+(a===f.ano?'selected':'')+'>'+a+'</option>').join('')+'</select><input id="fin-busca" aria-label="Buscar lançamento, cliente ou documento" placeholder="Cliente, CPF, título ou documento" value="'+esc(f.q)+'"><button class="btn" id="fin-pdf">Baixar este recorte em PDF</button>'+(f.aba==='despesas'?'<button class="btn primario" id="fin-despesa">Nova despesa</button>':'')+''+'</div>';
     html+='<div class="fin-nav">'+['','01','02','03','04','05','06','07','08','09','10','11','12'].map((m,i)=>'<button class="btn mini '+(f.mes===m?'primario':'')+'" data-fin-mes="'+m+'">'+(['Todos','Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'][i])+'</button>').join('')+'</div>';
     if(['despesas','pagar','recebimentos','receber'].includes(f.aba))html+='<div class="fin-toolbar"><label>Centro de custo <select id="fin-centro"><option value="">Todos</option>'+finCentrosDisponiveis().map(c=>'<option '+(f.centro===c?'selected':'')+'>'+esc(c)+'</option>').join('')+'</select></label><button class="btn" data-fin-aba="centros">Editar centros de custo</button></div>';
+    html+='<div class="fin-filtros-ativos"><span>'+esc(finDescricaoFiltros(f))+'</span><button class="btn mini" id="fin-limpar">Limpar filtros</button></div>';
     if(f.aba==='diferencas')html+='<p class="fin-status">Origem e sistema são comparados por identificador. Coincidência de valor não é confirmação. Correções locais continuam visíveis como diferença.</p>';
     html+='<p>'+linhas.length+' itens neste filtro · Soma do filtro (todas as páginas): <b>'+finValor(total,finCorTotal(linhas,f.aba))+'</b> · '+todas.filter(x=>!x.data).length+' sem data (visíveis em Todos os anos / Todos).</p>';
     if(f.aba==='pendencias') html+='<div id="fin-sync" class="cartao"></div><button class="btn" id="fin-sincronizar">Sincronizar Omie</button>';
-    html+='<div class="rolagem"><table class="tabela fin-table"><thead><tr><th>Nº</th><th>Data</th><th>Descrição</th><th>Situação / centro de custo</th><th class="num">Valor</th></tr></thead><tbody>'+visiveis.map((x,i)=>'<tr tabindex="0" role="button" data-fin-row="'+i+'" class="ln-row '+(x.pendente?'pendente':'')+'"><td>'+(pagina*60+i+1)+'</td><td>'+esc(FINANCEIRO.dataValida(x.data)?x.data.split('-').reverse().join('/'):'Sem data')+'</td><td>'+esc(x.descricao||'')+(x.editadoAMao?'<span class="fin-lapis" title="Editado manualmente"> ✎</span>':'')+'</td><td>'+esc(x.situacao||'')+'</td><td class="num '+finCor(x,f.aba)+'">'+fmt.brl(x.valor)+'</td></tr>').join('')+'</tbody></table></div><div class="fin-pager"><button class="btn" id="fin-anterior" '+(!pagina?'disabled':'')+'>Anterior</button><span>Página '+(pagina+1)+' de '+Math.max(1,Math.ceil(linhas.length/60))+' · 60 itens por página</span><button class="btn" id="fin-proxima" '+((pagina+1)*60>=linhas.length?'disabled':'')+'>Próxima</button></div>';
+    html+='<div class="rolagem"><table class="tabela fin-table"><thead><tr><th>Nº</th><th>Data</th><th>Descrição</th><th>Situação / centro de custo</th><th class="num">Valor</th></tr></thead><tbody>'+(visiveis.map((x,i)=>'<tr tabindex="0" role="button" data-fin-row="'+i+'" class="ln-row '+(x.pendente?'pendente':'')+'"><td>'+(pagina*60+i+1)+'</td><td>'+esc(FINANCEIRO.dataValida(x.data)?x.data.split('-').reverse().join('/'):'Sem data')+'</td><td>'+esc(x.descricao||'')+(x.referencia?'<span class="fin-doc">'+esc(x.referencia)+'</span>':'')+(x.editadoAMao?'<span class="fin-lapis" title="Editado manualmente"> ✎</span>':'')+'</td><td>'+esc(x.situacao||'')+'</td><td class="num '+finCor(x,f.aba)+'">'+fmt.brl(x.valor)+'</td></tr>').join('')||'<tr><td colspan="5">Nenhum lançamento neste recorte. Use Limpar filtros para consultar toda a base disponível.</td></tr>')+'</tbody></table></div><div class="fin-pager"><button class="btn" id="fin-anterior" '+(!pagina?'disabled':'')+'>Anterior</button><span>Página '+(pagina+1)+' de '+Math.max(1,Math.ceil(linhas.length/60))+' · 60 itens por página</span><button class="btn" id="fin-proxima" '+((pagina+1)*60>=linhas.length?'disabled':'')+'>Próxima</button></div>';
   }
   app.innerHTML=html;
   app.querySelectorAll('[data-fin-fila]').forEach(b=>b.onclick=()=>{TELAS._fin={aba:'pendencias',fila:b.dataset.finFila,ano:'',mes:'',q:'',pagina:0};TELAS.financeiro();});
@@ -159,12 +171,17 @@ TELAS.financeiro=function(){
   app.querySelectorAll('[data-fin-mes]').forEach(b=>b.onclick=()=>{f.mes=b.dataset.finMes;f.pagina=0;TELAS.financeiro();});
   app.querySelectorAll('[data-fin-row]').forEach(b=>{b.onclick=()=>finAbrirLinha(visiveis[Number(b.dataset.finRow)]);b.onkeydown=e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();b.click();}};});
   const on=(id,fn)=>{const el=document.getElementById(id);if(el)el.onclick=fn;};
+  on('fin-limpar',()=>{TELAS._fin={aba:f.aba,ano:'',mes:'',q:'',pagina:0};TELAS.financeiro();});
   const ano=document.getElementById('fin-ano');if(ano)ano.onchange=()=>{f.ano=ano.value;f.pagina=0;TELAS.financeiro();};
-  const busca=document.getElementById('fin-busca');if(busca)busca.oninput=()=>{const pos=busca.selectionStart;f.q=busca.value;f.pagina=0;TELAS.financeiro();const novo=document.getElementById('fin-busca');novo.focus();novo.setSelectionRange(pos,pos);};
+  const busca=document.getElementById('fin-busca');if(busca)busca.oninput=e=>{
+    f.q=busca.value;f.pagina=0;clearTimeout(_finBuscaTimer);
+    if(e?.isComposing)return;
+    _finBuscaTimer=setTimeout(()=>{if(document.getElementById('fin-busca')===busca)vdRenderComFoco(TELAS.financeiro);},220);
+  };
   const centro=document.getElementById('fin-centro');if(centro)centro.onchange=()=>{f.centro=centro.value;f.pagina=0;TELAS.financeiro();};
   on('fin-anterior',()=>{f.pagina--;TELAS.financeiro();});on('fin-proxima',()=>{f.pagina++;TELAS.financeiro();});
   on('fin-despesa',()=>abrirLancamento('saida',()=>TELAS.financeiro()));
-  on('fin-pdf',()=>PDF.financeiro(FIN_ABAS[f.aba],(f.ano||'Todos os anos')+' / '+(f.mes||'Todos os meses')+(f.q?' / '+f.q:''),linhas,S.cfg||{},f.aba));
+  on('fin-pdf',()=>PDF.financeiro(FIN_ABAS[f.aba],finDescricaoFiltros(f),linhas.map(x=>({...x,descricao:[x.descricao,x.referencia].filter(Boolean).join(' · ')})),S.cfg||{},f.aba));
   on('fin-obrigacao',()=>finObrigacao());on('fin-conta-nova',()=>finConta());
   app.querySelectorAll('[data-fin-banco]').forEach(b=>b.onclick=()=>{
     const m=achar('movbanco',b.dataset.finBanco);
@@ -173,8 +190,8 @@ TELAS.financeiro=function(){
   app.querySelectorAll('[data-conta]').forEach(b=>b.onclick=()=>finConta(achar('conta',b.dataset.conta)));
   on('fin-consultar',async()=>{const el=document.getElementById('fin-bancos');try{const d=await saldoBancosOmie();el.textContent=(d.parcial?'Consulta parcial · ':'Consulta · ')+fmt.quando(d.quando)+' · '+(d.contas||[]).map(c=>c.nome+': '+(c.saldo==null?'indisponível':fmt.brl(c.saldo))).join(' | ');}catch(e){el.textContent='Falha: '+e.message;}});
   if(document.getElementById('fin-sync')) {
-    statusOmieHome(document.getElementById('fin-sync'));
-    apiOmie('saude').then(r=>{
+    statusOmieHome(document.getElementById('fin-sync')).then(r=>{
+      if(!r)return;
       const el=document.getElementById('fin-sync');if(!el)return;
       const vendasPendentes=r.sync?.pendenciasVendas||[];
       if(vendasPendentes.length){const aviso=document.createElement('div');aviso.innerHTML='<h3>Vendas do Omie para conferir</h3>'+vendasPendentes.map(p=>'<p>'+esc(p.documento)+' · '+esc(p.motivo)+'</p>').join('');el.appendChild(aviso);}
@@ -209,9 +226,13 @@ function finEditarRecebimento(r,aoTerminar){
 }
 
 function finVincularTitulo(t,aoTerminar) {
+  const origem=achar('titulo','CONTA_A_RECEBER-'+t.titulo);t={...origem,...t,cpf:t.cpf||origem?.cpf};
+  const cliente=lista('cliente').find(c=>String(c.cpf||c.id).replace(/\D/g,'')===String(t.cpf||''));
+  const documento=t.original?.detalhes?.cNumTitulo;
+  const contexto='<div class="fin-status"><b>Título '+esc(t.titulo)+'</b><p>'+esc(cliente?.nome||'Cliente não identificado')+'</p><p>Documento: '+esc(documento||'Não informado na origem')+' · vencimento: '+fmt.data(t.venc)+'</p><p>Valor do título: '+finEntrada(t.valor||0)+' · em aberto no Omie: '+finEntrada(t.original?.resumo?.nValAberto||0)+'</p></div>';
   const cpf=String(t.cpf||'').replace(/\D/g,'');
   const vendas=lista('venda').filter(v=>v.situacao!=='distratada'&&String(v.clienteId||'').replace(/\D/g,'')===cpf);
-  abrirModal({titulo:'Associar título à venda correta',corpo:'<p>Escolha a venda após conferir o documento. O vínculo atual e o novo ficam no histórico.</p>'+campo('Venda',seletor('vendaId','',vendas.map(v=>({v:v.id,t:(v.codigo||'')+' · '+(v.clienteNome||'')+' · Q'+v.quadra+' L'+v.lote})),'Selecione'))+campo('Motivo / documento conferido',entrada('motivo','')),acoes:[{texto:'Voltar',aoClicar:fecharModal},{texto:'Confirmar vínculo',classe:'primario',aoClicar:async f=>{const c=lerCampos(f);if(!c.vendaId||!c.motivo){toast('Escolha a venda e informe a conferência realizada','ruim');return;}try{await api('vincularTitulo',{titulo:String(t.titulo),vendaId:c.vendaId,motivo:c.motivo});await puxar();fecharModal();(aoTerminar||TELAS.financeiro)();}catch(e){toast(e.message,'ruim');}}}]});
+  abrirModal({titulo:'Associar título à venda correta',corpo:contexto+'<p>Escolha a venda após conferir o documento. O vínculo atual e o novo ficam no histórico.</p>'+campo('Venda',seletor('vendaId','',vendas.map(v=>({v:v.id,t:(v.codigo||'')+' · '+(v.clienteNome||'')+' · Q'+v.quadra+' L'+v.lote})),'Selecione'))+campo('Motivo / documento conferido',entrada('motivo','')),acoes:[{texto:'Voltar',aoClicar:fecharModal},{texto:'Confirmar vínculo',classe:'primario',aoClicar:async f=>{const c=lerCampos(f);if(!c.vendaId||!c.motivo){toast('Escolha a venda e informe a conferência realizada','ruim');return;}try{await api('vincularTitulo',{titulo:String(t.titulo),vendaId:c.vendaId,motivo:c.motivo});await puxar();fecharModal();(aoTerminar||TELAS.financeiro)();}catch(e){toast(e.message,'ruim');}}}]});
 }
 
 function finResolverDuplicidade(p){

@@ -126,7 +126,7 @@ TELAS.clientes = function () {
   // filtro dos cartões: 100% × incompletos (clicar de novo no total limpa)
   if (filtro.comp === 'ok') todos = todos.filter((p) => completudeCliente(p).pct === 100);
   else if (filtro.comp === 'falta') todos = todos.filter((p) => completudeCliente(p).pct < 100);
-  const vendas = lista('venda');
+  const vendas = lista('venda').filter(v=>v.situacao!=='distratada');
 
   const linhaCliente = (p) => {
     const suas = vendas.filter((v) => v.clienteId === p.id);
@@ -146,7 +146,7 @@ TELAS.clientes = function () {
 
   let corpo;
   if (filtro.q) {
-    const achados = todos.filter((p) => ((p.nome || '') + ' ' + (p.cpf || '')).toLowerCase().includes(filtro.q.toLowerCase()));
+    const achados = todos.filter((p) => correspondeBusca([p.nome,p.cpf,p.email,p.whatsapp,p.celular].join(' '),filtro.q));
     corpo = achados.map(linhaCliente).join('') || vazio('🔍', 'Ninguém com essa busca');
   } else {
     // Uma gaveta por letra: 80 nomes numa lista só ninguém acha; A–Z todo
@@ -172,12 +172,12 @@ TELAS.clientes = function () {
     '<div class="paineis">' +
       '<div class="painel clicavel" data-pc=""><div class="rot">Clientes</div><div class="num">' + base.length + '</div></div>' +
       '<div class="painel clicavel" data-pc="ok"><div class="rot">Cadastro 100%</div><div class="num' + (completos === base.length ? ' pos' : '') + '">' + completos + '</div>' +
-        '<div class="sub">' + (todos.length ? Math.round(completos / todos.length * 100) : 0) + '% da carteira</div></div>' +
+        '<div class="sub">' + (base.length ? Math.round(completos / base.length * 100) : 0) + '% da carteira</div></div>' +
       '<div class="painel clicavel" data-pc="falta"><div class="rot">Incompletos</div><div class="num' + (base.length - completos ? ' neg' : ' pos') + '">' + (base.length - completos) + '</div>' +
         '<div class="sub">a % de cada um está na lista</div></div>' +
     '</div>' +
     '<div class="filtros">' +
-      '<input type="search" id="cad-q" placeholder="nome ou CPF…" value="' + esc(filtro.q) + '">' +
+      '<input type="search" id="cad-q" aria-label="Buscar cliente" placeholder="Nome, CPF, telefone ou e-mail…" value="' + esc(filtro.q) + '">' +
       '<button class="btn primario" id="cad-novo">+ cliente</button>' +
     '</div>' + (corpo || vazio('👥', 'Ninguém por aqui ainda', 'Os compradores entram pela importação ou pela venda.'));
 

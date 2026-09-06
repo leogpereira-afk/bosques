@@ -184,8 +184,8 @@ TELAS.vendas = function () {
     if (filtro.sit && (v.situacao || 'ativa') !== filtro.sit) return false;
     if (filtro.so === 'atraso' && !(r.qtdAtraso > 0 && ['ativa', 'conferir'].includes(v.situacao || 'ativa'))) return false;
     if (filtro.q) {
-      const alvo = (v.clienteNome + ' Q' + v.quadra + ' L' + v.lote + ' ' + (v.codigo || '') + ' ' + (v.corretorNome || '')).toLowerCase();
-      if (!alvo.includes(filtro.q.toLowerCase())) return false;
+      const alvo = [v.clienteNome,'Q'+v.quadra+'L'+v.lote,'Q'+String(v.quadra).padStart(2,'0')+'L'+String(v.lote).padStart(2,'0'),v.codigo,v.corretorNome,v.clienteId,v.omieDocumento].join(' ');
+      if (!correspondeBusca(alvo,filtro.q)) return false;
     }
     return true;
   }).sort((a, b) => (b.r.emAtraso - a.r.emAtraso) || String(b.v.criadoEm || '').localeCompare(a.v.criadoEm || ''));

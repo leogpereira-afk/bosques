@@ -22,6 +22,7 @@ for(const tela of ['home','espelho','vendas','simulador','contratos','propostas'
  vm.runInContext(`TELAS.${tela}()`,ctx);
  const text=document.querySelector('#app').textContent;assert.ok(text.length>50,tela+' vazia');assert.ok(!/undefined|NaN/.test(text),tela+' inválida');console.log('OK tela '+tela);
 }
+for(const [tela,id] of [['lote','l1'],['venda','v1'],['comissoes',''],['simulacao','']]) {vm.runInContext(`TELAS.${tela}('${id}')`,ctx);assert.ok(!/undefined|NaN/.test(document.querySelector('#app').textContent),tela);console.log('OK detalhe '+tela);}
 for(const aba of ['visao','recebimentos','despesas','receber','pagar','diferencas','centros','contas','pendencias']){
  vm.runInContext(`TELAS._fin={aba:'${aba}',ano:'',mes:'',q:''};TELAS.financeiro()`,ctx);
  assert.ok(!/undefined|NaN/.test(document.querySelector('#app').textContent),aba);console.log('OK financeiro '+aba);
@@ -32,6 +33,24 @@ vm.runInContext("TELAS._relMes=hojeISO().slice(0,7);TELAS.relatorios()",ctx);
 assert.equal(document.querySelectorAll('.rel-grafico-mes').length,12);
 assert.ok(document.querySelector('#app').textContent.includes('Previsão parcial'));
 assert.ok(document.querySelector('#app').textContent.includes('Parcial até'));
+// Regressões da revisão de navegação: atalhos respeitam período e registros sem lote.
+vm.runInContext("TELAS.home()",ctx);
+document.querySelector('[data-aba="despesas"]').onclick();
+assert.equal(ctx.location.hash,'#/financeiro');assert.equal(vm.runInContext('TELAS._fin.aba',ctx),'despesas');
+assert.equal(vm.runInContext('TELAS._fin.ano+\'-\'+TELAS._fin.mes',ctx),vm.runInContext('hojeISO().slice(0,7)',ctx));
+vm.runInContext("S.reg.rec.push({id:'solto',data:hojeISO(),valor:120});TELAS.home()",ctx);
+assert.ok(document.querySelector('[data-rec="solto"]'));document.querySelector('[data-rec="solto"]').onclick();
+assert.ok(document.querySelector('.fundo-modal').textContent.includes('Recebimento solto'));
+let fechados=0;document.addEventListener('ui:modais-fechados',()=>fechados++);
+vm.runInContext('fecharModal()',ctx);assert.equal(fechados,1);
+vm.runInContext("TELAS._fin={aba:'recebimentos',ano:'2025',mes:'02',q:'inexistente',centro:'Obra',fila:'futuros'};TELAS.financeiro()",ctx);
+assert.ok(document.querySelector('.fin-filtros-ativos').textContent.includes('Centro: Obra'));
+document.querySelector('#fin-limpar').onclick();assert.equal(vm.runInContext('TELAS._fin.ano',ctx),'');
+assert.equal(vm.runInContext('TELAS._fin.fila',ctx),undefined);
+assert.equal(vm.runInContext("correspondeBusca('João · 12345678901','Joao') && correspondeBusca('12345678901','123.456.789-01')",ctx),true);
+vm.runInContext("location.hash='#/venda/v1';render()",ctx);assert.ok(document.querySelector('.voltar-tela').getAttribute('href').includes('vendas'));
+assert.ok(document.querySelector('#ir-tela'));
+console.log('OK atalhos mensais, recebimento sem lote, atualização após modal, filtros visíveis e limpeza, busca e retorno.');
 vm.runInContext("S.cacheCompleto=false;location.hash='#/financeiro';render()",ctx);
 assert.ok(document.querySelector('#app').textContent.includes('Preparando os dados'));assert.equal(document.querySelectorAll('.painel').length,0);
 console.log('PASSOU telas e abas; gráfico, período sem dados, mês parcial e bloqueio de indicadores com base incompleta.');

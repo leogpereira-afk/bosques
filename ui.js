@@ -9,6 +9,10 @@ const esc = (s) => String(s == null ? '' : s)
   .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
   .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 
+// Aceita acentos, CPF formatado e Q01-L02 sem depender da grafia cadastrada.
+const normalizarBusca = s => String(s || '').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/[^a-z0-9]/g,'');
+const correspondeBusca = (texto, busca) => normalizarBusca(texto).includes(normalizarBusca(busca));
+
 const fmt = {
   brl(n) {
     const v = Number(n) || 0;
@@ -218,6 +222,7 @@ function tirarDaPilha(fundo) {
       _modalAberto.fundo.style.display = '';
       if (_modalAberto.foco && _modalAberto.foco.focus) _modalAberto.foco.focus();
     }
+    if (!_modalAberto) document.dispatchEvent(new CustomEvent('ui:modais-fechados'));
     return;
   }
   const i = _pilhaModais.findIndex((m) => m.fundo === fundo);

@@ -46,10 +46,10 @@ function statusOmieHome(el) {
   try { local = JSON.parse(localStorage.getItem(K_OMIE_ULTIMA) || 'null'); } catch (e) { local = null; }
   if (local) pinta(local.ok, 'Omie: ' + (local.ok ? 'sincronizado' : 'FALHOU') + ' ' + fmt.quando(local.em) +
     (local.detalhe ? ' — ' + esc(local.detalhe) : ''));
-  apiOmie('saude').then((r) => {
-    if (!r.sync || !r.sync.quando) { pinta(false, 'Omie: nunca sincronizou — abra Configurações e rode o ↻'); return; }
+  return apiOmie('saude').then((r) => {
+    if (!r.sync || !r.sync.quando) { pinta(false, 'Omie: nunca sincronizou — abra Configurações e rode o ↻'); return r; }
     if (r.sync.status && r.sync.status !== 'completa') {
-      pinta(false, 'Omie: ' + (r.sync.status==='em_andamento'?'atualizando em segundo plano':r.sync.status==='falhou'?'falha na atualização':r.sync.status) + ' — ' + (r.sync.erro || 'aguardando conclusão') + ' · ' + fmt.quando(r.sync.inicio || r.sync.quando)); return;
+      pinta(false, 'Omie: ' + (r.sync.status==='em_andamento'?'atualizando em segundo plano':r.sync.status==='falhou'?'falha na atualização':r.sync.status) + ' — ' + esc(r.sync.erro || 'aguardando conclusão') + ' · ' + fmt.quando(r.sync.inicio || r.sync.quando)); return r;
     }
     const horas = (Date.now() - new Date(r.sync.quando).getTime()) / 3600e3;
     const automatico=!!r.automacao?.ativa;
@@ -58,6 +58,7 @@ function statusOmieHome(el) {
       (emDia ? ' ✓' : ' — ATRASADA') +
       (automatico?' · automático a cada '+r.automacao.intervaloMinutos+' min, mesmo com o Portal fechado':'') +
       ' — ' + resumoOmie(r.sync.contagens));
+    return r;
   }).catch((e) => { if (!local) pinta(false, 'Omie: sem resposta agora (' + esc(e.message || 'rede') + ')'); });
 }
 
@@ -68,6 +69,7 @@ function resumoOmie(c) {
   if (c.vendasNovas) p.push(c.vendasNovas + ' venda(s) nova(s)');
   if (c.clientesNovos) p.push(c.clientesNovos + ' cliente(s) novo(s)');
   if (c.pagamentosVinculados) p.push(c.pagamentosVinculados + ' pagamento(s) associado(s)');
+  if (c.titulosVinculados) p.push(c.titulosVinculados + ' título(s) associado(s) aos lotes');
   if (c.recNovos) p.push(c.recNovos + ' recebimento(s) baixado(s)');
   if (c.recParaConferir) p.push(c.recParaConferir + ' recebimento(s) para conferir');
   if (c.recEstornados) p.push(c.recEstornados + ' estorno(s)');

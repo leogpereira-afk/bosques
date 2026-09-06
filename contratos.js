@@ -300,8 +300,7 @@ TELAS.contratos = function () {
   TELAS._fContr = f;
   const vivas = lista('venda').filter((v) => ['ativa', 'conferir', 'quitada'].includes(v.situacao || 'ativa'));
   const porBusca = f.q
-    ? vivas.filter((v) => ((v.clienteNome || '') + ' Q' + v.quadra + '-L' + v.lote + ' ' + (v.codigo || ''))
-        .toLowerCase().includes(f.q.toLowerCase()))
+    ? vivas.filter((v) => correspondeBusca([v.clienteNome,v.clienteId,'Q'+v.quadra+'L'+v.lote,'Q'+String(v.quadra).padStart(2,'0')+'L'+String(v.lote).padStart(2,'0'),v.codigo].join(' '),f.q))
     : vivas;
   const filtradas=porBusca.filter(v=>!f.modelo||(v.tipoParcela==='Reajustada'?'Reajustada':'Fixa')===f.modelo);
   f.pagina=Math.max(0,Math.min(f.pagina||0,Math.ceil(filtradas.length/40)-1));
