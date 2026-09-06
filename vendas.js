@@ -426,8 +426,8 @@ TELAS.venda = function (id) {
     '<div class="sub" style="color:var(--tinta-fraca);font-size:13.5px">' +
       '👤 ' + esc(v.clienteNome || '?') + (cliente && cliente.cpf ? ' · ' + fmt.doc(cliente.cpf) : '') +
       (zap ? ' · <a href="' + linkWhats(zap, 'Olá, ' + (v.clienteNome || '').split(' ')[0] + '! Sobre seu lote Q' + v.quadra + '-L' + v.lote + ' no Portal dos Bosques…') + '" target="_blank" rel="noopener">WhatsApp</a>' : '') +
-      (v.corretorNome ? '<br>🤝 corretor: ' + esc(v.corretorNome) + (v.comissao ? ' (comissão ' + fmt.brl(v.comissao) + ')' : '') +
-        (v.corretor2Nome ? ' + ' + esc(v.corretor2Nome) + (v.comissao2 ? ' (' + fmt.brl(v.comissao2) + ')' : '') : '') : '') +
+      (v.corretorNome ? '<br>🤝 corretor: ' + esc(v.corretorNome) + (v.comissao ? ' (comissão ' + finSaida(v.comissao) + ')' : '') +
+        (v.corretor2Nome ? ' + ' + esc(v.corretor2Nome) + (v.comissao2 ? ' (' + finSaida(v.comissao2) + ')' : '') : '') : '') +
       (ultimaCobranca(v) ? '<br>📣 última cobrança: ' + fmt.quando(ultimaCobranca(v)) +
         ' (' + esc(((v.cobrancas || []).slice().sort((a, b) => String(a.em).localeCompare(b.em)).pop() || {}).por || '—') + ')' : '') +
       '<br>🗓️ venda em ' + fmt.data(v.dataVenda || v.criadoEm) +

@@ -260,8 +260,8 @@ TELAS.corretores = function () {
   app.innerHTML =
     '<div class="paineis">' +
       '<div class="painel clicavel" data-pcor="topo"><div class="rot">Corretores</div><div class="num">' + ficha.length + '</div></div>' +
-      '<div class="painel clicavel" data-pcor="topo"><div class="rot">VGV vendido por eles</div><div class="num pos">' + fmt.brl(totalVgv) + '</div></div>' +
-      '<div class="painel clicavel" data-pcor="saldo"><div class="rot">Comissões a pagar</div><div class="num' + (totalSaldo > 0.01 ? ' neg' : '') + '">' + fmt.brl(totalSaldo) + '</div></div>' +
+      '<div class="painel clicavel" data-pcor="topo"><div class="rot">VGV vendido por eles</div><div class="num pos">' + finEntrada(totalVgv) + '</div></div>' +
+      '<div class="painel clicavel" data-pcor="saldo"><div class="rot">Comissões a pagar</div><div class="num' + (totalSaldo > 0.01 ? ' neg' : '') + '">' + finSaida(totalSaldo) + '</div></div>' +
     '</div>' +
     '<div class="filtros"><button class="btn primario" id="cor-novo">+ corretor</button></div>' +
     ficha.map((x, i) =>
@@ -271,16 +271,16 @@ TELAS.corretores = function () {
         '<span style="font-size:18px;min-width:34px">' + medalha(i) + '</span>' +
         '<span style="flex:1;min-width:0"><b>' + esc(x.cor.nome) + (x.cor.ativo === false ? ' (desativado)' : '') + '</b>' +
         '<span class="sub" style="display:block;font-size:12.5px;color:var(--tinta-fraca)">' +
-          x.suas.length + ' venda(s) · VGV ' + fmt.brl(x.vgv) +
+          x.suas.length + ' venda(s) · VGV ' + finEntrada(x.vgv) +
           (x.distratadas.length ? ' · ' + x.distratadas.length + ' distratada(s)' : '') + '</span></span>' +
-        (x.saldo > 0.01 ? '<span class="etiqueta et-atrasada">a pagar ' + fmt.brl(x.saldo) + '</span>'
+        (x.saldo > 0.01 ? '<span class="etiqueta et-atrasada">a pagar ' + finSaida(x.saldo) + '</span>'
           : '<span class="etiqueta et-quitada">comissões em dia</span>') +
       '</summary>' +
       '<div style="margin-top:12px">' +
         '<div class="paineis" style="margin:0 0 10px">' +
-          '<div class="painel clicavel cor-vendas" data-nome="' + esc(x.cor.nome || '') + '"><div class="rot">Comissão combinada</div><div class="num">' + fmt.brl(x.devido) + '</div></div>' +
-          '<div class="painel clicavel cor-pagas" data-nome="' + esc(x.cor.nome || '') + '"><div class="rot">Já paga</div><div class="num pos">' + fmt.brl(x.pago) + '</div></div>' +
-          '<div class="painel clicavel cor-saldo" data-id="' + esc(x.cor.id) + '" data-nome="' + esc(x.cor.nome || '') + '" data-saldo="' + x.saldo + '"><div class="rot">Saldo</div><div class="num' + (x.saldo > 0.01 ? ' neg' : '') + '">' + fmt.brl(x.saldo) + '</div></div>' +
+          '<div class="painel clicavel cor-vendas" data-nome="' + esc(x.cor.nome || '') + '"><div class="rot">Comissão combinada</div><div class="num">' + finSaida(x.devido) + '</div></div>' +
+          '<div class="painel clicavel cor-pagas" data-nome="' + esc(x.cor.nome || '') + '"><div class="rot">Já paga</div><div class="num fin-saida">' + finSaida(x.pago) + '</div></div>' +
+          '<div class="painel clicavel cor-saldo" data-id="' + esc(x.cor.id) + '" data-nome="' + esc(x.cor.nome || '') + '" data-saldo="' + x.saldo + '"><div class="rot">Saldo</div><div class="num' + (x.saldo > 0.01 ? ' neg' : '') + '">' + finSaida(x.saldo) + '</div></div>' +
         '</div>' +
         '<div class="acoes-linha" style="margin:0 0 10px">' +
           (x.saldo > 0.01 ? '<button class="btn primario bt-pagar" data-id="' + esc(x.cor.id) + '" data-nome="' + esc(x.cor.nome) + '" data-saldo="' + x.saldo.toFixed(2) + '">💸 Registrar pagamento</button>' : '') +
@@ -290,7 +290,7 @@ TELAS.corretores = function () {
         (x.suas.map((v) => '<div class="lin venda-cor" data-id="' + esc(v.id) + '">' +
           '<div class="cresce"><b>' + esc(v.clienteNome || '?') + '</b>' +
           '<span class="sub">' + esc(v.codigo || '') + ' · Q' + v.quadra + '-L' + v.lote + ' · ' + fmt.data(v.dataVenda || v.criadoEm) +
-            ' · comissão ' + fmt.brl(v.comissao) +
+            ' · comissão ' + finSaida(v.comissao) +
             (v.corretor2Nome ? ' · divide com ' + esc(v.corretor2Nome) : '') + '</span></div>' + etiqueta(v.situacao || 'ativa') + '</div>').join('') ||
           '<p class="nota">Nenhuma venda ainda.</p>') +
         (x.comoSegundo.length
@@ -298,7 +298,7 @@ TELAS.corretores = function () {
             x.comoSegundo.map((v) => '<div class="lin venda-cor" data-id="' + esc(v.id) + '">' +
             '<div class="cresce"><b>' + esc(v.clienteNome || '?') + '</b>' +
             '<span class="sub">' + esc(v.codigo || '') + ' · Q' + v.quadra + '-L' + v.lote +
-              ' · venda de ' + esc(v.corretorNome || '—') + ' · comissão dele ' + fmt.brl(v.comissao2) + '</span></div>' +
+              ' · venda de ' + esc(v.corretorNome || '—') + ' · comissão dele ' + finSaida(v.comissao2) + '</span></div>' +
             etiqueta(v.situacao || 'ativa') + '</div>').join('')
           : '') +
         (() => {
@@ -312,7 +312,7 @@ TELAS.corretores = function () {
           return meus.length
             ? '<h2 style="font-size:14px;margin:10px 0 4px">Pagamentos de comissão</h2>' +
               meus.map(({ p2, valor, dividido }) =>
-                '<div class="nota" style="padding:2px 0">✓ ' + fmt.brl(valor) + ' em ' + fmt.data(p2.data) +
+                '<div class="nota" style="padding:2px 0">✓ ' + finSaida(valor) + ' em ' + fmt.data(p2.data) +
                 (dividido ? ' · <b>dividido</b> (' + esc(p2.descricao || '') + ')' : '') +
                 (p2.obs ? ' · ' + esc(p2.obs) : '') + '</div>').join('')
             : '';
@@ -323,7 +323,7 @@ TELAS.corretores = function () {
         semDono.map((p2) => '<div class="lin cx-associar" data-id="' + esc(p2.id) + '">' +
           '<div class="cresce"><b>' + esc(p2.descricao || 'Comissão') + '</b>' +
           '<span class="sub">' + fmt.data(p2.data) + (p2.obs ? ' · ' + esc(p2.obs) : '') + '</span></div>' +
-          '<span class="dinheiro">' + fmt.brl(p2.valor) + '</span>' +
+          '<span class="dinheiro">' + finSaida(p2.valor) + '</span>' +
           '<span class="etiqueta et-hoje">associar →</span></div>').join('') + '</div>'
       : '');
 
@@ -382,17 +382,17 @@ function abrirAssociarComissao(cxId, aoTerminar) {
   const linhaDiv = (corId, valor) =>
     '<div class="colunas asc-linha" style="margin-bottom:0">' +
       '<div class="campo"><select class="asc-cor"><option value="">— corretor —</option>' + opcoesCor(corId) + '</select></div>' +
-      '<div class="campo"><input class="asc-val" type="text" inputmode="decimal" value="' + valor + '" placeholder="valor (R$)"></div>' +
+      '<div class="campo"><input class="asc-val fin-saida" type="text" inputmode="decimal" value="' + valor + '" placeholder="valor (R$)"></div>' +
     '</div>';
   const corpo =
     '<div class="lin" style="cursor:default"><div class="cresce"><b>' + esc(c.descricao || 'Comissão') + '</b>' +
       '<span class="sub">' + fmt.data(c.data) + (c.obs ? ' · ' + esc(c.obs) : '') + '</span></div>' +
-      '<span class="dinheiro">' + fmt.brl(c.valor) + '</span></div>' +
+      '<span class="dinheiro">' + finSaida(c.valor) + '</span></div>' +
     '<div class="campo"><label>De quem é esta comissão?</label>' +
       (sugerido ? '<div class="dica">sugerido pelo nome no texto: ' + esc(sugerido.nome) + '</div>' : '') + '</div>' +
     '<div id="asc-linhas">' + linhaDiv(sugerido ? sugerido.id : '', c.valor) + '</div>' +
     '<button class="btn mini" id="asc-mais" type="button">+ dividir com mais um corretor</button>' +
-    '<div class="nota" id="asc-soma" style="margin-top:6px"></div>';
+    '<div class="nota fin-saida" id="asc-soma" style="margin-top:6px"></div>';
   const fundoA = abrirModal({
     titulo: 'Associar comissão',
     corpo,
@@ -443,9 +443,9 @@ function abrirAssociarComissao(cxId, aoTerminar) {
 
 function abrirPagarComissao(corId, nome, saldo) {
   const corpo =
-    '<p class="nota">Saldo com ' + esc(nome) + ': <b>' + fmt.brl(saldo) + '</b></p>' +
+    '<p class="nota">Saldo com ' + esc(nome) + ': <b>' + finSaida(saldo) + '</b></p>' +
     '<div class="colunas-3">' +
-      campo('Valor pago (R$)', entrada('valor', saldo.toFixed(2), { inputmode: 'decimal' })) +
+      campo('Valor pago (R$)', entrada('valor', saldo.toFixed(2), { inputmode: 'decimal',classe:'fin-saida' })) +
       campo('Em', entrada('data', hojeISO(), { tipo: 'date' })) +
       campo('Forma', seletor('forma', 'PIX', (S.cfg && S.cfg.formasPg) || ['PIX'])) +
     '</div>' + campo('Observação', entrada('obs', '', { placeholder: 'quais vendas cobre…' }));

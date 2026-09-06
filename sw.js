@@ -1,6 +1,6 @@
 /* Service worker — casca offline. SUBA O NÚMERO a cada publicação, senão o
    navegador continua servindo o arquivo velho (lição paga mais de uma vez). */
-const CACHE = 'bsq-shell-v56';
+const CACHE = 'bsq-shell-v57';
 const ARQUIVOS = [
   './', 'index.html', 'styles.css', 'design.css', 'config.js', 'ui.js', 'store.js', 'carne.js', 'financeiro-core.js', 'financeiro.js',
   'pdf.js', 'espelho.js', 'vendas.js', 'caixa.js', 'cadastros.js', 'cronograma.js', 'apresentacao.js', 'contratos.js', 'omie.js', 'app.js',

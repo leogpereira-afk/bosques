@@ -70,11 +70,11 @@ TELAS.cronograma = function () {
     '<div class="paineis">' +
       '<div class="painel clicavel" data-pe="lista"><div class="rot">Etapas</div><div class="num">' + ets.length + '</div>' +
         '<div class="sub">' + concluidas + ' concluída(s)</div></div>' +
-      '<div class="painel clicavel" data-pe="lista"><div class="rot">Previsto da obra</div><div class="num">' + fmt.brl(previstoTotal) + '</div></div>' +
-      '<div class="painel clicavel" data-pe="pagos"><div class="rot">Já pago</div><div class="num pos">' + fmt.brl(pagoTotal) + '</div>' +
+      '<div class="painel clicavel" data-pe="lista"><div class="rot">Previsto da obra</div><div class="num">' + finSaida(previstoTotal) + '</div></div>' +
+      '<div class="painel clicavel" data-pe="pagos"><div class="rot">Já pago</div><div class="num fin-saida">' + finSaida(pagoTotal) + '</div>' +
         '<div class="sub">' + pctFin + '% do previsto</div></div>' +
       '<div class="painel clicavel" data-pe="lista"><div class="rot">Falta pagar</div><div class="num' + (previstoTotal - pagoTotal > 0.01 ? ' neg' : '') + '">' +
-        fmt.brl(Math.max(0, previstoTotal - pagoTotal)) + '</div>' +
+        finSaida(Math.max(0, previstoTotal - pagoTotal)) + '</div>' +
         '<div class="sub">entra sozinho nos Relatórios</div></div>' +
     '</div>' +
     '<div class="filtros">' +
@@ -97,12 +97,12 @@ TELAS.cronograma = function () {
           '<span class="sub" style="display:block;font-size:12.5px;color:var(--tinta-fraca)">' +
             (e.inicio || e.fim ? fmt.data(e.inicio) + ' → ' + fmt.data(e.fim) + ' · ' : '') +
             (prev > 0
-              ? 'previsto ' + fmt.brl(prev) + ' · pago ' + fmt.brl(pg) + ' (' + pct + '%)' +
-                (falta > 0.01 ? ' · falta ' + fmt.brl(falta) : '')
-              : 'gasto até aqui: ' + fmt.brl(pg) + ' (sem meta de custo — defina o previsto quando quiser)') + '</span>' +
+              ? 'previsto ' + finSaida(prev) + ' · pago ' + finSaida(pg) + ' (' + pct + '%)' +
+                (falta > 0.01 ? ' · falta ' + finSaida(falta) : '')
+              : 'gasto até aqui: ' + finSaida(pg) + ' (sem meta de custo — defina o previsto quando quiser)') + '</span>' +
           (prev > 0
             ? '<span style="display:block;background:var(--verde-palido);border-radius:6px;height:10px;overflow:hidden;margin-top:5px;max-width:420px">' +
-              '<span style="display:block;width:' + pct + '%;height:100%;background:' + (sit === 'atrasada' ? 'var(--ruim)' : 'var(--verde)') + '"></span></span>'
+              '<span style="display:block;width:' + pct + '%;height:100%;background:' + 'var(--saida)' + '"></span></span>'
             : '') +
           '</span>' +
           etiqueta(sit) +
@@ -121,7 +121,7 @@ TELAS.cronograma = function () {
           (vinculadas.map((c) => '<div class="lin et-cx" data-id="' + esc(c.id) + '" style="padding:8px 10px">' +
             '<div class="cresce"><b>' + esc(c.descricao || '—') + '</b>' +
             '<span class="sub">' + fmt.data(c.data) + ' · ' + esc(c.categoria || '') + ' · por ' + esc(c.criadoPor || '—') + '</span></div>' +
-            '<span class="dinheiro" style="color:var(--ruim)">−' + fmt.brl(c.valor) + '</span></div>').join('') ||
+            '<span class="dinheiro" style="color:var(--ruim)">−' + finSaida(c.valor) + '</span></div>').join('') ||
             '<p class="nota">Nenhuma ainda — vincule as pagas ou lance uma nova aqui de dentro.</p>') +
         '</div></details>';
     }).join('') || vazio('🏗️', 'Nenhuma etapa ainda', 'Comece pelo que falta fazer: patrola, meio-fio, rede de energia…'));
@@ -176,7 +176,7 @@ function abrirEtapa(id) {
   const corpo =
     campo('Nome da etapa', entrada('nome', e.nome || '', { placeholder: 'ex.: rede de energia da quadra 3' })) +
     '<div class="colunas-3">' +
-      campo('Valor previsto (R$)', entrada('valorPrevisto', e.valorPrevisto ? e.valorPrevisto : '', { inputmode: 'decimal' }), 'opcional — vazio = só somar o gasto') +
+      campo('Valor previsto (R$)', entrada('valorPrevisto', e.valorPrevisto ? e.valorPrevisto : '', { inputmode: 'decimal',classe:'fin-saida' }), 'opcional — vazio = só somar o gasto') +
       campo('Início', entrada('inicio', e.inicio || '', { tipo: 'date' })) +
       campo('Término', entrada('fim', e.fim || '', { tipo: 'date' })) +
     '</div>' +
@@ -234,7 +234,7 @@ function abrirVincularDespesas(etapaId) {
       '<input type="checkbox" class="vc-check" data-id="' + esc(c.id) + '" style="width:18px;height:18px;flex-shrink:0">' +
       '<div class="cresce"><b>' + esc(c.descricao || '—') + '</b>' +
       '<span class="sub">' + fmt.data(c.data) + ' · ' + esc(c.categoria || '') + '</span></div>' +
-      '<span class="dinheiro">' + fmt.brl(c.valor) + '</span></label>').join('') + '</div>';
+      '<span class="dinheiro">' + finSaida(c.valor) + '</span></label>').join('') + '</div>';
   const fundoV = abrirModal({
     titulo: '🔗 Vincular a "' + e.nome + '"',
     corpo, largo: true,

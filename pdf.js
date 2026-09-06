@@ -2,6 +2,9 @@
    outra fonte sem todos os estilos derruba para Times sem avisar). */
 
 const PDF = (() => {
+  const AZUL_FIN=[29,78,216], VERMELHO_FIN=[184,50,50], NEUTRO_FIN=[30,43,33];
+  const corFinanceira=(x,aba='')=>finCor(x,aba)==='fin-saida'?VERMELHO_FIN:finCor(x,aba)==='fin-entrada'?AZUL_FIN:NEUTRO_FIN;
+  const celFinanceira=(v,saida=false)=>({t:brl(v),cor:saida?VERMELHO_FIN:AZUL_FIN});
   const VERDE = [14, 83, 43];
   const VERDE_CLARO = [139, 195, 74];
   const CINZA = [95, 122, 102];
@@ -535,13 +538,12 @@ const PDF = (() => {
       { t: d.anoRotulo, x: 156, alinha: 'right' },
       { t: 'Desde o início', x: 196, alinha: 'right' },
     ];
-    const VERDE_TXT = [29, 78, 216], VERM = [198, 40, 40];
     const linha = (rot, vm, va, vt, o = {}) => [
       o.forte ? { t: rot, negrito: true } : (o.recuo ? '   · ' + rot : rot),
       ...[vm, va, vt].map((v) => {
         const cel = { t: (v === 0 && o.recuo) ? '—' : brl(v) };
         if (o.forte) cel.negrito = true;
-        if (o.cor) cel.cor = v >= 0 ? VERDE_TXT : VERM;
+        cel.cor = o.cor ? (v >= 0 ? AZUL_FIN : VERMELHO_FIN) : o.saida ? VERMELHO_FIN : AZUL_FIN;
         return cel;
       }),
     ];
@@ -549,8 +551,8 @@ const PDF = (() => {
       linha('Recebimentos de vendas (entradas e parcelas)', d.mes.recVendas, d.ano.recVendas, d.total.recVendas),
       ...d.catsOutras.map((c) => linha(c, d.mes.outras[c] || 0, d.ano.outras[c] || 0, d.total.outras[c], { recuo: true })),
       linha('(=) Receita', d.mes.receita, d.ano.receita, d.total.receita, { forte: true }),
-      ...d.catsDesp.map((c) => linha(c, d.mes.desp[c] || 0, d.ano.desp[c] || 0, d.total.desp[c], { recuo: true })),
-      linha('(-) Despesas', d.mes.somaDesp, d.ano.somaDesp, d.total.somaDesp, { forte: true }),
+      ...d.catsDesp.map((c) => linha(c, d.mes.desp[c] || 0, d.ano.desp[c] || 0, d.total.desp[c], { recuo: true, saida:true })),
+      linha('(-) Despesas', d.mes.somaDesp, d.ano.somaDesp, d.total.somaDesp, { forte: true, saida:true }),
       linha('(=) RESULTADO', d.mes.resultado, d.ano.resultado, d.total.resultado, { forte: true, cor: true }),
     ];
     tabelaPaginada(doc, cols, linhas, y, rod);
@@ -646,10 +648,10 @@ const PDF = (() => {
     doc.setTextColor(30,43,33);doc.setFont('helvetica','bold');doc.setFontSize(11);
     doc.text('Mês selecionado: '+nomeMes(h.mes),14,y);y+=7;
     doc.setFont('helvetica','normal');doc.setFontSize(9);
-    doc.text('Recebimentos das vendas de lotes: '+brl(h.dre.mes.recVendas),14,y);y+=6;
+    doc.setTextColor(...AZUL_FIN);doc.text('Recebimentos das vendas de lotes: '+brl(h.dre.mes.recVendas),14,y);y+=6;
     doc.text('Outras receitas: '+brl(h.dre.mes.somaOutras),14,y);y+=6;
-    doc.text('Despesas, comissões e devoluções pagas: '+brl(h.selecionado.saidas),14,y);y+=6;
-    if(h.semData)doc.text(h.semData+' lançamento(s) sem data ficam fora do histórico mensal e anual.',14,y);
+    doc.setTextColor(...VERMELHO_FIN);doc.text('Despesas, comissões e devoluções pagas: '+brl(h.selecionado.saidas),14,y);y+=6;
+    doc.setTextColor(...NEUTRO_FIN);if(h.semData)doc.text(h.semData+' lançamento(s) sem data ficam fora do histórico mensal e anual.',14,y);
     rodape(doc,rod);
     salvarNoAparelho(doc.output('blob'),'Historico-mensal-Bosques-'+h.mes+'.pdf');
   }
@@ -667,14 +669,14 @@ const PDF = (() => {
     const paineis = [
       ['LOTES VENDIDOS', String(d.vendidos), [30, 43, 33]],
       ['VGV VENDIDO', brl(d.vgv), [30, 43, 33]],
-      ['JÁ RECEBIDO', brl(d.recebido), [46, 125, 50]],
-      ['JÁ GASTO', brl(d.gasto), [198, 40, 40]],
+      ['JÁ RECEBIDO', brl(d.recebido), AZUL_FIN],
+      ['JÁ GASTO', brl(d.gasto), VERMELHO_FIN],
     ];
     const paineis2 = [
-      ['A RECEBER (' + d.rotuloHz.toUpperCase() + ')', brl(d.aReceber), [46, 125, 50]],
-      ['VENCIDO NO OMIE', brl(d.vencido), d.vencido ? [198, 40, 40] : [95, 122, 102]],
-      ['GASTOS PREVISTOS', brl(d.previsto), [30, 43, 33]],
-      ['SALDO PROJETADO', brl(d.aReceber - d.previsto), d.aReceber - d.previsto >= 0 ? [46, 125, 50] : [198, 40, 40]],
+      ['A RECEBER (' + d.rotuloHz.toUpperCase() + ')', brl(d.aReceber), AZUL_FIN],
+      ['VENCIDO NO OMIE', brl(d.vencido), AZUL_FIN],
+      ['GASTOS PREVISTOS', brl(d.previsto), VERMELHO_FIN],
+      ['SALDO PROJETADO', brl(d.aReceber - d.previsto), d.aReceber - d.previsto >= 0 ? AZUL_FIN : VERMELHO_FIN],
     ];
     for (const grupo of [paineis, paineis2]) {
       grupo.forEach(([rot, valTxt, cor], i) => {
@@ -710,9 +712,9 @@ const PDF = (() => {
         { t: 'Parcelas', x: 158, alinha: 'right' }, { t: 'Contratos', x: 196, alinha: 'right' },
       ];
       const linhasA = d.aging.map((f) => [f.rotulo,
-        f.rs ? { t: brl(f.rs), cor: [198, 40, 40] } : '—',
+        f.rs ? { t: brl(f.rs), cor: AZUL_FIN } : '—',
         f.parcelas || '—', f.contratos || '—']);
-      linhasA.push([{ t: 'TOTAL', negrito: true }, { t: brl(d.aging.reduce((s,f)=>s+f.rs,0)), negrito: true, cor: [198, 40, 40] },
+      linhasA.push([{ t: 'TOTAL', negrito: true }, { t: brl(d.aging.reduce((s,f)=>s+f.rs,0)), negrito: true, cor: AZUL_FIN },
         { t: String(d.aging.reduce((s, f) => s + f.parcelas, 0)), negrito: true }, '']);
       y = tabelaPaginada(doc, colsA, linhasA, y, rod) + 6;
     }
@@ -723,10 +725,10 @@ const PDF = (() => {
         { t: 'Previstos', x: 158, alinha: 'right' },
         { t: 'Saldo projetado', x: 196, alinha: 'right' },
       ];
-      const linhas = d.grupos.map((g) => [g.rotulo, brl(g.rec), g.prev ? brl(g.prev) : '—',
-        { t: brl(g.rec - g.prev), cor: g.rec - g.prev >= 0 ? [46, 125, 50] : [198, 40, 40] }]);
-      linhas.push([{ t: 'TOTAL', negrito: true }, { t: brl(d.aReceber), negrito: true },
-        { t: brl(d.previsto), negrito: true }, { t: brl(d.aReceber - d.previsto), negrito: true }]);
+      const linhas = d.grupos.map((g) => [g.rotulo, celFinanceira(g.rec), g.prev ? celFinanceira(g.prev,true) : '—',
+        { t: brl(g.rec - g.prev), cor: g.rec - g.prev >= 0 ? AZUL_FIN : VERMELHO_FIN }]);
+      linhas.push([{ t: 'TOTAL', negrito: true }, { ...celFinanceira(d.aReceber), negrito: true },
+        { ...celFinanceira(d.previsto,true), negrito: true }, { t: brl(d.aReceber - d.previsto), cor:d.aReceber<d.previsto?VERMELHO_FIN:AZUL_FIN, negrito: true }]);
       tabelaPaginada(doc, cols, linhas, y, rod);
     }
     rodape(doc, rod);
@@ -747,6 +749,7 @@ const PDF = (() => {
     doc.setTextColor(...CINZA);
     y += 5.5;
     const pct = tot.previstoTotal > 0 ? Math.round(tot.pagoTotal / tot.previstoTotal * 100) : 0;
+    doc.setTextColor(...VERMELHO_FIN);
     doc.text('Previsto ' + brl(tot.previstoTotal) + ' · pago ' + brl(tot.pagoTotal) + ' (' + pct + '%) · falta ' +
       brl(Math.max(0, tot.previstoTotal - tot.pagoTotal)), 14, y);
     y += 8;
@@ -760,12 +763,12 @@ const PDF = (() => {
       const prev = Number(e.valorPrevisto) || 0;
       return [trunca(e.nome, 34), dataBR(e.inicio) || '—', dataBR(e.fim) || '—',
         { t: rotSit[sit] || sit, cor: sit === 'atrasada' ? [198, 40, 40] : sit === 'concluida' ? [0, 105, 92] : undefined },
-        brl(prev), brl(pago),
-        { t: brl(Math.max(0, prev - pago)), cor: prev - pago > 0.01 ? [198, 40, 40] : [95, 122, 102] }];
+        celFinanceira(prev,true), celFinanceira(pago,true),
+        { t: brl(Math.max(0, prev - pago)), cor: VERMELHO_FIN }];
     });
     linhas.push([{ t: 'TOTAL', negrito: true }, '', '', '',
-      { t: brl(tot.previstoTotal), negrito: true }, { t: brl(tot.pagoTotal), negrito: true },
-      { t: brl(Math.max(0, tot.previstoTotal - tot.pagoTotal)), negrito: true }]);
+      { ...celFinanceira(tot.previstoTotal,true), negrito: true }, { ...celFinanceira(tot.pagoTotal,true), negrito: true },
+      { ...celFinanceira(Math.max(0, tot.previstoTotal - tot.pagoTotal),true), negrito: true }]);
     tabelaPaginada(doc, cols, linhas, y, rod);
     rodape(doc, rod);
     salvarNoAparelho(doc.output('blob'), 'Cronograma-Bosques-' + new Date().toISOString().slice(0, 10) + '.pdf');
@@ -783,8 +786,7 @@ const PDF = (() => {
     const somaE = itens.filter((x) => x.entrada).reduce((s2, x) => s2 + x.valor, 0);
     const somaS = itens.filter((x) => !x.entrada).reduce((s2, x) => s2 + x.valor, 0);
     doc.setFont('helvetica', 'normal'); doc.setFontSize(9); doc.setTextColor(...CINZA);
-    doc.text(itens.length + ' lançamento(s) · entradas ' + brl(somaE) + ' · saídas ' + brl(somaS) +
-      ' · diferença ' + brl(somaE - somaS), 14, y);
+    doc.text(itens.length + ' lançamento(s) · valores realizados no período selecionado', 14, y);
     y += 5;
     const nPend = itens.filter((x) => x.pendente).length;
     if (nPend) {
@@ -805,33 +807,34 @@ const PDF = (() => {
         String(x.descricao || '-').slice(0, 36),
         (String(x.categoria || '')).slice(0, 26) + (x.forma ? ' · ' + x.forma : ''),
         // '-' ASCII: o U+2212 vira lixo na Helvetica embutida do jsPDF
-        { t: (x.entrada ? '+' : '-') + brl(x.valor), cor: x.entrada ? [46, 125, 50] : [180, 60, 50] },
+        { t: (x.entrada ? '+' : '-') + brl(x.valor), cor: x.entrada ? AZUL_FIN : VERMELHO_FIN },
       ];
       if (x.pendente) l.fundo = [255, 243, 196]; // amarelo = sem vínculo, igual à tela
       return l;
     });
-    linhas.push(['', '', { t: 'TOTAL', negrito: true },
-      { t: brl(somaE - somaS), negrito: true }]);
+    linhas.push(['','','Total de entradas',celFinanceira(somaE)],['','','Total de saídas',celFinanceira(somaS,true)]);
+    linhas.push(['', '', { t: 'RESULTADO', negrito: true },
+      { t: brl(somaE - somaS), negrito: true, cor:somaE<somaS?VERMELHO_FIN:AZUL_FIN }]);
     tabelaPaginada(doc, cols, linhas, y, 'lançamentos · ' + rotulo);
     rodape(doc, 'Associação Campestre Portal dos Bosques · lançamentos · ' + rotulo);
     return doc.output('blob');
   }
 
-  function financeiro(titulo, recorte, linhas, cfg) {
+  function financeiro(titulo, recorte, linhas, cfg, aba='') {
     const doc=novo();cabecalho(doc,cfg,titulo);
     doc.setFontSize(10);doc.setTextColor(30,30,30);doc.text(soLatin1(recorte),14,39);
     const total=linhas.reduce((s,x)=>s+Math.round((Number(x.valor)||0)*100),0)/100;
     let y=47;
-    const cab=()=>{doc.setFont('helvetica','bold');doc.text('Data',14,y);doc.text('Descrição',39,y);doc.text('Situação',120,y);doc.text('Valor',196,y,{align:'right'});doc.setFont('helvetica','normal');y+=7;};cab();
+    const cab=()=>{doc.setTextColor(...NEUTRO_FIN);doc.setFont('helvetica','bold');doc.text('Data',14,y);doc.text('Descrição',39,y);doc.text('Situação',120,y);doc.text('Valor',196,y,{align:'right'});doc.setFont('helvetica','normal');y+=7;};cab();
     for(const x of linhas){
       const desc=doc.splitTextToSize(soLatin1(x.descricao||''),77),sit=doc.splitTextToSize(soLatin1(x.situacao||''),43);
       const h=Math.max(desc.length,sit.length,1)*5+3;
       if(y+h>273){rodape(doc,titulo);doc.addPage();cabecalho(doc,cfg,titulo);y=42;cab();}
       if(x.pendente){doc.setFillColor(255,243,196);doc.rect(13,y-4,184,h,'F');}
-      doc.text(dataBR(x.data)||'Sem data',14,y);doc.text(desc,39,y);doc.text(sit,120,y);doc.text(brl(x.valor),196,y,{align:'right'});y+=h;
+      doc.setTextColor(...NEUTRO_FIN);doc.text(dataBR(x.data)||'Sem data',14,y);doc.text(desc,39,y);doc.text(sit,120,y);doc.setTextColor(...corFinanceira(x,aba));doc.text(brl(x.valor),196,y,{align:'right'});y+=h;
     }
     if(y>265){doc.addPage();cabecalho(doc,cfg,titulo);y=42;}
-    doc.setFont('helvetica','bold');doc.text('TOTAL DO RECORTE: '+brl(total),196,y+7,{align:'right'});
+    const corTotal=finCorTotal(linhas,aba);doc.setTextColor(...(corTotal==='fin-saida'?VERMELHO_FIN:corTotal==='fin-entrada'?AZUL_FIN:NEUTRO_FIN));doc.setFont('helvetica','bold');doc.text('TOTAL DO RECORTE: '+brl(total),196,y+7,{align:'right'});
     rodape(doc,titulo+' · '+recorte);salvarNoAparelho(doc.output('blob'),'Financeiro-Bosques.pdf');
   }
   return { historico, financeiro, proposta, recibo, venda, vendasDash, dre, espelho, relatorio, cronograma, lancamentos, simulacao };

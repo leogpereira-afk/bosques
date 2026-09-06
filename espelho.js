@@ -60,7 +60,7 @@ function resumoInadimplenciaOmie(){
 }
 function painelInadimplenciaOmie(){
   const r=resumoInadimplenciaOmie();if(!r)return '<p class="nota">Vencido do Omie: aguardando leitura da origem.</p>';
-  return '<button class="cartao fin-conta" onclick="finAbrirVencidosOmie()"><b>Parcelas vencidas a receber · '+r.titulos.length+' títulos</b><div class="num fin-entrada">'+fmt.brl(r.total)+'</div><p>'+fmt.brl(r.semVinculo)+' aguardando confirmação do lote · abrir títulos</p></button>';
+  return '<button class="cartao fin-conta" onclick="finAbrirVencidosOmie()"><b>Parcelas vencidas a receber · '+r.titulos.length+' títulos</b><div class="num fin-entrada">'+fmt.brl(r.total)+'</div><p>'+finEntrada(r.semVinculo)+' aguardando confirmação do lote · abrir títulos</p></button>';
 }
 
 // Vendas em atraso por lote (para o "!" no espelho) — só direção/escritório.

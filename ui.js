@@ -305,6 +305,7 @@ function entrada(nome, valor, opts = {}) {
     'type="' + (opts.tipo || 'text') + '"',
     'data-campo="' + esc(nome) + '"',
     'value="' + esc(valor == null ? '' : valor) + '"',
+    opts.classe ? 'class="' + esc(opts.classe) + '"' : '',
     opts.placeholder ? 'placeholder="' + esc(opts.placeholder) + '"' : '',
     opts.inputmode ? 'inputmode="' + opts.inputmode + '"' : '',
     opts.passo ? 'step="' + opts.passo + '"' : '',
