@@ -65,6 +65,7 @@ function renderLateral() {
   const bx = el.querySelector('#bt-sair');
   if (bx) bx.onclick = async () => {
     if (await confirmar('Sair e limpar este aparelho?')) {
+      await limparCacheCompleto();
       localStorage.clear();
       location.reload();
     }
@@ -82,6 +83,7 @@ function renderTopo() {
 function atualizarBadge() {
   const el = document.getElementById('sync-badge');
   if (!el) return;
+  if (S.erroCache) { el.className = 'erro'; el.textContent = '⚠ ' + S.erroCache; return; }
   if (S.erroSync) { el.className = 'erro'; el.textContent = '⚠ ' + S.erroSync; return; }
   el.className = '';
   el.textContent = S.sincronizando ? 'sincronizando…'
@@ -444,9 +446,10 @@ document.addEventListener('bsq:sempermissao', (e) => {
 });
 window.addEventListener('hashchange', render);
 
-(function iniciar() {
+(async function iniciar() {
   lerCache();
+  await carregarCacheCompleto();
   if ('serviceWorker' in navigator) { navigator.serviceWorker.register('sw.js').catch(() => {}); }
   render();
-  if (S.senhaHash) { puxar(); talvezSincronizarOmie(); }
+  if (S.senhaHash) { puxarSeNecessario(); talvezSincronizarOmie(); }
 })();

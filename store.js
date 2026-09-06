@@ -25,6 +25,8 @@ const S = {
   seqFila: 0,
   sincronizando: false,
   ultimoPull: 0,
+  cacheCompleto: false,
+  erroCache: '',
   online: navigator.onLine,
   erroSync: ''
 };
@@ -118,13 +120,66 @@ function lerCache() {
   }
 }
 
-function gravarCache() {
+// IndexedDB comporta a base completa; localStorage permanece reservado à fila pequena.
+let _dbCache = null, _gravacaoCache = Promise.resolve();
+const donoCache = () => [typeof API === 'undefined' ? '' : API, S.perfil, S.usuarioId || ''].join('|');
+function abrirBancoLocal() {
+  if (_dbCache) return _dbCache;
+  _dbCache = new Promise((resolve, reject) => {
+    const req = indexedDB.open('bosques-dados', 1);
+    req.onupgradeneeded = () => req.result.createObjectStore('cache');
+    req.onsuccess = () => { const db=req.result; db.onversionchange=()=>{db.close();_dbCache=null;};resolve(db); };
+    req.onerror = () => { _dbCache=null;reject(req.error); };
+  });
+  return _dbCache;
+}
+async function cacheLocal(operacao, dados) {
+  const db = await abrirBancoLocal();
+  return new Promise((resolve, reject) => {
+    const tx=db.transaction('cache',operacao==='ler'?'readonly':'readwrite');
+    const obj=tx.objectStore('cache');
+    const req=operacao==='ler'?obj.get('base'):operacao==='limpar'?obj.clear():obj.put(dados,'base');
+    tx.oncomplete=()=>resolve(req.result);
+    tx.onerror=()=>reject(tx.error||req.error);
+    tx.onabort=()=>reject(tx.error||new Error('Gravação local interrompida'));
+  });
+}
+async function carregarCacheCompleto() {
+  if (!S.senhaHash) return;
+  const dono=donoCache(),sessao=S.senhaHash;
   try {
-    const reg={...S.reg,titulo:[],movbanco:[]};
-    localStorage.setItem(K.cache, JSON.stringify({ reg, cfg: S.cfg, em: Date.now() }));
-  } catch (e) {
-    console.warn('cache cheio:', e && e.message);
-  }
+    const c=await cacheLocal('ler');
+    if (!c?.reg || c.dono!==dono || sessao!==S.senhaHash) return;
+    S.reg=Object.assign(regVazio(),c.reg);S.cfg=c.cfg;S.ultimoPull=c.em||0;S.cacheCompleto=!!c.completo;
+    // O que ainda não subiu continua prevalecendo sobre o último retrato completo.
+    for(const f of S.fila){const arr=S.reg[f.colecao]||(S.reg[f.colecao]=[]);const i=arr.findIndex(r=>r.id===f.registro.id);
+      const r={...f.registro,_pendente:true};if(i<0)arr.unshift(r);else arr[i]=r;}
+  } catch(e) { S.erroCache='Não foi possível abrir os dados salvos neste computador.'; }
+}
+function gravarCache() {
+  const sessao=S.senhaHash;
+  const dados={reg:S.reg,cfg:S.cfg,em:S.ultimoPull,dono:donoCache(),completo:S.cacheCompleto};
+  _gravacaoCache=_gravacaoCache.then(async()=>{
+    if (!sessao || sessao!==S.senhaHash) return;
+    await cacheLocal('gravar',dados);
+    S.erroCache='';
+    localStorage.removeItem(K.cache); // libera espaço só depois da gravação completa
+  }).catch(e=>{
+    S.erroCache='Não foi possível salvar os dados no computador. Confira o espaço disponível.';
+    document.dispatchEvent(new CustomEvent('bsq:status'));
+    console.warn('cache local:',e?.message);
+  });
+  return _gravacaoCache;
+}
+async function limparCacheCompleto() {
+  S.senhaHash='';
+  await _gravacaoCache;
+  await cacheLocal('limpar');
+  S.cacheCompleto=false;S.reg=regVazio();S.cfg=null;
+}
+function puxarSeNecessario() {
+  if (!S.cacheCompleto || Date.now()-S.ultimoPull>=5*60*1000) return puxar();
+  if (S.fila.length) return subirFila();
 }
 
 // A fila é o que segura o trabalho feito sem internet: se ela não couber no
@@ -278,7 +333,9 @@ async function puxar() {
   document.dispatchEvent(new CustomEvent('bsq:status'));
   try {
     await subirFila();
+    const sessao=S.senhaHash;
     const r = await api('snapshot');
+    if (!sessao || sessao!==S.senhaHash) return;
     const novo = regVazio();
     for (const reg of (r.registros || [])) {
       const col = reg._col;
@@ -326,6 +383,7 @@ async function puxar() {
         if (S.quem) localStorage.setItem(K.quem, S.quem);
       } catch { /* modo privado: segue sem lembrar */ }
     }
+    S.cacheCompleto = true;
     S.ultimoPull = Date.now();
     S.erroSync = '';
     gravarCache();
@@ -422,9 +480,9 @@ function salvarNoAparelho(blob, nome) {
 }
 
 /* ── Rede ──────────────────────────────────────────────────────────────────── */
-window.addEventListener('online', () => { S.online = true; subirFila(); puxar(); });
+window.addEventListener('online', () => { S.online = true; subirFila(); puxarSeNecessario(); });
 window.addEventListener('offline', () => { S.online = false; document.dispatchEvent(new CustomEvent('bsq:status')); });
 document.addEventListener('visibilitychange', () => {
-  if (!document.hidden && Date.now() - S.ultimoPull > 45000) puxar();
+  if (!document.hidden) puxarSeNecessario();
 });
-setInterval(() => { if (!document.hidden) puxar(); }, 90000);
+setInterval(() => { if (!document.hidden) puxarSeNecessario(); }, 90000);
