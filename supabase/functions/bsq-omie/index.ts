@@ -252,12 +252,15 @@ Deno.serve(async (req) => {
             if (!cpf) continue;
             mapaCpf[cpf] = oc.codigo_cliente_omie;
             const local = porCpfLocal.get(cpf);
-            if (!local || local.apagadoEm) continue;
+            if (local?.apagadoEm || oc.inativo === "S") continue;
+            const clienteMarcado = (oc.tags || []).some((t: any) => String(t.tag || "").toLowerCase() === "cliente");
+            const temReceber = titulosLocais.some((t: any) => t.grupo === "CONTA_A_RECEBER" && t.cpf === cpf);
+            if (!local && !clienteMarcado && !temReceber) continue;
             // Decisão do Léo (25/08): o cadastro do Omie MANDA sobre o que veio
             // da planilha — sobrescreve quando o Omie tem o dado. Só recua para
             // "completar vazios" quando uma PESSOA editou o registro no app
             // (aí o que ela digitou fica).
-            const autor = String(local.atualizadoPor || "");
+            const autor = String(local?.atualizadoPor || "");
             const editadoPorPessoa = !["omie", "auditoria Omie", "—", ""].includes(autor) &&
               !autor.startsWith("importação");
             const tel = [oc.telefone1_ddd, oc.telefone1_numero].filter(Boolean).join(" ");
@@ -267,8 +270,12 @@ Deno.serve(async (req) => {
               bairro: oc.bairro || "", cidade: (oc.cidade || "").replace(/\s*\(.+\)\s*$/, ""),
               uf: oc.estado || "", cep: oc.cep || "",
             };
-            let mudou = false;
-            const novo = { ...local };
+            let mudou = !local;
+            const novo: any = local ? { ...local } : {
+              id: cpf, cpf, nome: oc.razao_social || oc.nome_fantasia || "Cliente Omie",
+              origem: "omie", codigoOmie: oc.codigo_cliente_omie,
+              criadoEm: agora(), criadoPor: "omie", atualizadoPor: "omie",
+            };
             for (const [campo, valor] of Object.entries(cand)) {
               if (!valor) continue;
               const atual2 = String(novo[campo] || "").trim();
@@ -276,12 +283,12 @@ Deno.serve(async (req) => {
             }
             if (mudou) {
               novo.atualizadoEm = agora();
-              novo.historico = [...(local.historico || []),
+              novo.historico = [...(local?.historico || []),
                 { em: agora(), por: "omie", acao: editadoPorPessoa
                   ? "completou cadastro com dados do Omie"
                   : "cadastro atualizado pelo Omie (dados da planilha substituídos)" }];
               gravar.push({ colecao: "cliente", id: novo.id, registro: novo });
-              soma("clientesCompletados");
+              soma(local ? "clientesCompletados" : "clientesNovos");
             }
           }
           await gravarMeta("omie_clientes", { quando: agora(), mapaCpf });
@@ -364,6 +371,16 @@ Deno.serve(async (req) => {
                 // Tid que já mora numa venda: atualiza LÁ. O casamento por
                 // títulos novos ficam pendentes até confirmação explícita do lote.
                 let vId = tidDono(cpfT).get(String(d.nCodTitulo)) || "";
+                // Somente vendas criadas por esta integração têm associação automática
+                // de títulos novos por documento exato + CPF. Vínculos manuais prevalecem.
+                if (!vId) {
+                  const doc = String(d.cNumTitulo || "").replace(/\s/g, "").toUpperCase();
+                  const candidatas = minhasT.filter((v: any) => v.origem === "omie" && v.omieDocumento === doc);
+                  if (candidatas.length === 1) {
+                    vId = candidatas[0].id;
+                    tidDono(cpfT).set(String(d.nCodTitulo), vId);
+                  }
+                }
                 let conferirT = false;
                 if (!vId) {
                   pendNovas.push({ titulo:d.nCodTitulo, valor:cheio, data:brParaISO(d.dDtVenc),
@@ -618,6 +635,13 @@ Deno.serve(async (req) => {
         const pendAntes: any[] = (body.pagina && body.pagina > 1 && meta?.pendenciasParciais) || [];
         const pendTotal = [...pendAntes, ...pendNovas];
         if (terminou) {
+          const { data: importacao, error: erroImportacao } = await db.rpc("bsq_importar_vendas_omie");
+          if (erroImportacao) throw new Error("Importação de novas vendas: " + erroImportacao.message);
+          cont.vendasNovas = (cont.vendasNovas || 0) + (importacao?.vendasNovas || 0);
+          cont.pagamentosVinculados = (cont.pagamentosVinculados || 0) + (importacao?.pagamentosVinculados || 0);
+          if (importacao?.vendasNovas) await marcarMudanca(["venda", "lote", "rec"]);
+          const confirmados = new Set((await lerColecaoBruta("venda")).flatMap((r: any) =>
+            (r.registro.parcelas || []).filter((p: any) => !p.conferir).map((p: any) => String(p.tid))));
           // Pendência não pode morrer calada: a rodada COMPLETA revê tudo e
           // substitui a lista; a incremental só ACRESCENTA (união por título).
           // Some a que já virou lançamento (o cxomie- dela existe vivo).
@@ -628,13 +652,14 @@ Deno.serve(async (req) => {
             pendFinal = [...antigas, ...pendTotal];
           }
           pendFinal = pendFinal.filter((pnd: any) => {
+            if (pnd.tipo === "vinculo" && confirmados.has(String(pnd.titulo))) return false;
             if(pnd.tipo) return true; // pendência informativa não é resolvida só por existir lançamento
             const cx = cxPorId.get("cxomie-" + pnd.titulo);
             return !cx || cx.apagadoEm;
           });
           await gravarMeta("omie_sync", {
             quando: agora(), status:"completa", inicio, termino:agora(), por, completa, corte, contagens: cont,
-            pendencias: pendFinal,
+            pendencias: pendFinal, pendenciasVendas: importacao?.pendenciasVendas || [],
           });
           await registrarLog({ acao: "sincronizou com o Omie", por, ...cont });
           // Faxina: a tela de conferência foi removida do produto (25/08) — o

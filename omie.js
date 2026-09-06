@@ -62,6 +62,9 @@ function statusOmieHome(el) {
 function resumoOmie(c) {
   if (!c) return 'nada novo';
   const p = [];
+  if (c.vendasNovas) p.push(c.vendasNovas + ' venda(s) nova(s)');
+  if (c.clientesNovos) p.push(c.clientesNovos + ' cliente(s) novo(s)');
+  if (c.pagamentosVinculados) p.push(c.pagamentosVinculados + ' pagamento(s) associado(s)');
   if (c.recNovos) p.push(c.recNovos + ' recebimento(s) baixado(s)');
   if (c.recParaConferir) p.push(c.recParaConferir + ' recebimento(s) para conferir');
   if (c.recEstornados) p.push(c.recEstornados + ' estorno(s)');

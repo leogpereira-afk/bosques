@@ -170,6 +170,8 @@ TELAS.financeiro=function(){
     statusOmieHome(document.getElementById('fin-sync'));
     apiOmie('saude').then(r=>{
       const el=document.getElementById('fin-sync');if(!el)return;
+      const vendasPendentes=r.sync?.pendenciasVendas||[];
+      if(vendasPendentes.length){const aviso=document.createElement('div');aviso.innerHTML='<h3>Vendas do Omie para conferir</h3>'+vendasPendentes.map(p=>'<p>'+esc(p.documento)+' · '+esc(p.motivo)+'</p>').join('');el.appendChild(aviso);}
       const pend=(r.sync?.pendencias||[]).filter(p=>p.tipo==='possivel_duplicidade'&&!achar('titulo','CONTA_A_PAGAR-'+p.titulo)?.decisaoDuplicidade);
       if(f.aba!=='pendencias'||f.grupo||!pend.length)return;
       const bloco=document.createElement('div');bloco.innerHTML='<h3>Possíveis duplicidades — conferir comprovantes</h3>'+pend.slice(0,60).map((p,i)=>'<button class="btn" data-origem-pend="'+i+'">'+esc(p.categoria||'Conferir título')+' · '+fmt.brl(p.valor||0)+'</button>').join('');
