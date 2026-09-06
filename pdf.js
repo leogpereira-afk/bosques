@@ -674,7 +674,7 @@ const PDF = (() => {
     ];
     const paineis2 = [
       ['A RECEBER (' + d.rotuloHz.toUpperCase() + ')', brl(d.aReceber), AZUL_FIN],
-      ['VENCIDO NO OMIE', brl(d.vencido), AZUL_FIN],
+      ['VENCIDO NO OMIE', brl(d.vencido), VERMELHO_FIN],
       ['GASTOS PREVISTOS', brl(d.previsto), VERMELHO_FIN],
       ['SALDO PROJETADO', brl(d.aReceber - d.previsto), d.aReceber - d.previsto >= 0 ? AZUL_FIN : VERMELHO_FIN],
     ];
@@ -692,7 +692,7 @@ const PDF = (() => {
       });
       y += 19;
     }
-    if(d.inadimplenciaOmie){doc.setFont('helvetica','normal');doc.setFontSize(9);doc.setTextColor(...CINZA);doc.text('Vencido no Omie: '+brl(d.inadimplenciaOmie.total)+' | Sem lote confirmado: '+brl(d.inadimplenciaOmie.semVinculo),14,y);y+=8;}
+    if(d.inadimplenciaOmie){doc.setFont('helvetica','normal');doc.setFontSize(9);doc.setTextColor(...VERMELHO_FIN);doc.text('Vencido no Omie: '+brl(d.inadimplenciaOmie.total)+' | Sem lote confirmado: '+brl(d.inadimplenciaOmie.semVinculo),14,y);y+=8;}
     if (d.comissoesAPagar > 0.01) {
       doc.setFont('helvetica', 'normal'); doc.setFontSize(9.5);
       doc.setTextColor(...CINZA);
@@ -712,9 +712,9 @@ const PDF = (() => {
         { t: 'Parcelas', x: 158, alinha: 'right' }, { t: 'Contratos', x: 196, alinha: 'right' },
       ];
       const linhasA = d.aging.map((f) => [f.rotulo,
-        f.rs ? { t: brl(f.rs), cor: AZUL_FIN } : '—',
+        f.rs ? { t: brl(f.rs), cor: VERMELHO_FIN } : '—',
         f.parcelas || '—', f.contratos || '—']);
-      linhasA.push([{ t: 'TOTAL', negrito: true }, { t: brl(d.aging.reduce((s,f)=>s+f.rs,0)), negrito: true, cor: AZUL_FIN },
+      linhasA.push([{ t: 'TOTAL', negrito: true }, { t: brl(d.aging.reduce((s,f)=>s+f.rs,0)), negrito: true, cor: VERMELHO_FIN },
         { t: String(d.aging.reduce((s, f) => s + f.parcelas, 0)), negrito: true }, '']);
       y = tabelaPaginada(doc, colsA, linhasA, y, rod) + 6;
     }

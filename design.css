@@ -46,7 +46,7 @@ a.btn{display:inline-flex;align-items:center;justify-content:center;text-decorat
 /* A direção do dinheiro usa a mesma legenda em toda a área financeira. */
 :root{--entrada:#1d4ed8;--saida:#b83232}
 .fin-entrada,.painel .num.fin-entrada{color:var(--entrada)!important}
-.fin-saida,.painel .num.fin-saida{color:var(--saida)!important}
+.fin-saida,.painel .num.fin-saida,.fin-atraso,.painel .num.fin-atraso{color:var(--saida)!important}
 body:is([data-tela=financeiro],[data-tela=relatorios],[data-tela=caixa],[data-tela=lancamentos]) .num.pos{color:var(--entrada)}
 .fin-legenda{display:flex;flex-wrap:wrap;align-items:center;gap:12px 24px;margin:0 0 18px;font-size:12px;font-weight:650}
 .fin-legenda a{margin-left:auto}
@@ -63,7 +63,8 @@ body:is([data-tela=financeiro],[data-tela=relatorios],[data-tela=caixa],[data-te
 .relatorios-layout .paineis{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px}
 .relatorios-layout .painel{min-width:0}.relatorios-layout .painel .num{font-size:clamp(18px,2vw,28px);overflow-wrap:anywhere}
 .relatorios-layout :is(.cartao,.rel-titulo){scroll-margin-top:24px}
-#rel-formas td:nth-child(2),#rel-atrasos td:nth-child(3){color:var(--entrada)}
+#rel-formas td:nth-child(2){color:var(--entrada)}
+#rel-atrasos td:nth-child(3){color:var(--saida)}
 #rel-centros td:nth-child(2){color:var(--saida)}
 @media(max-width:1000px){.relatorios-layout .paineis{grid-template-columns:repeat(2,minmax(0,1fr))}.relatorios-layout #rel-formas,.relatorios-layout #rel-centros{grid-column:1/-1}}
 @media(max-width:600px){.relatorios-layout{gap:16px}.rel-intro{align-items:flex-start;flex-direction:column;padding:16px}.relatorios-layout .paineis{gap:10px}.relatorios-layout .painel{padding:14px 10px}.relatorios-layout .painel .num{font-size:18px}.relatorios-layout .tabela{min-width:560px}.fin-legenda a{margin-left:0}.rel-intro h2{font-size:18px}}

@@ -19,6 +19,7 @@ function finCorTotal(linhas,aba='') {
 }
 function finSaida(valor) { return finValor(valor,'fin-saida'); }
 function finEntrada(valor) { return finValor(valor,'fin-entrada'); }
+function finAtraso(valor) { return finValor(valor,'fin-atraso'); }
 function finResultado(valor) { return finValor(valor,valor<0?'fin-saida':'fin-entrada'); }
 function finValor(valor,cor) { return '<span class="'+cor+'">'+fmt.brl(valor)+'</span>'; }
 function finIndices(){
@@ -254,6 +255,6 @@ function finAbrirPendenciasGrupo(grupo,pagina=0){
 
 function finAbrirVencidosOmie(){
   const r=resumoInadimplenciaOmie();if(!r)return;
-  abrirModal({titulo:'Títulos vencidos no Omie · '+fmt.brl(r.total),corpo:'<p>Valores da origem, inclusive os títulos cujo lote ainda precisa ser confirmado. Ajustes locais ficam na aba Diferenças com Omie.</p>'+r.titulos.map((t,i)=>'<button class="lin fin-fila-item" data-vencido-omie="'+i+'"><b>'+(i+1)+'. Título '+t.titulo+'</b><span>'+esc(t.venc)+' · '+finEntrada(t.original.resumo.nValAberto)+'</span></button>').join(''),acoes:[{texto:'Fechar',aoClicar:fecharModal}]});
+  abrirModal({titulo:'Títulos vencidos no Omie · '+fmt.brl(r.total),corpo:'<p>Valores da origem, inclusive os títulos cujo lote ainda precisa ser confirmado. Ajustes locais ficam na aba Diferenças com Omie.</p>'+r.titulos.map((t,i)=>'<button class="lin fin-fila-item" data-vencido-omie="'+i+'"><b>'+(i+1)+'. Título '+t.titulo+'</b><span>'+esc(t.venc)+' · '+finAtraso(t.original.resumo.nValAberto)+'</span></button>').join(''),acoes:[{texto:'Fechar',aoClicar:fecharModal}]});
   document.querySelectorAll('[data-vencido-omie]').forEach(b=>b.onclick=()=>{const t=r.titulos[Number(b.dataset.vencidoOmie)];fecharModal();finVincularTitulo(t,()=>{if(typeof render==='function')render();finAbrirVencidosOmie();});});
 }

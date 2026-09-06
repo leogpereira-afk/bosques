@@ -254,7 +254,7 @@ TELAS.caixa = function () {
       '<td class="num">' + finResultado(tAno.e - tAno.s2) + '</td></tr></tbody></table></div></div>' +
     '<div class="cartao clicavel" id="pn-prev" style="cursor:pointer"><h2 style="margin:0">🔭 Previsibilidade ' +
       '<span class="nota">— a receber em ' + String(new Date().getFullYear()) + ': <b>' + finEntrada(aReceberAnoCorrente) + '</b>' +
-      ' · próximos 12 meses: <b>' + finEntrada(doze) + '</b> · vencido a cobrar <b class="fin-entrada">' +
+      ' · próximos 12 meses: <b>' + finEntrada(doze) + '</b> · vencido a cobrar <b class="fin-atraso">' +
       fmt.brl(arCaixa.vencido) + '</b> · o detalhe está nos Relatórios →</span></h2></div>' +
     blocoDre +
     '<div class="cartao clicavel" id="ver-lanc" style="cursor:pointer"><h2 style="margin:0">🧾 Lançamentos de ' + nomeMes(mes) +
@@ -859,7 +859,7 @@ TELAS.relatorios = function () {
       '<th class="num">Valor</th><th class="num">Parcelas</th><th class="num">Contratos</th></tr></thead><tbody>' +
       aging.map((f) => '<tr><td>' + f.rotulo + '</td>' +
         '<td style="width:34%"><div style="background:var(--verde-palido);border-radius:6px;height:12px;overflow:hidden">' +
-          '<div style="width:' + Math.round(f.rs / maiorFaixa * 100) + '%;height:100%;background:var(--entrada)"></div></div></td>' +
+          '<div style="width:' + Math.round(f.rs / maiorFaixa * 100) + '%;height:100%;background:var(--saida)"></div></div></td>' +
         '<td class="num">' + (f.rs ? fmt.brl(f.rs) : '—') + '</td>' +
         '<td class="num">' + (f.parcelas || '—') + '</td><td class="num">' + (f.contratos.size || '—') + '</td></tr>').join('') +
       '<tr style="font-weight:800"><td>TOTAL</td><td></td><td class="num">' + fmt.brl(ar.vencido) + '</td>' +
@@ -886,7 +886,7 @@ TELAS.relatorios = function () {
     '<h2 class="rel-titulo">Previsão e valores em aberto</h2><div class="paineis">' +
       '<div class="painel clicavel" data-acao="caixa"><div class="rot">A receber ' + rotuloHz + '</div><div class="num pos">' + fmt.brl(aReceberHz) + '</div>' +
         '<div class="sub">' + (hz === 'total' ? ar.parcelas + ' parcela(s) em aberto' : 'parcelas a vencer no período') + '</div></div>' +
-      '<div class="painel clicavel" data-acao="vencido"><div class="rot">Vencido no Omie</div><div class="num fin-entrada">' + fmt.brl(ar.vencido) + '</div>' +
+      '<div class="painel clicavel" data-acao="vencido"><div class="rot">Vencido no Omie</div><div class="num fin-atraso">' + fmt.brl(ar.vencido) + '</div>' +
         '<div class="sub">clique para ir cobrar</div></div>' +
       '<div class="painel clicavel" data-acao="previstos"><div class="rot">Gastos previstos ' + rotuloHz + '</div><div class="num neg">' + fmt.brl(previstoHz) + '</div>' +
         (previstoSemData > 0 ? '<div class="sub">⚠ + ' + finSaida(previstoSemData) + ' de etapas SEM PRAZO — defina no Cronograma</div>' : '') + '</div>' +
@@ -917,7 +917,7 @@ TELAS.relatorios = function () {
           '<tr style="font-weight:800"><td>TOTAL</td><td class="num fin-entrada">' + fmt.brl(aReceberHz) + '</td>' +
           '<td class="num fin-saida">' + fmt.brl(previstoHz) + '</td><td class="num">' + finValor(aReceberHz - previstoHz, aReceberHz - previstoHz < 0 ? 'fin-saida' : 'fin-entrada') + '</td></tr>' +
           '</tbody></table></div>' +
-          '<p class="nota" style="margin-top:8px">O "a receber" usa os saldos abertos da origem; o vencido acumulado (' + finEntrada(ar.vencido) + ') fica fora destas linhas de propósito.</p>'
+          '<p class="nota" style="margin-top:8px">O "a receber" usa os saldos abertos da origem; o vencido acumulado (' + finAtraso(ar.vencido) + ') fica fora destas linhas de propósito.</p>'
         : '<p class="nota">Nada a vencer nesse período.</p>') + '</div>' +
     (() => {
       const cap = comissoesAPagar();
