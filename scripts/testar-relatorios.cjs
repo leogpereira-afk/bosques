@@ -32,3 +32,8 @@ assert.equal(setembro.selecionado.quantidade,2);
 assert.equal(setembro.selecionado.entradas,200.20);
 assert.equal(setembro.dre.mes.desp['Comissão'],30.30);
 console.log('PASSOU: 18 verificações do histórico — 12 meses, centavos, ano anterior, mês selecionado, sem data e exclusão de previsões/anotações.');
+
+assert.ok(vm.runInContext("relAnosHistorico('2026')",ctx).includes('2025'));
+registros.rec=registros.rec.filter(r=>!String(r.data||'').startsWith('2025'));
+assert.ok(vm.runInContext("relAnosHistorico('2026')",ctx).includes('2025'));
+console.log('PASSOU: 2025 disponível com e sem lançamentos importados.');

@@ -14,7 +14,7 @@ window.API_ARQ = window.API_BASE + '/bsq-acervo';
 window.API_OMIE = window.API_BASE + '/bsq-omie';
 window.P_URL = window.API_BASE + '/bsq-p'; // landing pública da proposta
 
-window.VERSAO = '60'; // suba a cada publicação, junto com o CACHE do sw.js
+window.VERSAO = '61'; // suba a cada publicação, junto com o CACHE do sw.js
 
 // Preview da reconstrução: consulta dados, mas não inicia integração automática.
 window.FINANCEIRO_EM_VALIDACAO = false;

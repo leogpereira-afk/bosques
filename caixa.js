@@ -745,6 +745,14 @@ function agingInadimplencia() {
   return faixas;
 }
 
+// Mostra o calendário desde 2025 mesmo enquanto o histórico aguarda importação.
+function relAnosHistorico(anoSelecionado) {
+  const existentes = mesesComMovimento().map(m => Number(m.slice(0,4))).filter(Number.isFinite);
+  const inicio = Math.min(2025, ...existentes);
+  const fim = Math.max(Number(hojeISO().slice(0,4)), Number(anoSelecionado), ...existentes);
+  return Array.from({length:fim-inicio+1},(_,i)=>String(fim-i));
+}
+
 /* Histórico realizado: os 12 meses são do calendário, inclusive os sem movimento. */
 function relHistoricoDados(mes) {
   const ano = mes.slice(0, 4);
@@ -765,8 +773,9 @@ function relHistoricoHTML(h) {
   const valor = (v, tipo) => finValor(v, tipo || (v < 0 ? 'fin-saida' : 'fin-entrada'));
   const d = h.dre, t = h.selecionado;
   const linha = (nome, valores, tipo, forte=false) => '<tr'+(forte?' class="rel-total"':'')+'><th scope="row">'+esc(nome)+'</th>'+valores.map(v=>'<td class="num">'+valor(v,tipo)+'</td>').join('')+'</tr>';
-  const anos = [...new Set([...mesesComMovimento().map(m=>m.slice(0,4)),h.ano])].sort().reverse();
+  const anos = relAnosHistorico(h.ano);
   return '<section class="cartao" id="rel-mensal"><div class="rel-cabecalho"><div><h2>O que entrou e saiu, mês a mês</h2><p class="nota">Valores já lançados no caixa, pela data do recebimento ou pagamento. Escolha o mês para ver sua composição abaixo.</p></div><button class="btn" id="rel-historico-pdf">PDF mensal e anual</button></div>'+
+    (h.total.quantidade===0?'<p class="fin-status">Nenhum lançamento importado para '+h.ano+'. Os valores zerados não confirmam ausência de movimentação: confira a sincronização ou importe o histórico da origem.</p>':'')+
     '<div class="fin-toolbar"><label>Ano <select id="rel-hist-ano">'+anos.map(a=>'<option'+(a===h.ano?' selected':'')+'>'+a+'</option>').join('')+'</select></label><label>Mês <select id="rel-hist-mes">'+h.meses.map(m=>'<option value="'+m.mes+'"'+(m.mes===h.mes?' selected':'')+'>'+nomeMes(m.mes)+'</option>').join('')+'</select></label></div>'+
     '<div class="paineis">'+[
       ['Entrou em '+nomeMes(h.mes),t.entradas,'fin-entrada','entrada','Parcelas recebidas + outras receitas.'],

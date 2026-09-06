@@ -183,7 +183,7 @@ Deno.serve(async (req) => {
 
         // Janela incremental: só o que o Omie alterou desde a última rodada
         // completa (3 dias de carência). Sem meta — ou a pedido — vem tudo.
-        const completa = !!body.completa || !meta?.quando;
+        const completa = !!body.completa || !meta?.quando || (!!meta?.corte && corte < meta.corte);
         const janela: Record<string, unknown> = {};
         if (!completa) {
           const de = new Date(new Date(meta.quando).getTime() - 3 * 86400e3);
