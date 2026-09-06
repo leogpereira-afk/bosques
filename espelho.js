@@ -96,11 +96,11 @@ function abrirLinkEspelho() {
   const link = token ? base + '#' + token : '';
 
   const gerar = async (trocando) => {
-    /* 24 caracteres do gerador do NAVEGADOR (crypto), não Math.random: token
+    /* 18 bytes (36 caracteres hexadecimais) do gerador do NAVEGADOR (crypto), não Math.random: token
        de acesso sorteado por gerador previsível é token adivinhável. */
     const b = new Uint8Array(18);
     crypto.getRandomValues(b);
-    const novo = Array.from(b).map((x) => 'abcdefghijkmnpqrstuvwxyz23456789'[x % 32]).join('');
+    const novo = Array.from(b).map((x) => x.toString(16).padStart(2, '0')).join('');
     try {
       /* salvarCfg mescla no topo (bsq-nucleo): mandar só esta chave preserva
          empresa, reajuste e o resto. Conferido antes de escrever. */
@@ -117,8 +117,8 @@ function abrirLinkEspelho() {
 
   if (!token) {
     abrirModal({
-      titulo: 'Link do espelho para o corretor',
-      corpo: '<p>Ainda não há link. Ao gerar, qualquer pessoa com ele abre a tabela de lotes ' +
+      titulo: 'Compartilhar espelho de lotes',
+      corpo: '<p>Ainda não há link. Ao gerar, quem receber informa o nome e abre a tabela de lotes ' +
         'e imprime em PDF — <b>sem entrar no sistema e sem poder alterar nada</b>.</p>' +
         '<p class="nota">Ele mostra quadra, lote, metragem e o preço do que está disponível. ' +
         'Não mostra nome de cliente, quem reservou, VGV nem lotes em atraso.</p>',
@@ -131,8 +131,8 @@ function abrirLinkEspelho() {
   }
 
   abrirModal({
-    titulo: 'Link do espelho para o corretor',
-    corpo: '<p class="nota">Mande este link. Quem abrir vê a tabela de lotes e imprime em PDF, ' +
+    titulo: 'Compartilhar espelho de lotes',
+    corpo: '<p class="nota">Envie este link. A pessoa informa o nome, consulta os lotes e salva o recorte em PDF, ' +
       'sem entrar no sistema e sem poder alterar nada.</p>' +
       '<input class="campo" readonly value="' + esc(link) + '" ' +
       'onclick="this.select()" style="width:100%;font-family:ui-monospace,monospace;font-size:13px">' +
@@ -140,8 +140,8 @@ function abrirLinkEspelho() {
       'VGV nem lotes em atraso. <b>Gerar um link novo derruba este</b> — use quando alguém sair da equipe.</p>',
     acoes: [
       { texto: 'Copiar link', classe: 'primario', aoClicar: () => {
-        if (navigator.clipboard) navigator.clipboard.writeText(link);
-        toast('Link copiado');
+        navigator.clipboard?.writeText(link).then(() => toast('Link copiado')).catch(() => toast('Selecione o link acima e copie manualmente.', 'erro'));
+        if (!navigator.clipboard) toast('Selecione o link acima e copie manualmente.');
       } },
       { texto: 'Abrir', aoClicar: () => window.open(link, '_blank', 'noopener') },
       { texto: 'Gerar link novo', aoClicar: () => {
@@ -155,7 +155,7 @@ function abrirLinkEspelho() {
 TELAS.espelho = function () {
   const app = document.getElementById('app');
   const ls = lotes();
-  if (!ls.length) { app.innerHTML = vazio('🗺️', 'Nenhum lote cadastrado', 'Os lotes entram pela importação da planilha ou por Configurações.'); return; }
+  if (!ls.length) { app.innerHTML = vazio('🗺️', 'Nenhum lote cadastrado', 'Cadastre os lotes para acompanhar a disponibilidade do empreendimento.'); return; }
 
   const quadras = [...new Set(ls.map((l) => l.quadra))].sort((a, b) => a - b);
   const filtro = TELAS._fEspelho || { q: '', quadra: '', status: '', atraso: false };
@@ -213,7 +213,7 @@ TELAS.espelho = function () {
         (ehCorretorPerfil() ? '' : '<button class="btn mini" id="esp-novo-lote" style="background:rgba(255,255,255,.14);border-color:transparent;color:#eaf3ec">+ Lote</button>') +
         /* SÓ A DIREÇÃO GERA O LINK. Escritório e corretor não: quem cria um
            acesso que sai da casa tem de ser quem responde por ele. */
-        (S.perfil === 'direcao' ? '<button class="btn mini" id="esp-link" style="background:rgba(255,255,255,.14);border-color:transparent;color:#eaf3ec">🔗 Link do corretor</button>' : '') +
+        (S.perfil === 'direcao' ? '<button class="btn mini" id="esp-link" style="background:rgba(255,255,255,.14);border-color:transparent;color:#eaf3ec">🔗 Compartilhar espelho</button>' : '') +
         '<button class="btn mini" id="esp-pdf" style="background:var(--verde-claro);border-color:var(--verde-claro);color:#123018">📄 PDF do espelho</button>' +
       '</div>' +
     '</div>' +
