@@ -489,7 +489,7 @@ Deno.serve(async (req) => {
         registros=registros.map((r:any)=>{
           if(r._col==="titulo") {
             const {original,historico,...resumo}=r;
-            return {...resumo, original:{resumo:original?.resumo||{},detalhes:{dDtPagamento:original?.detalhes?.dDtPagamento,cTipo:original?.detalhes?.cTipo,nCodCC:original?.detalhes?.nCodCC}},temHistorico:!!historico?.length};
+            return {...resumo, original:{resumo:original?.resumo||{},detalhes:{cNumTitulo:original?.detalhes?.cNumTitulo,dDtPagamento:original?.detalhes?.dDtPagamento,cTipo:original?.detalhes?.cTipo,nCodCC:original?.detalhes?.nCodCC}},temHistorico:!!historico?.length};
           }
           if(r._col==="movbanco") {const {original,historico,...resumo}=r;return resumo;}
           if(["rec","cx"].includes(r._col)&&r.omie?.original){const {original,...omie}=r.omie;return {...r,omie};}
