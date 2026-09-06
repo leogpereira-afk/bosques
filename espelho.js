@@ -50,13 +50,25 @@ function resumoComercial(){
     divergencias:ls.filter(l=>(l.status==='Vendido')!==vendidos.has(l.id)),semLote:contratos.filter(v=>!ids.has(v.loteId))};
 }
 
-// Inadimplência da origem inclui títulos ainda sem lote confirmado.
+// Uma única população de títulos para cartões, listas, faixas e exportações.
+function titulosAbertosOmie(grupo) {
+  const unicos=new Map();
+  for(const t of lista('titulo')) if(t.grupo===grupo) unicos.set(String(t.titulo||t.id),t);
+  return [...unicos.values()].filter(t=>t.status!=='CANCELADO'&&FINANCEIRO.cent(t.original?.resumo?.nValAberto)>0);
+}
+function vinculosTitulosOmie() {
+  const mapa=new Map();
+  for(const v of lista('venda')) if(v.situacao!=='distratada') for(const p of v.parcelas||[]) {
+    if(!p||p.conferir||p.cancelado||!p.tid)continue;
+    const k=String(p.tid);if(!mapa.has(k))mapa.set(k,new Set());mapa.get(k).add(v.id);
+  }
+  return mapa;
+}
 function resumoInadimplenciaOmie(){
-  const todos=lista('titulo').filter(t=>t.grupo==='CONTA_A_RECEBER');if(!todos.length)return null;
-  const pendentes=new Set();for(const v of lista('venda'))for(const p of v.parcelas||[])if(p&&!p.conferir&&!p.cancelado)pendentes.add(String(p.tid));
-  const titulos=todos.filter(t=>t.status!=='CANCELADO'&&FINANCEIRO.dataValida(t.venc)&&t.venc<hojeISO()&&Number(t.original?.resumo?.nValAberto)>0).sort((a,b)=>a.venc.localeCompare(b.venc));
+  const vinculos=vinculosTitulosOmie();
+  const titulos=titulosAbertosOmie('CONTA_A_RECEBER').filter(t=>FINANCEIRO.dataValida(t.venc)&&t.venc<hojeISO()).sort((a,b)=>a.venc.localeCompare(b.venc));
   return {titulos,total:titulos.reduce((s,t)=>s+FINANCEIRO.cent(t.original.resumo.nValAberto),0)/100,
-    semVinculo:titulos.filter(t=>!pendentes.has(String(t.titulo))).reduce((s,t)=>s+FINANCEIRO.cent(t.original.resumo.nValAberto),0)/100};
+    semVinculo:titulos.filter(t=>!vinculos.has(String(t.titulo))).reduce((s,t)=>s+FINANCEIRO.cent(t.original.resumo.nValAberto),0)/100};
 }
 function painelInadimplenciaOmie(){
   const r=resumoInadimplenciaOmie();if(!r)return '<p class="nota">Vencido do Omie: aguardando leitura da origem.</p>';

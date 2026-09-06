@@ -529,14 +529,14 @@ const PDF = (() => {
     doc.setFont('helvetica', 'normal'); doc.setFontSize(9);
     doc.setTextColor(...CINZA);
     y += 5.5;
-    doc.text('O que de fato entrou e saiu. Lançamento sem data conta só no "desde o início".', 14, y);
+    doc.text('O que de fato entrou e saiu. Sem data: incluído somente no acumulado disponível.', 14, y);
     y += 9;
 
     const cols = [
       { t: '', x: 14 },
       { t: nomeMes2(d.mesSel), x: 118, alinha: 'right' },
       { t: d.anoRotulo, x: 156, alinha: 'right' },
-      { t: 'Desde o início', x: 196, alinha: 'right' },
+      { t: 'Acumulado disponível', x: 196, alinha: 'right' },
     ];
     const linha = (rot, vm, va, vt, o = {}) => [
       o.forte ? { t: rot, negrito: true } : (o.recuo ? '   · ' + rot : rot),
@@ -640,13 +640,16 @@ const PDF = (() => {
     doc.setFont('helvetica','normal');doc.setFontSize(9);
     doc.text('Valores já recebidos ou pagos, pela data do lançamento. Não inclui previsões.',14,50);
     doc.text('Resultado = entradas menos saídas; não é o saldo bancário disponível.',14,56);
+    doc.text(typeof coberturaFinanceira==='function'?coberturaFinanceira():'Cobertura limitada aos lançamentos disponíveis.',14,62,{maxWidth:180});
     const cel=(v,cor)=>({t:brl(v),cor:cor||(v<0?vermelho:azul)});
     const cols=[{t:'Mês',x:14},{t:'Entradas',x:83,alinha:'right'},{t:'Saídas',x:123,alinha:'right'},{t:'Resultado',x:165,alinha:'right'},{t:'Mov.',x:196,alinha:'right'}];
-    const linhas=h.meses.map(m=>[nomeMes(m.mes),cel(m.entradas,azul),cel(m.saidas,vermelho),cel(m.resultado),String(m.quantidade)]);
+    const linhas=h.meses.map(m=>[nomeMes(m.mes)+(m.mes>new Date().toISOString().slice(0,7)?' (futuro)':m.quantidade?'':' (sem registros)'),cel(m.entradas,azul),cel(m.saidas,vermelho),cel(m.resultado),String(m.quantidade)]);
     linhas.push([{t:'TOTAL DO ANO',negrito:true},cel(h.total.entradas,azul),cel(h.total.saidas,vermelho),cel(h.total.resultado),String(h.total.quantidade)]);
-    let y=tabelaPaginada(doc,cols,linhas,65,rod)+12;
+    let y=tabelaPaginada(doc,cols,linhas,77,rod)+12;
     doc.setTextColor(30,43,33);doc.setFont('helvetica','bold');doc.setFontSize(11);
     doc.text('Mês selecionado: '+nomeMes(h.mes),14,y);y+=7;
+    doc.setFontSize(9);doc.text(typeof relSituacaoMes==='function'?relSituacaoMes(h.mes,h.selecionado.quantidade):'Dados disponíveis',14,y);y+=7;
+    if(!h.total.quantidade){doc.text('Ano sem lançamentos importados. Zero não comprova ausência de movimentação.',14,y);y+=7;}
     doc.setFont('helvetica','normal');doc.setFontSize(9);
     doc.setTextColor(...AZUL_FIN);doc.text('Recebimentos das vendas de lotes: '+brl(h.dre.mes.recVendas),14,y);y+=6;
     doc.text('Outras receitas: '+brl(h.dre.mes.somaOutras),14,y);y+=6;
@@ -673,10 +676,10 @@ const PDF = (() => {
       ['JÁ GASTO', brl(d.gasto), VERMELHO_FIN],
     ];
     const paineis2 = [
-      ['A RECEBER (' + d.rotuloHz.toUpperCase() + ')', brl(d.aReceber), AZUL_FIN],
+      ['A RECEBER A VENCER', brl(d.aReceber), AZUL_FIN],
       ['VENCIDO NO OMIE', brl(d.vencido), VERMELHO_FIN],
-      ['GASTOS PREVISTOS', brl(d.previsto), VERMELHO_FIN],
-      ['SALDO PROJETADO', brl(d.aReceber - d.previsto), d.aReceber - d.previsto >= 0 ? AZUL_FIN : VERMELHO_FIN],
+      ['A PAGAR NO OMIE', brl(d.previsto), VERMELHO_FIN],
+      ['FLUXO FUTURO PARCIAL', brl(d.aReceber - d.previsto), d.aReceber - d.previsto >= 0 ? AZUL_FIN : VERMELHO_FIN],
     ];
     for (const grupo of [paineis, paineis2]) {
       grupo.forEach(([rot, valTxt, cor], i) => {
@@ -696,34 +699,35 @@ const PDF = (() => {
     if (d.comissoesAPagar > 0.01) {
       doc.setFont('helvetica', 'normal'); doc.setFontSize(9.5);
       doc.setTextColor(...CINZA);
-      doc.text('Contas a pagar — comissões devidas aos corretores: ', 14, y);
+      doc.text('Comissões locais a conferir no Omie: ', 14, y);
       doc.setFont('helvetica', 'bold'); doc.setTextColor(198, 40, 40);
-      doc.text(brl(d.comissoesAPagar), 92, y);
+      doc.text(brl(d.comissoesAPagar), 115, y);
       y += 7;
     }
-    y += 4;
+    doc.setFontSize(9);doc.setFont('helvetica','normal');doc.setTextColor(...CINZA);
+    const avisos=doc.splitTextToSize((d.cobertura||'Acumulado disponível.')+' Previsão parcial: apenas títulos Omie a vencer. Não inclui custos não cadastrados, contas vencidas, sem data ou comissões locais. Não é saldo bancário.',180);doc.text(avisos,14,y);y+=avisos.length*4.5+7;
     if (d.aging && d.aging.some((f) => f.rs > 0)) {
       doc.setFont('helvetica', 'bold'); doc.setFontSize(11);
       doc.setTextColor(30, 43, 33);
-      doc.text('Inadimplência das fichas confirmadas por idade', 14, y);
+      doc.text('Inadimplência do Omie por idade — inclui títulos sem lote', 14, y);
       y += 6;
       const colsA = [
-        { t: 'Vencido há', x: 14 }, { t: 'Valor', x: 120, alinha: 'right' },
-        { t: 'Parcelas', x: 158, alinha: 'right' }, { t: 'Contratos', x: 196, alinha: 'right' },
+        { t: 'Vencido há', x: 14 }, { t: 'Valor', x: 90, alinha: 'right' },
+        { t: 'Títulos', x: 110, alinha: 'right' }, { t: 'Contratos', x: 140, alinha: 'right' },{t:'Sem lote',x:196,alinha:'right'},
       ];
       const linhasA = d.aging.map((f) => [f.rotulo,
         f.rs ? { t: brl(f.rs), cor: VERMELHO_FIN } : '—',
-        f.parcelas || '—', f.contratos || '—']);
+        f.parcelas || '—', f.contratos || '—',{t:brl(f.semVinculo||0),cor:VERMELHO_FIN}]);
       linhasA.push([{ t: 'TOTAL', negrito: true }, { t: brl(d.aging.reduce((s,f)=>s+f.rs,0)), negrito: true, cor: VERMELHO_FIN },
-        { t: String(d.aging.reduce((s, f) => s + f.parcelas, 0)), negrito: true }, '']);
+        { t: String(d.aging.reduce((s, f) => s + f.parcelas, 0)), negrito: true }, '',{t:brl(d.aging.reduce((s,f)=>s+(f.semVinculo||0),0)),cor:VERMELHO_FIN}]);
       y = tabelaPaginada(doc, colsA, linhasA, y, rod) + 6;
     }
     if (d.grupos && d.grupos.length) {
       const cols = [
         { t: d.hz === 'total' ? 'Ano' : 'Mês', x: 14 },
         { t: 'A receber', x: 120, alinha: 'right' },
-        { t: 'Previstos', x: 158, alinha: 'right' },
-        { t: 'Saldo projetado', x: 196, alinha: 'right' },
+        { t: 'A pagar Omie', x: 158, alinha: 'right' },
+        { t: 'Fluxo parcial', x: 196, alinha: 'right' },
       ];
       const linhas = d.grupos.map((g) => [g.rotulo, celFinanceira(g.rec), g.prev ? celFinanceira(g.prev,true) : '—',
         { t: brl(g.rec - g.prev), cor: g.rec - g.prev >= 0 ? AZUL_FIN : VERMELHO_FIN }]);

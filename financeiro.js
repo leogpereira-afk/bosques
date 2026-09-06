@@ -1,8 +1,9 @@
 /* Uma área financeira; filtros e exportação consultam o mesmo recorte. */
-const FIN_ABAS = {visao:'Visão geral',recebimentos:'Recebimentos',despesas:'Despesas',receber:'Contas a receber',pagar:'Contas a pagar',diferencas:'Diferenças com Omie',centros:'Centros de custo',contas:'Contas e conciliação',pendencias:'Pendências e sincronização'};
+const FIN_ABAS = {visao:'Visão geral',recebimentos:'Recebimentos',despesas:'Despesas',receber:'Contas a receber',pagar:'A pagar no Omie',diferencas:'Diferenças com Omie',centros:'Centros de custo',contas:'Contas e conciliação',pendencias:'Pendências e sincronização'};
 // A cor acompanha a natureza do lançamento, inclusive nas listas mistas.
 function finCor(x={},aba='') {
   if (x.transferencia) return '';
+  if(aba==='receber'&&String(x.situacao||'').startsWith('Vencido'))return 'fin-atraso';
   if (['recebimentos','receber'].includes(aba)) return 'fin-entrada';
   if (['despesas','pagar'].includes(aba)) return 'fin-saida';
   const tipo=x.cx?.tipo || x.tipo;
@@ -72,21 +73,21 @@ function finPendencias(ctx=finIndices()){
 function finLinhas(aba,ctx=finIndices()){
   if(aba==='diferencas')return finDiferencas(ctx);
   if(aba==='pendencias')return finPendencias(ctx);
-  if(aba==='recebimentos')return lista('rec').map(r=>({...r,rec:r,descricao:(ctx.porVenda.get(r.vendaId)?.clienteNome||r.codigo||'Recebimento sem lote'),situacao:r.vendaId?'Q'+(ctx.porVenda.get(r.vendaId)?.quadra||'?')+' · L'+(ctx.porVenda.get(r.vendaId)?.lote||'?'):'Sem lote vinculado',pendente:!r.vendaId,centroCusto:r.centroCusto||''}));
+  if(aba==='recebimentos')return lista('rec').map(r=>({...r,rec:r,descricao:(ctx.porVenda.get(r.vendaId)?.clienteNome||r.codigo||'Recebimento sem lote'),situacao:r.vendaId?'Q'+(ctx.porVenda.get(r.vendaId)?.quadra||'?')+' · L'+(ctx.porVenda.get(r.vendaId)?.lote||'?'):finMotivoPagamento(r,ctx),pendente:!r.vendaId,centroCusto:r.centroCusto||''}));
   if(aba==='despesas')return cxVivos().filter(c=>c.tipo==='saida').map(c=>({...c,cx:c,descricao:c.descricao||'Despesa',situacao:c.centroCusto||'Sem centro de custo',pendente:!c.centroCusto}));
-  if(aba==='receber')return ctx.titulos.filter(t=>t.grupo==='CONTA_A_RECEBER'&&t.status!=='CANCELADO'&&Number(t.original?.resumo?.nValAberto)>0).map(t=>{
+  if(aba==='receber')return titulosAbertosOmie('CONTA_A_RECEBER').map(t=>{
     const vinculos=ctx.porParcela.get(String(t.titulo))||[],vinc=vinculos.find(x=>!x.p.conferir),v=vinc?.v;
-    return {id:t.id,data:t.venc,valor:Number(t.original.resumo.nValAberto),descricao:(v?v.clienteNome+' · Q'+v.quadra+' L'+v.lote:'Título Omie '+t.titulo),situacao:v?'Lote confirmado':'Sem lote confirmado',centroCusto:vinc?.p.centroCusto||'',pendente:!v,...(v?{vendaId:v.id,parcela:vinc.i}:{titulo:t})};
+    return {id:t.id,data:t.venc,valor:Number(t.original.resumo.nValAberto),descricao:(v?v.clienteNome+' · Q'+v.quadra+' L'+v.lote:'Título Omie '+t.titulo),situacao:(t.venc<hojeISO()?'Vencido · ':'A vencer · ')+(v?'Lote confirmado':'Sem lote confirmado'),centroCusto:vinc?.p.centroCusto||'',pendente:!v,...(v?{vendaId:v.id,parcela:vinc.i}:{titulo:t})};
   });
   if(aba==='pagar'){
-    const manuais=lista('obrigacao').map(o=>{const pago=cxVivos().filter(c=>c.obrigacaoId===o.id).reduce((s,c)=>s+FINANCEIRO.cent(c.valor),0);return {...o,obrigacao:o,data:o.venc,valor:Math.max(0,FINANCEIRO.cent(o.valor)-pago)/100,situacao:o.centroCusto||'Sem centro de custo',pendente:!o.centroCusto};});
-    const omie=ctx.titulos.filter(t=>t.grupo==='CONTA_A_PAGAR'&&t.status!=='CANCELADO').map(t=>({...t,data:t.ajustes?.venc||t.venc,valor:Math.max(0,t.ajustes?.valor!=null?Number(t.ajustes.valor)-Number(t.pago||0):Number(t.original?.resumo?.nValAberto??(t.valor-t.pago))),descricao:'Título Omie '+t.titulo,situacao:t.centroCusto||'Sem centro de custo',pendente:!t.centroCusto,titulo:t}));
-    return [...manuais,...omie].filter(o=>o.valor>0);
+    return titulosAbertosOmie('CONTA_A_PAGAR').map(t=>({...t,data:t.venc,
+      valor:Number(t.original.resumo.nValAberto),descricao:'Título Omie '+t.titulo,
+      situacao:(t.venc<hojeISO()?'Vencido · ':'')+(t.centroCusto||'Sem centro de custo'),pendente:!t.centroCusto,titulo:t}));
   }
   return [];
 }
 function finRecorte(linhas,f) {
-  return linhas.filter(x=> (!f.grupo||finPertenceGrupo(x,f.grupo)) && (!f.ano||String(x.data||'').startsWith(f.ano)) && (!f.mes||String(x.data||'').slice(5,7)===f.mes) &&
+  return linhas.filter(x=> (!f.fila||finGrupoFila(x)===f.fila) && (!f.grupo||finPertenceGrupo(x,f.grupo)) && (!f.ano||String(x.data||'').startsWith(f.ano)) && (!f.mes||String(x.data||'').slice(5,7)===f.mes) &&
     (!f.centro || (x.centroCusto||'')===f.centro) && (!f.q || ((x.descricao||'')+' '+(x.situacao||'')+' '+(x.forma||'')).toLowerCase().includes(f.q.toLowerCase())));
 }
 function finAbrirLinha(x) {
@@ -109,7 +110,7 @@ TELAS.financeiro=function(){
   let html='<div class="fin-nav">'+Object.entries(FIN_ABAS).map(([id,nome])=>'<button class="btn '+(id===f.aba?'primario':'')+'" data-fin-aba="'+id+'">'+nome+'</button>').join('')+'</div>';
   if(window.FINANCEIRO_EM_VALIDACAO)html+='<div class="cartao" style="border-color:#e8b24a"><b>Versão em validação.</b> Os vínculos pendentes precisam ser conferidos antes da troca do financeiro.</div>';
   html+='<div class="fin-legenda"><span class="fin-entrada">↙ Entradas em azul</span><span class="fin-saida">↗ Saídas em vermelho</span><a class="btn" href="#/relatorios">Ver relatórios →</a></div>';
-  html+='<p class="nota">Valores confirmados e pendências ficam identificados. Amarelo: precisa de conferência. Lápis roxo: alteração manual.</p>';
+  html+='<p class="nota">'+esc(coberturaFinanceira())+'</p><p class="nota">Valores confirmados e pendências ficam identificados. Amarelo: precisa de conferência. Lápis roxo: alteração manual.</p>';
   if(f.aba==='pendencias'&&f.grupo)html+='<h2>'+esc(FIN_GRUPOS[f.grupo])+'</h2><p>Abra cada linha para corrigir o vínculo. A lista é atualizada após salvar.</p>';
   if(f.aba==='pendencias')html+='<p class="nota">A soma das pendências não representa dívida adicional: o mesmo recebimento pode exigir mais de uma conferência.</p>';
   if(f.aba==='centros'){app.innerHTML=html+finTelaCentros();finLigarCentros(app);app.querySelectorAll('[data-fin-aba]').forEach(b=>b.onclick=()=>{f.aba=b.dataset.finAba;f.grupo='';f.centro='';f.pagina=0;TELAS.financeiro();});return;}
@@ -121,9 +122,10 @@ TELAS.financeiro=function(){
     const saldo=totaisAcumulados();
     html+='<div class="paineis">'+[
       ['recebimentos','Recebimentos registrados',recebido],['receber','Parcelas a receber dos lotes',aReceber.reduce((s,x)=>s+x.valor,0)],
-      ['pagar','Contas a pagar pendentes',pagar.reduce((s,x)=>s+x.valor,0)],['diferencas','Diferenças com Omie',diff.length],['pendencias','Itens para conferir',finPendencias(ctx).length]
+      ['pagar','Contas a pagar no Omie',pagar.reduce((s,x)=>s+x.valor,0)],['diferencas','Diferenças com Omie',diff.length],['pendencias','Verificações pendentes',finPendencias(ctx).length]
     ].map(([aba,nome,valor])=>'<button class="painel clicavel" data-fin-aba="'+aba+'"><span class="rot">'+nome+'</span><b class="num '+finCor({},aba)+'">'+(['pendencias','diferencas'].includes(aba)?valor:fmt.brl(valor))+'</b>'+(aba==='receber'?'<span class="sub">Vencidas e futuras · não é saldo disponível. Títulos sem lote confirmado precisam de conferência.</span>':'')+'</button>').join('')+'</div>';
     const pend=finPendencias(ctx);
+    html+=finResumoFila(pend)+finCompromissosHTML();
     html+='<div class="cartao"><h2>Resolver vínculos pendentes</h2>'+Object.entries(FIN_GRUPOS).map(([id,nome])=>{const n=pend.filter(x=>finPertenceGrupo(x,id)).length;return n?'<button class="lin vinc-lin" data-fin-grupo="'+id+'"><b>'+n+' · '+esc(nome)+'</b><span>Abrir lista →</span></button>':'';}).join('')+'</div><div id="fin-sync" class="cartao"></div>';
     html+='<div class="cartao"><h2>Resultado dos lançamentos: '+finValor(saldo.resultado,saldo.resultado<0?'fin-saida':'fin-entrada')+'</h2><p>Entradas menos saídas registradas. Para saber o dinheiro disponível, confira o saldo de cada conta.</p><button class="btn" data-fin-aba="contas">Conferir contas</button></div>';
   } else if(f.aba==='contas') {
@@ -139,19 +141,23 @@ TELAS.financeiro=function(){
     html+='<div class="cartao"><h2>Movimentações bancárias</h2><p>Transferências internas não são receita nem despesa. O saldo do extrato depende da data inicial e da cobertura da importação.</p>'+lista('movbanco').map((m,i)=>'<button class="btn" data-fin-banco="'+esc(m.id)+'">'+esc(m.data||'Sem data')+' · '+(m.transferencia?'Transferência':m.titulo?'Movimento de título':'Movimento sem título')+' · '+finValor(m.valor,m.transferencia?'':m.entrada?'fin-entrada':'fin-saida')+'</button>').join('')+'</div>';
 
   } else {
-    html+='<div class="fin-toolbar"><select id="fin-ano" aria-label="Ano"><option value="">Todos os anos</option>'+anos.map(a=>'<option '+(a===f.ano?'selected':'')+'>'+a+'</option>').join('')+'</select><input id="fin-busca" aria-label="Buscar" placeholder="Buscar" value="'+esc(f.q)+'"><button class="btn" id="fin-pdf">Baixar este recorte em PDF</button>'+(f.aba==='despesas'?'<button class="btn primario" id="fin-despesa">Nova despesa</button>':'')+(f.aba==='pagar'?'<button class="btn primario" id="fin-obrigacao">Nova conta a pagar</button>':'')+'</div>';
+    if(f.aba==='pagar')html+=finCompromissosHTML();
+    if(f.aba==='pendencias')html+=finResumoFila(todas);
+    html+='<div class="fin-toolbar"><select id="fin-ano" aria-label="Ano"><option value="">Todos os anos</option>'+anos.map(a=>'<option '+(a===f.ano?'selected':'')+'>'+a+'</option>').join('')+'</select><input id="fin-busca" aria-label="Buscar" placeholder="Buscar" value="'+esc(f.q)+'"><button class="btn" id="fin-pdf">Baixar este recorte em PDF</button>'+(f.aba==='despesas'?'<button class="btn primario" id="fin-despesa">Nova despesa</button>':'')+''+'</div>';
     html+='<div class="fin-nav">'+['','01','02','03','04','05','06','07','08','09','10','11','12'].map((m,i)=>'<button class="btn mini '+(f.mes===m?'primario':'')+'" data-fin-mes="'+m+'">'+(['Todos','Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'][i])+'</button>').join('')+'</div>';
     if(['despesas','pagar','recebimentos','receber'].includes(f.aba))html+='<div class="fin-toolbar"><label>Centro de custo <select id="fin-centro"><option value="">Todos</option>'+finCentrosDisponiveis().map(c=>'<option '+(f.centro===c?'selected':'')+'>'+esc(c)+'</option>').join('')+'</select></label><button class="btn" data-fin-aba="centros">Editar centros de custo</button></div>';
     if(f.aba==='diferencas')html+='<p class="fin-status">Origem e sistema são comparados por identificador. Coincidência de valor não é confirmação. Correções locais continuam visíveis como diferença.</p>';
-    html+='<p>'+linhas.length+' itens · Soma dos itens exibidos: <b>'+finValor(total,finCorTotal(linhas,f.aba))+'</b> · '+todas.filter(x=>!x.data).length+' sem data (visíveis em Todos os anos / Todos).</p>';
+    html+='<p>'+linhas.length+' itens neste filtro · Soma do filtro (todas as páginas): <b>'+finValor(total,finCorTotal(linhas,f.aba))+'</b> · '+todas.filter(x=>!x.data).length+' sem data (visíveis em Todos os anos / Todos).</p>';
     if(f.aba==='pendencias') html+='<div id="fin-sync" class="cartao"></div><button class="btn" id="fin-sincronizar">Sincronizar Omie</button>';
-    html+='<div class="rolagem"><table class="tabela fin-table"><thead><tr><th>Nº</th><th>Data</th><th>Descrição</th><th>Situação / centro de custo</th><th class="num">Valor</th></tr></thead><tbody>'+visiveis.map((x,i)=>'<tr tabindex="0" role="button" data-fin-row="'+i+'" class="ln-row '+(x.pendente?'pendente':'')+'"><td>'+(pagina*60+i+1)+'</td><td>'+esc(x.data||'Sem data')+'</td><td>'+esc(x.descricao||'')+(x.editadoAMao?'<span class="fin-lapis" title="Editado manualmente"> ✎</span>':'')+'</td><td>'+esc(x.situacao||'')+'</td><td class="num '+finCor(x,f.aba)+'">'+fmt.brl(x.valor)+'</td></tr>').join('')+'</tbody></table></div><div class="fin-pager"><button class="btn" id="fin-anterior" '+(!pagina?'disabled':'')+'>Anterior</button><span>Página '+(pagina+1)+' de '+Math.max(1,Math.ceil(linhas.length/60))+' · 60 itens por página</span><button class="btn" id="fin-proxima" '+((pagina+1)*60>=linhas.length?'disabled':'')+'>Próxima</button></div>';
+    html+='<div class="rolagem"><table class="tabela fin-table"><thead><tr><th>Nº</th><th>Data</th><th>Descrição</th><th>Situação / centro de custo</th><th class="num">Valor</th></tr></thead><tbody>'+visiveis.map((x,i)=>'<tr tabindex="0" role="button" data-fin-row="'+i+'" class="ln-row '+(x.pendente?'pendente':'')+'"><td>'+(pagina*60+i+1)+'</td><td>'+esc(FINANCEIRO.dataValida(x.data)?x.data.split('-').reverse().join('/'):'Sem data')+'</td><td>'+esc(x.descricao||'')+(x.editadoAMao?'<span class="fin-lapis" title="Editado manualmente"> ✎</span>':'')+'</td><td>'+esc(x.situacao||'')+'</td><td class="num '+finCor(x,f.aba)+'">'+fmt.brl(x.valor)+'</td></tr>').join('')+'</tbody></table></div><div class="fin-pager"><button class="btn" id="fin-anterior" '+(!pagina?'disabled':'')+'>Anterior</button><span>Página '+(pagina+1)+' de '+Math.max(1,Math.ceil(linhas.length/60))+' · 60 itens por página</span><button class="btn" id="fin-proxima" '+((pagina+1)*60>=linhas.length?'disabled':'')+'>Próxima</button></div>';
   }
   app.innerHTML=html;
+  app.querySelectorAll('[data-fin-fila]').forEach(b=>b.onclick=()=>{TELAS._fin={aba:'pendencias',fila:b.dataset.finFila,ano:'',mes:'',q:'',pagina:0};TELAS.financeiro();});
+  app.querySelectorAll('[data-obrigacao-local]').forEach(b=>b.onclick=()=>finObrigacao(achar('obrigacao',b.dataset.obrigacaoLocal)));
   app.querySelectorAll('[data-fin-grupo]').forEach(b=>b.onclick=()=>finAbrirPendenciasGrupo(b.dataset.finGrupo));
-  app.querySelectorAll('[data-fin-aba]').forEach(b=>b.onclick=()=>{f.aba=b.dataset.finAba;f.grupo='';f.centro='';f.q='';f.pagina=0;TELAS.financeiro();});
+  app.querySelectorAll('[data-fin-aba]').forEach(b=>b.onclick=()=>{f.aba=b.dataset.finAba;f.grupo='';f.fila='';f.centro='';f.q='';f.pagina=0;TELAS.financeiro();});
   app.querySelectorAll('[data-fin-mes]').forEach(b=>b.onclick=()=>{f.mes=b.dataset.finMes;f.pagina=0;TELAS.financeiro();});
-  app.querySelectorAll('[data-fin-row]').forEach(b=>{b.onclick=()=>finAbrirLinha(visiveis[Number(b.dataset.finRow)]);b.onkeydown=e=>{if(e.key==='Enter')b.click();};});
+  app.querySelectorAll('[data-fin-row]').forEach(b=>{b.onclick=()=>finAbrirLinha(visiveis[Number(b.dataset.finRow)]);b.onkeydown=e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();b.click();}};});
   const on=(id,fn)=>{const el=document.getElementById(id);if(el)el.onclick=fn;};
   const ano=document.getElementById('fin-ano');if(ano)ano.onchange=()=>{f.ano=ano.value;f.pagina=0;TELAS.financeiro();};
   const busca=document.getElementById('fin-busca');if(busca)busca.oninput=()=>{const pos=busca.selectionStart;f.q=busca.value;f.pagina=0;TELAS.financeiro();const novo=document.getElementById('fin-busca');novo.focus();novo.setSelectionRange(pos,pos);};
@@ -251,7 +257,7 @@ function finPertenceGrupo(x,grupo){
 function finAbrirPendenciasGrupo(grupo,pagina=0){
   const itens=finPendencias().filter(x=>finPertenceGrupo(x,grupo)).sort((a,b)=>String(a.data||'9999').localeCompare(String(b.data||'9999')));
   const pg=Math.max(0,Math.min(pagina,Math.ceil(itens.length/40)-1)),vis=itens.slice(pg*40,pg*40+40);
-  abrirModal({titulo:FIN_GRUPOS[grupo]+' · '+itens.length,corpo:'<p>Abra uma linha para editar. Após salvar, você retorna a esta lista.</p><div class="fin-fila">'+vis.map((x,i)=>'<button class="lin fin-fila-item" data-fila-item="'+i+'"><b>'+(pg*40+i+1)+'. '+esc(x.descricao)+'</b><span>'+esc(x.data||'Sem data')+' · '+finValor(x.valor,finCor(x))+'</span><small>'+esc(x.situacao)+'</small></button>').join('')+(itens.length?'':'<p>Todos os vínculos deste grupo foram resolvidos.</p>')+'</div>',acoes:[{texto:'Fechar',aoClicar:fecharModal},...(pg>0?[{texto:'Anterior',aoClicar:()=>{fecharModal();finAbrirPendenciasGrupo(grupo,pg-1);}}]:[]),...((pg+1)*40<itens.length?[{texto:'Próximas',aoClicar:()=>{fecharModal();finAbrirPendenciasGrupo(grupo,pg+1);}}]:[])]});
+  abrirModal({titulo:FIN_GRUPOS[grupo]+' · '+itens.length,corpo:'<p>Abra uma linha para editar. Após salvar, você retorna a esta lista.</p><div class="fin-fila">'+vis.map((x,i)=>'<button class="lin fin-fila-item" data-fila-item="'+i+'"><b>'+(pg*40+i+1)+'. '+esc(x.descricao)+'</b><span>'+esc(FINANCEIRO.dataValida(x.data)?x.data.split('-').reverse().join('/'):'Sem data')+' · '+finValor(x.valor,finCor(x))+'</span><small>'+esc(x.situacao)+'</small></button>').join('')+(itens.length?'':'<p>Todos os vínculos deste grupo foram resolvidos.</p>')+'</div>',acoes:[{texto:'Fechar',aoClicar:fecharModal},...(pg>0?[{texto:'Anterior',aoClicar:()=>{fecharModal();finAbrirPendenciasGrupo(grupo,pg-1);}}]:[]),...((pg+1)*40<itens.length?[{texto:'Próximas',aoClicar:()=>{fecharModal();finAbrirPendenciasGrupo(grupo,pg+1);}}]:[])]});
   document.querySelectorAll('[data-fila-item]').forEach(b=>b.onclick=()=>{const x=vis[Number(b.dataset.filaItem)];fecharModal();const voltar=()=>{if(typeof render==='function')render();finAbrirPendenciasGrupo(grupo,pg);};if(x.rec)finEditarRecebimento(x.rec,voltar);else if(grupo==='corretores')abrirAssociarComissao(x.cx.id,voltar);else abrirEdicaoLancamento(x.cx.id,voltar);});
 }
 
@@ -259,4 +265,27 @@ function finAbrirVencidosOmie(){
   const r=resumoInadimplenciaOmie();if(!r)return;
   abrirModal({titulo:'Títulos vencidos no Omie · '+fmt.brl(r.total),corpo:'<p>Valores da origem, inclusive os títulos cujo lote ainda precisa ser confirmado. Ajustes locais ficam na aba Diferenças com Omie.</p>'+r.titulos.map((t,i)=>'<button class="lin fin-fila-item" data-vencido-omie="'+i+'"><b>'+(i+1)+'. Título '+t.titulo+'</b><span>'+esc(t.venc)+' · '+finAtraso(t.original.resumo.nValAberto)+'</span></button>').join(''),acoes:[{texto:'Fechar',aoClicar:fecharModal}]});
   document.querySelectorAll('[data-vencido-omie]').forEach(b=>b.onclick=()=>{const t=r.titulos[Number(b.dataset.vencidoOmie)];fecharModal();finVincularTitulo(t,()=>{if(typeof render==='function')render();finAbrirVencidosOmie();});});
+}
+
+// Cada verificação ocupa apenas uma faixa de prioridade; os atalhos por assunto podem se sobrepor.
+function finGrupoFila(x) {
+  if(x.rec||x.cx)return 'realizados';
+  if(FINANCEIRO.dataValida(x.data))return x.data<hojeISO()?'vencidos':'futuros';
+  return 'cadastro';
+}
+function finResumoFila(itens) {
+  const grupos={realizados:'Recebimentos e despesas realizados',vencidos:'Títulos vencidos a conferir',futuros:'Títulos futuros a conferir',cadastro:'Cadastros e itens sem data'};
+  return '<section class="cartao"><h2>O que conferir primeiro</h2><p class="nota">Verificações agrupadas por prioridade. Não representam dívida adicional; um registro pode exigir mais de uma correção. Os atalhos por assunto abaixo podem se sobrepor.</p><div class="fin-prioridades">'+Object.entries(grupos).map(([id,nome])=>'<button class="btn" data-fin-fila="'+id+'"><strong>'+itens.filter(x=>finGrupoFila(x)===id).length+'</strong><span>'+nome+'</span></button>').join('')+'</div></section>';
+}
+function finCompromissosHTML() {
+  const c=compromissosFinanceiros();
+  return '<section class="cartao"><h2>Composição dos compromissos</h2><div class="fin-prioridades"><a class="btn" href="#/financeiro" onclick="TELAS._fin={aba:\'pagar\',ano:\'\',mes:\'\',q:\'\'};TELAS.financeiro()"><span>A pagar no Omie</span><strong>'+finSaida(c.total)+'</strong></a><a class="btn" href="#/comissoes"><span>Comissões calculadas localmente · a conferir</span><strong>'+finSaida(c.comissoes)+'</strong></a></div><p class="nota">Valores locais não são somados ao Omie: podem representar o mesmo compromisso. No Omie, '+finSaida(c.vencido)+' estão vencidos e '+finSaida(c.semData)+' estão sem vencimento.</p><details><summary>Planejamento local · fora dos totais Omie</summary><p>'+c.locais+' registros de planejamento, obrigações e etapas. Confira a correspondência no Omie antes de consolidar.</p>'+lista('obrigacao').map(o=>'<button class="btn" data-obrigacao-local="'+esc(o.id)+'">'+esc(o.descricao||'Obrigação local')+' · '+finSaida(o.valor)+'</button>').join('')+'<p><a class="btn" href="#/relatorios">Ver planejamento</a> <a class="btn" href="#/cronograma">Ver cronograma</a></p></details></section>';
+}
+
+function finMotivoPagamento(r,ctx=finIndices()) {
+  const t=ctx.porTitulo.get('CONTA_A_RECEBER|'+r.omie?.titulo);
+  const doc=String(t?.original?.detalhes?.cNumTitulo||'').trim();
+  if(!t)return 'Sem lote · título Omie não identificado';
+  if(!doc)return 'Sem lote · documento da origem não informa quadra/lote';
+  return 'Sem lote · '+(/^Q.*E/i.test(doc)?'documento de vários lotes: ':'documento a conferir: ')+doc;
 }

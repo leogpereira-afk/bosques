@@ -89,7 +89,7 @@ function atualizarBadge() {
   el.textContent = S.sincronizando ? 'sincronizando…'
     : S.fila.length ? S.fila.length + ' a enviar'
     : !S.online ? 'offline — salvando no aparelho'
-    : S.ultimoPull ? 'Dados locais atualizados' : '';
+    : S.ultimoPull ? 'Dados neste aparelho: ' + new Date(S.ultimoPull).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}) : '';
 }
 
 let _renderPendente = false;
@@ -105,6 +105,10 @@ function render() {
   renderTopo();
   const rotas = rotasDoPerfil().concat(['lote', 'venda', 'comissoes', 'simulacao', 'caixa', 'lancamentos', 'relatorios']);
   const tela = rotas.includes(nome) && TELAS[nome] ? TELAS[nome] : null;
+  if (S.cacheCompleto === false) {
+    document.getElementById('app').innerHTML='<section class="cartao" role="status"><h2>'+ (S.erroSync?'Dados ainda indisponíveis':'Preparando os dados do sistema') +'</h2><p>'+esc(S.erroSync||'Aguarde a leitura completa. Os indicadores serão apresentados juntos, com a mesma base de dados.')+'</p><button class="btn" id="dados-tentar">Tentar carregar novamente</button></section>';
+    document.getElementById('dados-tentar').onclick=()=>puxar();return;
+  }
   if (tela) tela(id);
   else location.hash = '#/' + rotasDoPerfil()[0];
 }
@@ -427,7 +431,7 @@ function abrirAcesso(id) {
 }
 
 /* ── Eventos e partida ─────────────────────────────────────────────────────── */
-document.addEventListener('bsq:status', atualizarBadge);
+document.addEventListener('bsq:status', () => { atualizarBadge(); if(S.senhaHash && S.cacheCompleto===false && !S.sincronizando) render(); });
 document.addEventListener('bsq:dados', () => {
   // Redesenhar com modal aberto apagaria o que está sendo digitado.
   if (typeof _modalAberto !== 'undefined' && _modalAberto) { _renderPendente = true; return; }

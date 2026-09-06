@@ -66,7 +66,7 @@ function totaisDoMes(mes) {
   return { entradas:entradas/100, saidas:saidas/100, resultado:(entradas-saidas)/100 };
 }
 
-// Acumulado do empreendimento desde o início (inclui o que está sem data —
+// Acumulado do empreendimento no histórico disponível (inclui o que está sem data —
 // dinheiro sem data existe do mesmo jeito; o aviso da tela cobra a data).
 function totaisAcumulados() {
   let entradas = 0, saidas = 0;
@@ -79,9 +79,9 @@ function totaisAcumulados() {
 }
 
 /* ── DRE do empreendimento ──────────────────────────────────────────────────
-   Três colunas: o mês escolhido, o ano dele e desde o início. As despesas
+   Três colunas: o mês escolhido, o ano dele e no histórico disponível. As despesas
    abertas POR CATEGORIA — é a resposta de "para onde o dinheiro está indo".
-   Sem data entra só no "desde o início". */
+   Sem data entra só no "no histórico disponível". */
 function dreDados(mesSel) {
   const ano = mesSel.slice(0, 4);
   const balde = () => ({ recVendas: 0, outras: {}, desp: {} });
@@ -218,7 +218,7 @@ TELAS.caixa = function () {
     '<div class="cartao"><h2>Receitas e despesas realizadas <span class="nota">— regime de caixa · clique num lançamento para reclassificar</span>' +
       ' <button class="btn mini" id="dre-pdf" style="float:right">📄 PDF</button></h2>' +
     '<div class="rolagem"><table class="tabela"><thead><tr><th></th>' +
-      '<th class="num">' + nomeMes(mes) + '</th><th class="num">' + dre.anoRotulo + '</th><th class="num">Desde o início</th></tr></thead><tbody>' +
+      '<th class="num">' + nomeMes(mes) + '</th><th class="num">' + dre.anoRotulo + '</th><th class="num">Acumulado disponível</th></tr></thead><tbody>' +
     linhaDre('Recebimentos de vendas (entradas e parcelas)', dre.mes.recVendas, dre.ano.recVendas, dre.total.recVendas) +
     dre.catsOutras.map((c) => linhaDre(esc(c), dre.mes.outras[c] || 0, dre.ano.outras[c] || 0, dre.total.outras[c], { recuo: true })).join('') +
     linhaDre('(=) Receita', dre.mes.receita, dre.ano.receita, dre.total.receita, { forte: true }) +
@@ -536,6 +536,7 @@ TELAS.lancamentos = function () {
       if (x.entrada) return false;                    // centro de custo é coisa de despesa
       if (f.cc === '__sem__' ? x.centroCusto : x.centroCusto !== f.cc) return false;
     }
+    if(f.forma && (f.forma==='__sem__' ? !!x.forma && x.forma!=='Não informada' : x.forma!==f.forma)) return false;
     if (f.q && !((x.descricao + ' ' + x.obs + ' ' + x.forma + ' ' + x.criadoPor + ' ' + x.codigo).toLowerCase().includes(f.q.toLowerCase()))) return false;
     return true;
   }).sort((a, b) => String(b.data).localeCompare(a.data));
@@ -598,7 +599,7 @@ TELAS.lancamentos = function () {
       '<div class="painel clicavel" data-pl=""><div class="rot">Diferença</div><div class="num ' + (somaE - somaS >= 0 ? 'pos' : 'neg') + '">' + fmt.brl(somaE - somaS) + '</div></div>' +
     '</div>' +
     '<div class="filtros">' +
-      '<input type="search" id="ln-q" placeholder="descrição, quem fez, forma…" value="' + esc(f.q) + '">' +
+      (f.forma?'<span class="nota">Forma: '+esc(f.forma==='__sem__'?'Não informada':f.forma)+' <button class="btn mini" id="ln-limpar-forma">Limpar forma</button></span>':'')+'<input type="search" id="ln-q" placeholder="descrição, quem fez, forma…" value="' + esc(f.q) + '">' +
       '<select id="ln-ano"><option value=""' + (f.ano === '' ? ' selected' : '') + '>Todos os anos</option>' +
         [...new Set(meses.map((m) => m.slice(0, 4)))].sort().reverse().map((a2) =>
           '<option value="' + a2 + '"' + (f.ano === a2 ? ' selected' : '') + '>' + a2 + '</option>').join('') + '</select>' +
@@ -626,6 +627,7 @@ TELAS.lancamentos = function () {
   app.querySelectorAll('.painel[data-pl]').forEach((el) => {
     el.onclick = () => { f.tipo = el.dataset.pl; TELAS.lancamentos(); };
   });
+  const limparForma=document.getElementById('ln-limpar-forma');if(limparForma)limparForma.onclick=()=>{f.forma='';TELAS.lancamentos();};
   document.getElementById('ln-q').oninput = (e) => { f.q = e.target.value; TELAS.lancamentos(); };
   document.getElementById('ln-ano').onchange = (e) => { f.ano = e.target.value; TELAS.lancamentos(); };
   app.querySelectorAll('.chip[data-lm]').forEach((c) => {
@@ -636,7 +638,7 @@ TELAS.lancamentos = function () {
       f.mes === 'sem-data' ? 'sem data' : f.mes ? ['janeiro','fevereiro','março','abril','maio','junho','julho','agosto','setembro','outubro','novembro','dezembro'][Number(f.mes) - 1] : 'todos os meses',
       f.ano || 'todos os anos',
       f.tipo === 'entrada' ? 'só entradas' : f.tipo === 'saida' ? 'só saídas' : '',
-      f.cat, f.cc === '__sem__' ? 'sem centro' : f.cc, f.q,
+      f.cat, f.forma==='__sem__'?'Forma não informada':f.forma, f.cc === '__sem__' ? 'sem centro' : f.cc, f.q,
     ].filter(Boolean).join(' · ');
     const blob = PDF.lancamentos(rotulo, filtrados.map((x) => Object.assign({}, x, { pendente: problemasDoLancamento(x).length > 0 })), S.cfg || {});
     salvarNoAparelho(blob, 'Lancamentos-Bosques-' + hojeISO() + '.pdf');
@@ -666,83 +668,37 @@ TELAS.lancamentos = function () {
 // Vencida NÃO entra no mês: vira um número próprio ("cobrar"), senão o
 // passado se disfarça de futuro.
 function aReceberPorMes() {
-  const hoje = hojeISO();
-  const origem=lista('titulo').filter(t=>t.grupo==='CONTA_A_RECEBER');
-  if(origem.length){const meses={},vencidos=[];let total=0,parcelas=0;for(const t of origem){const saldo=FINANCEIRO.cent(t.original?.resumo?.nValAberto);if(t.status==='CANCELADO'||saldo<=0||!FINANCEIRO.dataValida(t.venc))continue;total+=saldo;parcelas++;if(t.venc<hoje)vencidos.push(saldo);else {const m=mesDe(t.venc);meses[m]=(meses[m]||0)+saldo;}}return {porMes:Object.fromEntries(Object.entries(meses).map(([m,v])=>[m,v/100])),vencido:vencidos.reduce((s,v)=>s+v,0)/100,total:total/100,parcelas,origemOmie:true};}
-
-  const porMes = {};
-  let vencido = 0, total = 0, parcelas = 0;
-  for (const v of vendasVivas()) {
-    const r = resumoVenda(v);
-    for (const l of r.carne) {
-      // Parcela PAGA está encerrada — quitar com o desconto de pontualidade
-      // não deixa "falta"; contar a diferença criava vencido fantasma.
-      if (l.situacao === 'paga' || l.conferir) continue;
-      // A projeção usa SEMPRE o valor EM DIA (l.valorDia do espelho; sem
-      // espelho l.valor já É o em dia do plano) — é o que a nota da tela
-      // 'supõe as parcelas pagas em dia' promete. Cheio aqui inflava 25%.
-      const vlr = l.valorDia != null ? l.valorDia : l.valor;
-      const falta = l.saldo != null ? l.saldo : Math.max(0, Math.round((vlr - l.pago) * 100) / 100);
-      if (l.venc && l.venc < hoje) {
-        // VENCIDO é só o que a régua marca 'atrasada' (parcela do espelho do
-        // Omie sem pagamento). Parcela derivada do plano com data passada em
-        // venda SEM boletos não é dívida provada — fica fora da conta toda.
-        // Atrasada cobra o CHEIO (atrasou, perdeu o desconto) — outra régua,
-        // de propósito.
-        const faltaCheia = l.saldo != null ? l.saldo : Math.round((l.valor - Math.min(l.pago, l.valor)) * 100) / 100;
-        if (l.situacao === 'atrasada' && faltaCheia > 0.004) { vencido += faltaCheia; total += faltaCheia; parcelas++; }
-        continue;
-      }
-      if (falta <= 0.004) continue;
-      total += falta; parcelas++;
-      const m = mesDe(l.venc);
-      if (/^\d{4}-\d{2}$/.test(m)) porMes[m] = (porMes[m] || 0) + falta;
-    }
+  const hoje=hojeISO(),meses={};let vencido=0,total=0,semData=0,parcelas=0;
+  for(const t of titulosAbertosOmie('CONTA_A_RECEBER')) {
+    const saldo=FINANCEIRO.cent(t.original.resumo.nValAberto);total+=saldo;parcelas++;
+    if(!FINANCEIRO.dataValida(t.venc)){semData+=saldo;continue;}
+    if(t.venc<hoje)vencido+=saldo;else {const m=mesDe(t.venc);meses[m]=(meses[m]||0)+saldo;}
   }
-  return { porMes, vencido, total, parcelas };
+  return {porMes:Object.fromEntries(Object.entries(meses).map(([m,v])=>[m,v/100])),vencido:vencido/100,total:total/100,semData:semData/100,parcelas,origemOmie:true};
 }
 
-// Quanto está PREVISTO de gasto num mês: os cadastrados à mão ('prev') MAIS
-// o que falta das etapas do cronograma (o restante de cada etapa não
-// concluída, diluído nos meses que sobram do período dela).
+// A projeção confirmada usa só títulos Omie. Planejamento local fica separado.
 function previstoNoMes(m) {
-  let soma = 0;
-  for (const g of lista('prev')) {
-    if (g.recorrencia === 'mensal') {
-      if ((!g.inicio || g.inicio <= m) && (!g.fim || m <= g.fim)) soma += Number(g.valor) || 0;
-    } else if ((g.data || '').slice(0, 7) === m) {
-      soma += Number(g.valor) || 0;
-    }
-  }
-  for (const o of lista('obrigacao')) {
-    if(String(o.venc||'').slice(0,7)!==m)continue;
-    const pago=cxVivos().filter(c=>c.obrigacaoId===o.id).reduce((s,c)=>s+(Number(c.valor)||0),0);
-    soma+=Math.max(0,(Number(o.valor)||0)-pago);
-  }
-  return soma + previstoEtapasNoMes(m);
+  return titulosAbertosOmie('CONTA_A_PAGAR').filter(t=>FINANCEIRO.dataValida(t.venc)&&t.venc>=hojeISO()&&mesDe(t.venc)===m)
+    .reduce((s,t)=>s+FINANCEIRO.cent(t.original.resumo.nValAberto),0)/100;
 }
-
-// Idade do vencido: quem está devendo há mais tempo é quem se cobra primeiro.
+function compromissosFinanceiros() {
+  const titulos=titulosAbertosOmie('CONTA_A_PAGAR'),soma=ts=>ts.reduce((s,t)=>s+FINANCEIRO.cent(t.original.resumo.nValAberto),0)/100;
+  return {total:soma(titulos),vencido:soma(titulos.filter(t=>FINANCEIRO.dataValida(t.venc)&&t.venc<hojeISO())),
+    semData:soma(titulos.filter(t=>!FINANCEIRO.dataValida(t.venc))),
+    comissoes:comissoesAPagar().reduce((s,x)=>s+FINANCEIRO.cent(x.saldo),0)/100,
+    locais:lista('obrigacao').length+lista('prev').length+lista('etapa').filter(e=>Number(e.valorPrevisto)>0).length};
+}
 function agingInadimplencia() {
-  const hoje = new Date(hojeISO() + 'T00:00:00');
-  const faixas = [
-    { rotulo: '1 a 30 dias', ate: 30, rs: 0, parcelas: 0, contratos: new Set() },
-    { rotulo: '31 a 60 dias', ate: 60, rs: 0, parcelas: 0, contratos: new Set() },
-    { rotulo: '61 a 90 dias', ate: 90, rs: 0, parcelas: 0, contratos: new Set() },
-    { rotulo: 'mais de 90 dias', ate: 1e9, rs: 0, parcelas: 0, contratos: new Set() },
-  ];
-  for (const v of vendasVivas()) {
-    const r = resumoVenda(v);
-    for (const l of r.carne) {
-      if (l.situacao !== 'atrasada') continue;
-      const falta = l.saldo != null ? l.saldo : Math.round((l.valor - Math.min(l.pago, l.valor)) * 100) / 100;
-      if (falta <= 0.004) continue;
-      const dias = Math.floor((hoje - new Date(l.venc + 'T00:00:00')) / 86400000);
-      const f = faixas.find((x) => dias <= x.ate);
-      f.rs += falta; f.parcelas++; f.contratos.add(v.id);
-    }
+  const hoje=Date.parse(hojeISO()+'T00:00:00Z'),vinculos=vinculosTitulosOmie();
+  const faixas=[{rotulo:'1 a 30 dias',ate:30},{rotulo:'31 a 60 dias',ate:60},{rotulo:'61 a 90 dias',ate:90},{rotulo:'mais de 90 dias',ate:Infinity}]
+    .map(f=>({...f,rs:0,parcelas:0,contratos:new Set(),semVinculo:0}));
+  for(const t of resumoInadimplenciaOmie().titulos) {
+    const dias=Math.floor((hoje-Date.parse(t.venc+'T00:00:00Z'))/86400000),f=faixas.find(f=>dias<=f.ate),cent=FINANCEIRO.cent(t.original.resumo.nValAberto);
+    f.rs+=cent;f.parcelas++;
+    const vs=vinculos.get(String(t.titulo));if(vs)vs.forEach(id=>f.contratos.add(id));else f.semVinculo+=cent;
   }
-  return faixas;
+  return faixas.map(f=>({...f,rs:f.rs/100,semVinculo:f.semVinculo/100}));
 }
 
 // Mostra o calendário desde 2025 mesmo enquanto o histórico aguarda importação.
@@ -769,6 +725,27 @@ function relHistoricoDados(mes) {
       resultado:(total.entradas-total.saidas)/100, quantidade:total.quantidade},
     dre:dreDados(mes), semData:[...lista('rec'), ...cxVivos()].filter(x=>!x.data).length};
 }
+function relSituacaoMes(m,quantidade) {
+  const atual=hojeISO().slice(0,7);
+  return m>atual?'Mês futuro':m===atual?'Parcial até '+hojeISO().split('-').reverse().join('/'):
+    quantidade?'Com lançamentos importados':'Sem lançamentos importados';
+}
+function relComparacao(h) {
+  const atual=hojeISO().slice(0,7);
+  if(h.mes>=atual)return h.mes===atual?'Mês em andamento: comparação percentual suspensa até o fechamento.':'Mês futuro: ainda não há resultado realizado para comparar.';
+  const d=new Date(h.mes+'-01T12:00:00Z');d.setUTCMonth(d.getUTCMonth()-1);const anterior=d.toISOString().slice(0,7);
+  if(!movimentosDoMes(anterior).length||!h.selecionado.quantidade)return 'Comparação indisponível: um dos meses não tem lançamentos importados.';
+  const dif=FINANCEIRO.cent(h.selecionado.resultado)-FINANCEIRO.cent(totaisDoMes(anterior).resultado);
+  return 'Resultado '+(dif>=0?'aumentou ':'diminuiu ')+fmt.brl(Math.abs(dif)/100)+' em relação a '+nomeMes(anterior)+'. Comparação dos dados importados.';
+}
+function relGrafico(h) {
+  const max=Math.max(1,...h.meses.flatMap(m=>[m.entradas,m.saidas]));
+  return '<div class="rel-grafico" role="img" aria-label="Entradas e saídas por mês. Os valores exatos estão na tabela abaixo.">'+h.meses.map(m=>'<div class="rel-grafico-mes"><div class="rel-barras"><i class="rel-barra entrada" style="height:'+Math.max(0,m.entradas/max*100)+'%"></i><i class="rel-barra saida" style="height:'+Math.max(0,m.saidas/max*100)+'%"></i></div><span>'+nomeMes(m.mes).split('/')[0]+'</span></div>').join('')+'</div><p class="nota"><span class="fin-entrada">■ Entradas</span> · <span class="fin-saida">■ Saídas</span> · Valores exatos na tabela.</p>';
+}
+function coberturaFinanceira() {
+  const datas=[...lista('rec'),...cxVivos()].map(r=>r.data).filter(d=>FINANCEIRO.dataValida(d)).sort();
+  return datas.length?'Lançamentos disponíveis: '+datas[0].split('-').reverse().join('/')+' a '+datas[datas.length-1].split('-').reverse().join('/')+'. Períodos anteriores sem registros não estão comprovados.':'Nenhum lançamento realizado disponível nesta leitura.';
+}
 function relHistoricoHTML(h) {
   const valor = (v, tipo) => finValor(v, tipo || (v < 0 ? 'fin-saida' : 'fin-entrada'));
   const d = h.dre, t = h.selecionado;
@@ -777,19 +754,19 @@ function relHistoricoHTML(h) {
   return '<section class="cartao" id="rel-mensal"><div class="rel-cabecalho"><div><h2>O que entrou e saiu, mês a mês</h2><p class="nota">Valores já lançados no caixa, pela data do recebimento ou pagamento. Escolha o mês para ver sua composição abaixo.</p></div><button class="btn" id="rel-historico-pdf">PDF mensal e anual</button></div>'+
     (h.total.quantidade===0?'<p class="fin-status">Nenhum lançamento importado para '+h.ano+'. Os valores zerados não confirmam ausência de movimentação: confira a sincronização ou importe o histórico da origem.</p>':'')+
     '<div class="fin-toolbar"><label>Ano <select id="rel-hist-ano">'+anos.map(a=>'<option'+(a===h.ano?' selected':'')+'>'+a+'</option>').join('')+'</select></label><label>Mês <select id="rel-hist-mes">'+h.meses.map(m=>'<option value="'+m.mes+'"'+(m.mes===h.mes?' selected':'')+'>'+nomeMes(m.mes)+'</option>').join('')+'</select></label></div>'+
-    '<div class="paineis">'+[
+    '<p class="rel-periodo">Realizado: '+nomeMes(h.mes)+' · '+relSituacaoMes(h.mes,t.quantidade)+'</p><div class="paineis">'+[
       ['Entrou em '+nomeMes(h.mes),t.entradas,'fin-entrada','entrada','Parcelas recebidas + outras receitas.'],
       ['Saiu em '+nomeMes(h.mes),t.saidas,'fin-saida','saida','Despesas, comissões e devoluções pagas.'],
       ['Resultado do mês',t.resultado,'','','Entradas menos saídas do mês.'],
-      ['Resultado do ano',h.total.resultado,'','ano','Soma dos lançamentos de janeiro a dezembro.']
+      ['Acumulado de '+h.ano,h.total.resultado,'','ano','Resultado dos lançamentos disponíveis no ano.']
     ].map(([titulo,v,cor,tipo,exp])=>'<button class="painel clicavel" data-rel-lanc="'+tipo+'"><span class="rot">'+titulo+'</span><b class="num">'+valor(v,cor)+'</b><span class="sub">'+exp+'</span></button>').join('')+'</div>'+
     '<p class="nota">Resultado positivo indica que entrou mais do que saiu. Não representa, sozinho, o saldo disponível no banco. Meses sem lançamentos aparecem zerados.</p>'+
-    '<div class="rolagem"><table class="tabela rel-historico"><thead><tr><th>Mês de '+h.ano+'</th><th class="num">Entrou</th><th class="num">Saiu</th><th class="num">Resultado</th><th class="num">Movimentos</th></tr></thead><tbody>'+
-    h.meses.map(m=>'<tr'+(m.mes===h.mes?' class="rel-mes-selecionado"':'')+'><th scope="row"><button class="btn mini" data-rel-mes="'+m.mes+'" aria-pressed="'+(m.mes===h.mes)+'">'+nomeMes(m.mes)+'</button></th><td class="num">'+valor(m.entradas,'fin-entrada')+'</td><td class="num">'+valor(m.saidas,'fin-saida')+'</td><td class="num">'+valor(m.resultado)+'</td><td class="num">'+m.quantidade+'</td></tr>').join('')+
-    '<tr class="rel-total"><th scope="row">Total do ano</th><td class="num">'+valor(h.total.entradas,'fin-entrada')+'</td><td class="num">'+valor(h.total.saidas,'fin-saida')+'</td><td class="num">'+valor(h.total.resultado)+'</td><td class="num">'+h.total.quantidade+'</td></tr></tbody></table></div>'+
-    (h.semData?'<p class="fin-status">'+h.semData+' lançamento(s) sem data: entram no acumulado desde o início, mas ficam fora dos meses e anos. <button class="btn mini" id="rel-sem-data">Conferir lançamentos sem data</button></p>':'')+'</section>'+
+    '<p class="nota">'+esc(relComparacao(h))+'</p>'+relGrafico(h)+'<div class="rolagem"><table class="tabela rel-historico"><thead><tr><th>Mês de '+h.ano+'</th><th class="num">Entrou</th><th class="num">Saiu</th><th class="num">Resultado</th><th class="num">Movimentos</th><th>Situação</th></tr></thead><tbody>'+
+    h.meses.map(m=>'<tr'+(m.mes===h.mes?' class="rel-mes-selecionado"':'')+'><th scope="row"><button class="btn mini" data-rel-mes="'+m.mes+'" aria-pressed="'+(m.mes===h.mes)+'">'+nomeMes(m.mes)+'</button></th><td class="num">'+valor(m.entradas,'fin-entrada')+'</td><td class="num">'+valor(m.saidas,'fin-saida')+'</td><td class="num">'+valor(m.resultado)+'</td><td class="num">'+m.quantidade+'</td><td>'+relSituacaoMes(m.mes,m.quantidade)+'</td></tr>').join('')+
+    '<tr class="rel-total"><th scope="row">Total do ano</th><td class="num">'+valor(h.total.entradas,'fin-entrada')+'</td><td class="num">'+valor(h.total.saidas,'fin-saida')+'</td><td class="num">'+valor(h.total.resultado)+'</td><td class="num">'+h.total.quantidade+'</td><td>Acumulado disponível</td></tr></tbody></table></div>'+
+    (h.semData?'<p class="fin-status">'+h.semData+' lançamento(s) sem data: entram no acumulado disponível, mas ficam fora dos meses e anos. <button class="btn mini" id="rel-sem-data">Conferir lançamentos sem data</button></p>':'')+'</section>'+
     '<section class="cartao" id="rel-dre"><div class="rel-cabecalho"><div><h2>De onde veio e para onde foi o dinheiro</h2><p class="nota">Demonstrativo de receitas e despesas realizadas: compare '+nomeMes(h.mes)+', o ano '+h.ano+' e todo o histórico. Valores futuros não entram neste quadro.</p></div><button class="btn" id="rel-dre-pdf">PDF por categoria</button></div>'+
-    '<div class="rolagem"><table class="tabela"><thead><tr><th>Categoria</th><th class="num">'+nomeMes(h.mes)+'</th><th class="num">Ano '+h.ano+'</th><th class="num">Desde o início</th></tr></thead><tbody>'+
+    '<div class="rolagem"><table class="tabela"><thead><tr><th>Categoria</th><th class="num">'+nomeMes(h.mes)+'</th><th class="num">Ano '+h.ano+'</th><th class="num">Acumulado disponível</th></tr></thead><tbody>'+
     linha('Recebimentos das vendas de lotes',[d.mes.recVendas,d.ano.recVendas,d.total.recVendas],'fin-entrada')+
     d.catsOutras.map(c=>linha('Outras receitas · '+c,[d.mes.outras[c]||0,d.ano.outras[c]||0,d.total.outras[c]],'fin-entrada')).join('')+
     linha('Total de entradas',[d.mes.receita,d.ano.receita,d.total.receita],'fin-entrada',true)+
@@ -808,10 +785,10 @@ TELAS.relatorios = function () {
   const mesHistorico = TELAS._relMes || mesAtual;
   const historico = relHistoricoDados(mesHistorico);
   const detalhePeriodo = TELAS._relDetalhe || 'mes';
-  const rotuloRealizado = detalhePeriodo==='total'?'desde o início':detalhePeriodo==='ano'?'em '+historico.ano:'em '+nomeMes(mesHistorico);
+  const rotuloRealizado = detalhePeriodo==='total'?'no histórico disponível':detalhePeriodo==='ano'?'em '+historico.ano:'em '+nomeMes(mesHistorico);
   const filtroDetalhe = {ano:detalhePeriodo==='total'?'':historico.ano,mes:detalhePeriodo==='mes'?mesHistorico:''};
 
-  // vendido / recebido / gasto (sempre desde o início — é o retrato do negócio)
+  // vendido / recebido / gasto (sempre no histórico disponível — é o retrato do negócio)
   const comercial=resumoComercial();
   const vendasDePe = comercial.contratos;
   const vgv = comercial.vgv;
@@ -819,7 +796,7 @@ TELAS.relatorios = function () {
 
   // a receber e previstos DENTRO do horizonte
   const ar = aReceberPorMes();
-  const mesesFuturos = Object.keys(ar.porMes).sort().filter((m) => m >= mesAtual);
+  const mesesFuturos = [...new Set([...Object.keys(ar.porMes),...titulosAbertosOmie('CONTA_A_PAGAR').filter(t=>FINANCEIRO.dataValida(t.venc)).map(t=>mesDe(t.venc))])].sort().filter(m=>m>=mesAtual);
   // Os meses do horizonte vêm do CALENDÁRIO, não de quem tem parcela: mês sem
   // vencimento também tem gasto previsto — derivar de porMes o descartava e o
   // saldo projetado saía inflado.
@@ -839,7 +816,8 @@ TELAS.relatorios = function () {
   const previstoSemData = lista('etapa').filter((e) => !e.inicio && !e.fim)
     .reduce((s2, e) => s2 + Math.max(0, (Number(e.valorPrevisto) || 0) - (pagoEtapas[e.id] || 0)), 0);
 
-  const rotuloHz = { mes: 'em ' + nomeMes(mesAtual), ano: 'em ' + anoAtual, total: 'até acabar' }[hz];
+  const rotuloHz = { mes: 'até o fim de ' + nomeMes(mesAtual), ano: 'até dez/' + anoAtual, total: 'até o último vencimento' }[hz];
+  const compromissos=compromissosFinanceiros();
   // Os recebimentos e despesas detalhados seguem o mês histórico selecionado.
   const dentroHz = d => detalhePeriodo==='total' || (detalhePeriodo==='ano'?mesDe(d).slice(0,4)===historico.ano:mesDe(d)===mesHistorico);
 
@@ -865,26 +843,26 @@ TELAS.relatorios = function () {
   const blocoAging = ar.vencido > 0.01
     ? '<div class="cartao" id="rel-atrasos"><h2>Inadimplência por idade <span class="nota">— quem está vencido há mais tempo cobra-se primeiro</span></h2>' +
       '<div class="rolagem"><table class="tabela"><thead><tr><th>Vencido há</th><th></th>' +
-      '<th class="num">Valor</th><th class="num">Parcelas</th><th class="num">Contratos</th></tr></thead><tbody>' +
+      '<th class="num">Valor</th><th class="num">Parcelas</th><th class="num">Contratos confirmados</th><th class="num">Sem lote confirmado</th></tr></thead><tbody>' +
       aging.map((f) => '<tr><td>' + f.rotulo + '</td>' +
         '<td style="width:34%"><div style="background:var(--verde-palido);border-radius:6px;height:12px;overflow:hidden">' +
           '<div style="width:' + Math.round(f.rs / maiorFaixa * 100) + '%;height:100%;background:var(--saida)"></div></div></td>' +
         '<td class="num">' + (f.rs ? fmt.brl(f.rs) : '—') + '</td>' +
-        '<td class="num">' + (f.parcelas || '—') + '</td><td class="num">' + (f.contratos.size || '—') + '</td></tr>').join('') +
+        '<td class="num">' + (f.parcelas || '—') + '</td><td class="num">' + (f.contratos.size || '—') + '</td><td class="num fin-atraso">'+fmt.brl(f.semVinculo)+'</td></tr>').join('') +
       '<tr style="font-weight:800"><td>TOTAL</td><td></td><td class="num">' + fmt.brl(ar.vencido) + '</td>' +
       '<td class="num">' + aging.reduce((s, f) => s + f.parcelas, 0) + '</td>' +
-      '<td class="num">' + new Set(aging.flatMap((f) => [...f.contratos])).size + '</td></tr>' +
+      '<td class="num">' + new Set(aging.flatMap((f) => [...f.contratos])).size + '</td><td class="num fin-atraso">'+fmt.brl(aging.reduce((s,f)=>s+f.semVinculo,0))+'</td></tr>' +
       '</tbody></table></div>' +
-      '<button class="btn mini" id="rel-cobrar" style="margin-top:8px">📣 Ir cobrar (Vendas → só atraso)</button></div>'
+      '<button class="btn mini" id="rel-cobrar" style="margin-top:8px">Abrir todos os títulos vencidos no Omie</button></div>'
     : '';
 
   app.innerHTML = '<div class="relatorios-layout"><div class="rel-intro"><div><h2>Relatórios do empreendimento</h2><p>Consulte os quadros de resultados, recebimentos e planejamento em um só lugar.</p></div><a class="btn" href="#/financeiro">Abrir financeiro</a></div>'+
-    '<nav class="rel-atalhos" aria-label="Seções do relatório">'+[['rel-mensal','Mês a mês'],['rel-dre','Receitas e despesas'],['rel-resumo','Acumulado'],['rel-tabela','Previsão de caixa'],['rel-formas','Recebimentos'],['rel-centros','Despesas'],['rel-previstos','Planejamento']].map(([id,nome])=>'<button class="btn" data-rel-secao="'+id+'">'+nome+'</button>').join('')+'</nav>'+relHistoricoHTML(historico)+painelInadimplenciaOmie()+
-    '<div class="rel-previsao-explica"><h2>Visão acumulada e previsões</h2><p class="nota">Escolha o horizonte das previsões a partir de hoje. Este filtro não altera o histórico mensal acima nem os totais desde o início.</p></div><div class="filtros"><div class="chips">' +
-      [['mes', 'Este mês'], ['ano', 'Este ano'], ['total', 'Até acabar']].map(([v, t2]) =>
+    '<nav class="rel-atalhos" aria-label="Seções do relatório">'+[['rel-mensal','Mês a mês'],['rel-dre','Receitas e despesas'],['rel-resumo','Acumulado'],['rel-tabela','Previsão de caixa'],['rel-formas','Recebimentos'],['rel-centros','Despesas'],['rel-previstos','Planejamento']].map(([id,nome])=>'<button class="btn" data-rel-secao="'+id+'">'+nome+'</button>').join('')+'</nav><p class="fin-status">'+esc(coberturaFinanceira())+'</p><div id="rel-sync" class="nota"></div>'+relHistoricoHTML(historico)+painelInadimplenciaOmie()+
+    '<div class="rel-previsao-explica"><h2>Visão acumulada e previsões</h2><p class="nota">Previsão a partir de ' + hojeISO().split('-').reverse().join('/') + '. Escolha até quando consultar. Este filtro não altera o histórico mensal acima nem os totais no histórico disponível.</p></div><div class="filtros"><div class="chips">' +
+      [['mes', 'Este mês'], ['ano', 'Restante do ano'], ['total', 'Até o último vencimento']].map(([v, t2]) =>
         '<button class="chip' + (hz === v ? ' on' : '') + '" data-hz="' + v + '">' + t2 + '</button>').join('') +
     '</div><button class="btn mini" id="rel-pdf">📄 PDF do relatório</button></div>' +
-    '<h2 class="rel-titulo" id="rel-resumo">Resultado acumulado</h2><p class="nota">Desde o início do empreendimento, independentemente do período selecionado.</p><div class="paineis">' +
+    '<h2 class="rel-titulo" id="rel-resumo">Resultado acumulado</h2><p class="nota">Histórico disponível, independentemente do período selecionado.</p><div class="paineis">' +
       '<div class="painel clicavel" data-acao="' + (vendasDePe.length !== comercial.vendidos ? 'duplicados' : 'vendas') + '"><div class="rot">Lotes vendidos</div><div class="num">' + comercial.vendidos + '</div>' +
         (vendasDePe.length !== comercial.vendidos ? '<div class="sub">⚠ ' + vendasDePe.length + ' contratos — clique e veja os lotes com 2 vendas</div>' : '') + '</div>' +
       '<div class="painel clicavel" data-acao="vendas"><div class="rot">Valor total vendido (VGV)</div><div class="num pos">' + fmt.brl(vgv) + '</div></div>' +
@@ -894,19 +872,19 @@ TELAS.relatorios = function () {
     '</div>' +
     '<h2 class="rel-titulo">Previsão e valores em aberto</h2><div class="paineis">' +
       '<div class="painel clicavel" data-acao="caixa"><div class="rot">A receber ' + rotuloHz + '</div><div class="num pos">' + fmt.brl(aReceberHz) + '</div>' +
-        '<div class="sub">' + (hz === 'total' ? ar.parcelas + ' parcela(s) em aberto' : 'parcelas a vencer no período') + '</div></div>' +
+        '<div class="sub">' + (hz === 'total' ? ar.parcelas + ' títulos em aberto no total, incluindo vencidos e sem data' : 'parcelas a vencer no período') + '</div></div>' +
       '<div class="painel clicavel" data-acao="vencido"><div class="rot">Vencido no Omie</div><div class="num fin-atraso">' + fmt.brl(ar.vencido) + '</div>' +
         '<div class="sub">clique para ir cobrar</div></div>' +
-      '<div class="painel clicavel" data-acao="previstos"><div class="rot">Gastos previstos ' + rotuloHz + '</div><div class="num neg">' + fmt.brl(previstoHz) + '</div>' +
-        (previstoSemData > 0 ? '<div class="sub">⚠ + ' + finSaida(previstoSemData) + ' de etapas SEM PRAZO — defina no Cronograma</div>' : '') + '</div>' +
+      '<div class="painel clicavel" data-acao="previstos"><div class="rot">Contas Omie a vencer ' + rotuloHz + '</div><div class="num neg">' + fmt.brl(previstoHz) + '</div>' +
+        '<div class="sub">Somente títulos da origem com vencimento no período.</div>' + '</div>' +
       '<div class="painel clicavel" data-acao="tabela"><div class="rot">Fluxo líquido previsto ' + rotuloHz + '</div>' +
         '<div class="num ' + (aReceberHz - previstoHz >= 0 ? 'pos' : 'neg') + '">' + fmt.brl(aReceberHz - previstoHz) + '</div>' +
-        '<div class="sub">a receber − previstos (sem o vencido)</div></div>' +
-    '</div>' + blocoAging +
+        '<div class="sub">A vencer no Omie: entradas − saídas. Não é saldo bancário.</div></div>' +
+    '</div><p class="fin-status">Previsão parcial, baseada apenas nos títulos do Omie. Não inclui gastos ainda não cadastrados. A pagar vencido: '+finSaida(compromissos.vencido)+' · Sem vencimento: '+finSaida(compromissos.semData)+' · Comissões calculadas localmente, a conferir: '+finSaida(compromissos.comissoes)+'. Esses valores ficam fora do fluxo futuro. Recebíveis sem data: '+finEntrada(ar.semData)+'.</p>' + blocoAging +
     '<div class="cartao" id="rel-tabela"><h2>' + (hz === 'total' ? 'Ano a ano até o fim dos carnês <span class="nota">— clique no ano para abrir os meses</span>' : 'Mês a mês do período') + '</h2>' +
       (grupos.length
         ? '<div class="rolagem"><table class="tabela"><thead><tr><th>' + (hz === 'total' ? 'Ano' : 'Mês') + '</th>' +
-          '<th class="num">A receber</th><th class="num">Gastos previstos</th><th class="num">Fluxo líquido previsto</th></tr></thead><tbody>' +
+          '<th class="num">A receber</th><th class="num">A pagar no Omie</th><th class="num">Fluxo líquido previsto</th></tr></thead><tbody>' +
           grupos.map((g) => {
             const aberto = hz === 'total' && TELAS._anoAbertoRel === g.rotulo;
             let sub = '';
@@ -932,7 +910,7 @@ TELAS.relatorios = function () {
       const cap = comissoesAPagar();
       if (!cap.length) return '';
       const totalCap = cap.reduce((s, x) => s + x.saldo, 0);
-      return '<div class="cartao"><h2>Contas a pagar — comissões <span class="nota">— saldo devido por corretor</span>' +
+      return '<div class="cartao"><h2>Comissões calculadas localmente — a conferir no Omie <span class="nota">— saldo devido por corretor</span>' +
         '<span style="float:right;font-weight:800;color:var(--ruim)">' + fmt.brl(totalCap) + '</span></h2>' +
         cap.map((x) => '<div class="lin" style="cursor:default">' +
           '<div class="cresce"><b>' + esc(x.cor.nome) + '</b>' +
@@ -941,27 +919,28 @@ TELAS.relatorios = function () {
           '<span class="dinheiro" style="color:var(--ruim)">' + fmt.brl(x.saldo) + '</span>' +
           '<button class="btn mini cap-pagar" data-id="' + esc(x.cor.id) + '" data-nome="' + esc(x.cor.nome) + '" data-saldo="' + x.saldo.toFixed(2) + '">💸 pagar</button>' +
           '</div>').join('') +
-        '<p class="nota" style="margin-top:6px">Este valor NÃO está dentro dos "gastos previstos" acima — comissão devida não tem mês marcado; paga quando você decidir.</p></div>';
+        '<p class="nota" style="margin-top:6px">Cálculo local, sem confirmação de correspondência no Omie. Não somado às contas da origem para evitar duplicação. Confira a obrigação no Omie antes de considerar este saldo.</p></div>';
     })() +
-    '<div class="fin-toolbar"><label>Detalhar recebimentos e despesas <select id="rel-detalhe-periodo">'+[['mes','Mês selecionado'],['ano','Ano selecionado'],['total','Desde o início']].map(([v,n])=>'<option value="'+v+'"'+(v===detalhePeriodo?' selected':'')+'>'+n+'</option>').join('')+'</select></label></div>'+
+    '<div class="fin-toolbar"><label>Detalhar recebimentos e despesas <select id="rel-detalhe-periodo">'+[['mes','Mês selecionado'],['ano','Ano selecionado'],['total','Acumulado disponível']].map(([v,n])=>'<option value="'+v+'"'+(v===detalhePeriodo?' selected':'')+'>'+n+'</option>').join('')+'</select></label></div>'+
     '<div class="cartao" id="rel-formas"><h2>💳 Recebido por forma <span class="nota">— ' + rotuloRealizado + '</span></h2>' +
       (function () {
         const somaF = {};
         for (const r2 of lista('rec')) {
           if (!dentroHz(r2.data)) continue;
-          const f2 = r2.forma || '—';
+          const f2 = r2.forma || 'Não informada';
           somaF[f2] = (somaF[f2] || 0) + (Number(r2.valor) || 0);
         }
         for (const c2 of cxVivos()) {
           if (c2.tipo !== 'entrada' || !dentroHz(c2.data)) continue;
-          const f2 = c2.forma || '—';
+          const f2 = c2.forma || 'Não informada';
           somaF[f2] = (somaF[f2] || 0) + (Number(c2.valor) || 0);
         }
         const ordem = ['PIX', 'Dinheiro', 'Boleto', 'Cartão de Crédito', 'Cartão de Débito', 'Transferência', 'Cheque', 'Permuta'];
         const chaves = [...new Set([...ordem.filter((k2) => somaF[k2]), ...Object.keys(somaF)])];
         const total2 = Object.values(somaF).reduce((s2, v2) => s2 + v2, 0);
         if (!total2) return '<p class="nota">Nada recebido nesse recorte.</p>';
-        return '<div class="rolagem"><table class="tabela"><thead><tr><th>Forma</th><th class="num">Valor</th><th class="num">%</th></tr></thead><tbody>' +
+        const semForma=Object.entries(somaF).filter(([k])=>['—','Não informada'].includes(k)).reduce((s,[,v])=>s+v,0);
+        return (semForma?'<p class="fin-status">'+Math.round(semForma/total2*100)+'% dos recebimentos sem forma identificada. Abra a linha para conferir.</p>':'')+'<div class="rolagem"><table class="tabela"><thead><tr><th>Forma</th><th class="num">Valor</th><th class="num">%</th></tr></thead><tbody>' +
           chaves.map((k2) => '<tr class="rf-lin" data-forma="' + esc(k2) + '" style="cursor:pointer"><td><b>' + esc(k2) + '</b></td>' +
             '<td class="num fin-entrada">' + fmt.brl(somaF[k2]) + '</td>' +
             '<td class="num">' + Math.round(somaF[k2] / total2 * 100) + '%</td></tr>').join('') +
@@ -980,7 +959,7 @@ TELAS.relatorios = function () {
         const chaves = Object.keys(somaC).sort((x2, y2) => somaC[y2] - somaC[x2]);
         const total2 = chaves.reduce((s2, k2) => s2 + somaC[k2], 0) + semC;
         if (!total2) return '<p class="nota">Nenhuma despesa nesse recorte.</p>';
-        return '<div class="rolagem"><table class="tabela"><thead><tr><th>Centro de custo</th><th class="num">Valor</th><th class="num">%</th></tr></thead><tbody>' +
+        return (semC?'<p class="fin-status">'+Math.round(semC/total2*100)+'% das despesas sem centro de custo. A composição por categoria está acima.</p>':'')+'<div class="rolagem"><table class="tabela"><thead><tr><th>Centro de custo</th><th class="num">Valor</th><th class="num">%</th></tr></thead><tbody>' +
           chaves.map((k2) => '<tr class="rc-lin" data-cc="' + esc(k2) + '" style="cursor:pointer"><td><b>' + esc(k2) + '</b></td>' +
             '<td class="num fin-saida">' + fmt.brl(somaC[k2]) + '</td><td class="num">' + Math.round(somaC[k2] / total2 * 100) + '%</td></tr>').join('') +
           (semC ? '<tr class="rc-lin" data-cc="__sem__" style="cursor:pointer"><td>— sem centro de custo</td><td class="num fin-saida">' + fmt.brl(semC) + '</td><td class="num">' + Math.round(semC / total2 * 100) + '%</td></tr>' : '') +
@@ -988,7 +967,7 @@ TELAS.relatorios = function () {
           '</tbody></table></div>';
       })() + '</div>' +
 
-      '<div class="cartao" id="rel-previstos"><h2>Gastos futuros previsíveis <span class="nota">— o que você já sabe que vem</span></h2>' +
+      '<div class="cartao" id="rel-previstos"><h2>Planejamento local — fora da previsão Omie <span class="nota">— confira o cadastro na origem</span></h2>' +
       (previstos.map((g) =>
         '<div class="lin prev-lin" data-id="' + esc(g.id) + '">' +
         '<div class="cresce"><b>' + esc(g.descricao || '—') + '</b>' +
@@ -998,10 +977,11 @@ TELAS.relatorios = function () {
           ' · ' + esc(g.categoria || 'Outros') + (g.obs ? ' · ' + esc(g.obs) : '') + '</span></div>' +
         '<span class="dinheiro fin-saida">' + fmt.brl(g.valor) + (g.recorrencia === 'mensal' ? '<span class="nota">/mês</span>' : '') + '</span>' +
         '</div>').join('') || '<p class="nota">Nenhum previsto ainda — cadastre o que você já sabe que vai pagar (obra, mensalidades…).</p>') +
-      '<p class="nota" style="margin-top:8px">O que FALTA das etapas do Cronograma entra sozinho nesta conta — não cadastre de novo aqui, senão dobra.</p>' +
+      '<p class="nota" style="margin-top:8px">Previsões e etapas do cronograma são planejamento local. A projeção acima usa apenas títulos do Omie; confira a origem antes de cadastrar o mesmo compromisso novamente.</p>' +
       '<button class="btn primario" id="prev-novo" style="margin-top:8px">+ Gasto previsto</button></div>' +
       '<section class="cartao rel-consultas"><h2>Consultas detalhadas</h2><p class="nota">Acesse também os demonstrativos e os detalhes do financeiro anterior.</p><div class="rel-atalhos"><a class="btn" href="#/caixa">Caixa mensal e receitas × despesas</a><a class="btn" href="#/lancamentos">Todos os lançamentos</a><a class="btn" href="#/comissoes">Comissões dos corretores</a></div></section></div>';
 
+  statusOmieHome(document.getElementById('rel-sync'));
   const inicioPrevisao = app.querySelector('.rel-previsao-explica');
   const filtroDetalheEl = document.getElementById('rel-detalhe-periodo').closest('.fin-toolbar');
   for(const el of [filtroDetalheEl,document.getElementById('rel-formas'),document.getElementById('rel-centros')]) inicioPrevisao.before(el);
@@ -1035,7 +1015,7 @@ TELAS.relatorios = function () {
       else if (acao === 'gasto') { TELAS._fLanc = { q: '', tipo: 'saida', cat: '', mes: 'todos' }; location.hash = '#/lancamentos'; }
       else if (acao === 'caixa') { const c2 = document.getElementById('rel-tabela'); if (c2) c2.scrollIntoView({ behavior: 'smooth', block: 'start' }); else location.hash = '#/caixa'; }
       else if (acao === 'vencido') finAbrirVencidosOmie();
-      else if (acao === 'previstos') { const c2 = document.getElementById('rel-previstos'); if (c2) c2.scrollIntoView({ behavior: 'smooth', block: 'start' }); }
+      else if (acao === 'previstos') { TELAS._fin={aba:'pagar',ano:'',mes:'',q:''};location.hash='#/financeiro'; }
       else if (acao === 'tabela') { const c2 = document.getElementById('rel-tabela'); if (c2) c2.scrollIntoView({ behavior: 'smooth', block: 'start' }); }
     };
   });
@@ -1046,16 +1026,17 @@ TELAS.relatorios = function () {
     el.onclick = () => { TELAS._fLanc = { q: '', tipo: 'saida', cat: '', ...filtroDetalhe, cc: el.dataset.cc }; location.hash = '#/lancamentos'; };
   });
   app.querySelectorAll('.rf-lin').forEach((el) => {
-    el.onclick = () => { TELAS._fLanc = { q: el.dataset.forma, tipo: 'entrada', cat: '', ...filtroDetalhe }; location.hash = '#/lancamentos'; };
+    el.onclick = () => { TELAS._fLanc = { q: '', forma:el.dataset.forma==='Não informada'?'__sem__':el.dataset.forma, tipo: 'entrada', cat: '', ...filtroDetalhe }; location.hash = '#/lancamentos'; };
   });
   const bCobrar = document.getElementById('rel-cobrar');
-  if (bCobrar) bCobrar.onclick = () => { TELAS._fVendas = { q: '', sit: '', so: 'atraso' }; location.hash = '#/vendas'; };
+  if (bCobrar) bCobrar.onclick = () => finAbrirVencidosOmie();
   app.querySelectorAll('.rel-ano').forEach((tr) => {
     tr.onclick = () => {
       TELAS._anoAbertoRel = TELAS._anoAbertoRel === tr.dataset.ano ? null : tr.dataset.ano;
       TELAS.relatorios();
     };
   });
+  app.querySelectorAll('.painel[data-acao],.rel-ano,.rf-lin,.rc-lin').forEach(el=>{el.tabIndex=0;el.setAttribute('role','button');el.onkeydown=e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();el.click();}};});
   document.getElementById('prev-novo').onclick = () => abrirGastoPrevisto(null);
   app.querySelectorAll('.prev-lin').forEach((el) => {
     el.onclick = () => abrirGastoPrevisto(el.dataset.id);
@@ -1065,7 +1046,8 @@ TELAS.relatorios = function () {
       rotuloHz, hz, vendidos: comercial.vendidos, vgv,
       recebido: ac.entradas, gasto: ac.saidas,
       aReceber: aReceberHz, vencido: ar.vencido, inadimplenciaOmie:resumoInadimplenciaOmie(), previsto: previstoHz, grupos,
-      aging: aging.map((f) => ({ rotulo: f.rotulo, rs: f.rs, parcelas: f.parcelas, contratos: f.contratos.size })),
+      aging: aging.map((f) => ({ rotulo: f.rotulo, rs: f.rs, parcelas: f.parcelas, contratos: f.contratos.size,semVinculo:f.semVinculo })),
+      cobertura:coberturaFinanceira(),compromissos,
       comissoesAPagar: comissoesAPagar().reduce((s, x) => s + x.saldo, 0),
     }, S.cfg || {});
     toast('Relatório em PDF gerado');

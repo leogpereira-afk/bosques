@@ -1,0 +1,20 @@
+const fs=require('fs'),assert=require('assert/strict');
+const {PGlite}=require((process.env.BSQ_TEST_DEPS||'/tmp/bosques-test-deps')+'/node_modules/@electric-sql/pglite');
+(async()=>{const db=new PGlite();await db.exec('create role anon;create role authenticated;create role service_role;create table bsq_registros(colecao text,id text,registro jsonb,atualizado_em timestamptz,apagado boolean default false,primary key(colecao,id));');
+for(const f of ['202609050001_vinculo_financeiro.sql','202609060005_identificar_pagamentos.sql','202609060006_identificar_familia_omie.sql'])await db.exec(fs.readFileSync('supabase/migrations/'+f,'utf8'));
+const put=(c,id,r)=>db.query('insert into bsq_registros(colecao,id,registro) values($1,$2,$3)',[c,id,JSON.stringify({id,...r})]);
+await put('venda','v1',{clienteId:'123',quadra:1,lote:2,parcelas:[]});await put('venda','v2',{clienteId:'123',quadra:1,lote:3,parcelas:[]});
+for(const [id,doc,cpf] of [['1','Q01L02','123'],['2','Q01L02e03','123'],['3','Q01L02','456'],['4','Q01L02','123']]){await put('titulo','t'+id,{titulo:id,cpf,grupo:'CONTA_A_RECEBER',valor:100,venc:'2026-08-01',original:{detalhes:{cNumTitulo:doc},resumo:{nValAberto:0}}});await put('rec','r'+id,{valor:100,data:'2026-08-01',omie:{titulo:id}});}
+await db.query("update bsq_registros set registro=registro||'{\"parcelas\":[{\"tid\":\"4\",\"trava\":true}]}' where id='v2'");
+await put('titulo','t5',{titulo:'5',cpf:'123',grupo:'CONTA_A_RECEBER',valor:100,venc:'2026-08-01',original:{detalhes:{cNumTitulo:'',nCodTitRepet:77}}});await put('rec','r5',{valor:100,data:'2026-08-01',omie:{titulo:'5'}});
+await put('titulo','t6',{titulo:'6',cpf:'123',grupo:'CONTA_A_RECEBER',valor:100,original:{detalhes:{cNumTitulo:'Q01L03',nCodTitRepet:77}}});
+await put('titulo','t7',{titulo:'7',cpf:'123',grupo:'CONTA_A_RECEBER',valor:100,original:{detalhes:{cNumTitulo:'',nCodTitRepet:88}}});await put('rec','r7',{valor:100,omie:{titulo:'7'}});
+for(const [id,doc] of [['8','Q01L02'],['9','Q01L03']])await put('titulo','t'+id,{titulo:id,cpf:'123',grupo:'CONTA_A_RECEBER',original:{detalhes:{cNumTitulo:doc,nCodTitRepet:88}}});
+const run=async apply=>(await db.query('select bsq_identificar_pagamentos_omie($1) r',[apply])).rows[0].r;
+assert.equal((await run(false)).pagamentos,2);assert.equal((await db.query("select registro->>'vendaId' v from bsq_registros where id='r1'")).rows[0].v,null);
+assert.equal((await run(true)).pagamentos,2);
+const r=(await db.query("select registro from bsq_registros where id='r1'")).rows[0].registro;assert.equal(r.vendaId,'v1');assert.equal(r.valor,100);assert.equal(r.data,'2026-08-01');assert.equal(r.alocacoes[0].tid,'1');
+assert.equal((await run(true)).pagamentos,0);assert.equal((await db.query('select count(*)::int n from bsq_auditoria_vinculos')).rows[0].n,2);
+assert.equal((await db.query("select registro->>'vendaId' v from bsq_registros where id='r5'")).rows[0].v,'v2');
+assert.equal((await db.query("select registro->>'vendaId' v from bsq_registros where id='r7'")).rows[0].v,null);
+console.log('PASSOU: recorrência com documento único e recorrência ambígua;  identificação por documento e cliente; prévia sem alteração; valor/data preservados; cópia anterior; repetição segura; conjuntos, outro cliente e vínculo travado ficam pendentes.');await db.close();})().catch(e=>{console.error(e);process.exit(1)});

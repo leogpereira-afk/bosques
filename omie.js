@@ -49,12 +49,12 @@ function statusOmieHome(el) {
   apiOmie('saude').then((r) => {
     if (!r.sync || !r.sync.quando) { pinta(false, 'Omie: nunca sincronizou — abra Configurações e rode o ↻'); return; }
     if (r.sync.status && r.sync.status !== 'completa') {
-      pinta(false, 'Omie: ' + r.sync.status + ' — ' + (r.sync.erro || 'aguardando conclusão') + ' · ' + fmt.quando(r.sync.inicio || r.sync.quando)); return;
+      pinta(false, 'Omie: ' + (r.sync.status==='em_andamento'?'atualizando em segundo plano':r.sync.status==='falhou'?'falha na atualização':r.sync.status) + ' — ' + (r.sync.erro || 'aguardando conclusão') + ' · ' + fmt.quando(r.sync.inicio || r.sync.quando)); return;
     }
     const horas = (Date.now() - new Date(r.sync.quando).getTime()) / 3600e3;
     const automatico=!!r.automacao?.ativa;
     const emDia=horas<(automatico?0.75:26);
-    pinta(emDia, 'Omie: última sincronização ' + fmt.quando(r.sync.quando) +
+    pinta(emDia, 'Omie: última conclusão ' + new Date(r.sync.quando).toLocaleString('pt-BR') +
       (emDia ? ' ✓' : ' — ATRASADA') +
       (automatico?' · automático a cada '+r.automacao.intervaloMinutos+' min, mesmo com o Portal fechado':'') +
       ' — ' + resumoOmie(r.sync.contagens));
@@ -73,8 +73,12 @@ function resumoOmie(c) {
   if (c.recEstornados) p.push(c.recEstornados + ' estorno(s)');
   if (c.cxNovos) p.push(c.cxNovos + ' despesa(s) nova(s)');
   if (c.cxDuvidosos) p.push(c.cxDuvidosos + ' pendência(s) para conferir');
+  if(c.recAtualizados) p.push(c.recAtualizados+' recebimento(s) atualizado(s)');
+  if(c.cxAtualizados) p.push(c.cxAtualizados+' despesa(s) atualizada(s)');
+  if(c.vendasEspelhadas) p.push(c.vendasEspelhadas+' venda(s) conferida(s)');
+  if(c.cxAguardandoConciliacao) p.push(c.cxAguardandoConciliacao+' despesa(s) aguardando conciliação');
   if (c.clientesCompletados) p.push(c.clientesCompletados + ' cadastro(s) completado(s)');
-  return p.length ? p.join(', ') : 'nada novo';
+  return p.length ? p.join(', ') : 'nenhum novo registro ou atualização informado';
 }
 
 // Ninguém precisa lembrar de sincronizar: quem entra (direção/escritório)

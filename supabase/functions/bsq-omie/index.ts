@@ -653,6 +653,10 @@ Deno.serve(async (req) => {
           cont.vendasNovas = (cont.vendasNovas || 0) + (importacao?.vendasNovas || 0);
           cont.pagamentosVinculados = (cont.pagamentosVinculados || 0) + (importacao?.pagamentosVinculados || 0);
           if (importacao?.vendasNovas) await marcarMudanca(["venda", "lote", "rec"]);
+          const {data: identificacao,error: erroIdentificacao}=await db.rpc("bsq_identificar_pagamentos_omie",{p_aplicar:true});
+          if(erroIdentificacao) throw new Error("Identificação de pagamentos: "+erroIdentificacao.message);
+          cont.pagamentosVinculados=(cont.pagamentosVinculados||0)+(identificacao?.pagamentos||0);
+          if(identificacao?.pagamentos) await marcarMudanca(["venda","rec"]);
           const confirmados = new Set((await lerColecaoBruta("venda")).flatMap((r: any) =>
             (r.registro.parcelas || []).filter((p: any) => !p.conferir).map((p: any) => String(p.tid))));
           // Pendência não pode morrer calada: a rodada COMPLETA revê tudo e
