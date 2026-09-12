@@ -4,8 +4,8 @@
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="robots" content="noindex,nofollow"><meta name="referrer" content="no-referrer">
 <meta name="theme-color" content="#123c2d"><title>Lotes e mapa · Portal dos Bosques</title>
-<link rel="icon" href="icons/icon-192.png"><link rel="stylesheet" href="espelho-publico.css?v=67"><link rel="stylesheet" href="mapa-espelho.css?v=67">
-<script src="mapa-espelho.js?v=67" defer></script><script src="espelho-publico.js?v=67" defer></script>
+<link rel="icon" href="icons/icon-192.png"><link rel="stylesheet" href="espelho-publico.css?v=68"><link rel="stylesheet" href="mapa-espelho.css?v=68">
+<script src="libs/jspdf.umd.min.js?v=68" defer></script><script src="mapa-espelho.js?v=68" defer></script><script src="pdf.js?v=68" defer></script><script src="espelho-publico.js?v=68" defer></script>
 </head>
 <body>
 <header class="capa"><div class="marca"><img src="icons/icon-192.png" alt="" width="48" height="48"><div><b id="cap-nome">Portal dos Bosques</b><span>Conheça seu próximo lugar</span></div></div><span class="selo">Lotes e mapa</span></header>
@@ -22,10 +22,11 @@
 <div class="cabecalho"><div><span class="eyebrow" id="saudacao"></span><h1 id="titulo-espelho">Lotes e mapa do empreendimento</h1><p id="cap-sub"></p></div><div class="consulta-acoes"><button id="ver-mapa" class="secundario" type="button" hidden>Ver mapa abaixo</button><button id="sair" class="secundario" type="button">Sair</button></div></div>
 <div id="lista-lotes"><h2>Lotes para consultar</h2><p id="lista-nota">Disponíveis e reservados, conforme a consulta ao sistema.</p></div>
 <div class="resumo" aria-label="Resumo do filtro"><div><span>Lotes no filtro</span><b id="n-total">0</b></div><div class="verde"><span>Disponíveis</span><b id="n-disp">0</b></div><div id="resumo-reservados"><span>Reservados</span><b id="n-res">0</b></div></div>
-<div class="filtros"><div class="barra"><label class="busca">Buscar lote<input id="q" type="search" placeholder="Número do lote"></label><label>Quadra<select id="quadra"><option value="">Todas as quadras</option></select></label><button class="secundario" id="atualizar-lista" type="button">Atualizar lista</button><button class="secundario" id="pdf" type="button">Salvar lista em PDF</button></div><div class="chips" role="group" aria-label="Situação dos lotes"><button class="chip" data-status="" aria-pressed="true">Todos os exibidos</button><button class="chip" data-status="Disponível" aria-pressed="false">Disponíveis</button><button class="chip" data-status="Reservado" aria-pressed="false">Reservados</button></div></div>
+<div class="filtros"><div class="barra"><label class="busca">Buscar lote<input id="q" type="search" placeholder="Número do lote"></label><label>Quadra<select id="quadra"><option value="">Todas as quadras</option></select></label><button class="secundario" id="atualizar-lista" type="button">Atualizar lista</button><button class="secundario" id="pdf" type="button">Salvar lotes e mapa em PDF</button></div><div class="chips" role="group" aria-label="Situação dos lotes"><button class="chip" data-status="" aria-pressed="true">Todos os exibidos</button><button class="chip" data-status="Disponível" aria-pressed="false">Disponíveis</button><button class="chip" data-status="Reservado" aria-pressed="false">Reservados</button></div></div>
+<p id="pdf-status" class="nota naoimprime" role="status" aria-live="polite"></p>
 <p class="nota" id="resultado" role="status" aria-live="polite"></p><div id="quadras"></div><div id="vazio" class="cartao vazio" hidden><h2>Nenhum lote neste filtro</h2><p>Escolha outra quadra ou limpe os filtros para ver mais opções.</p><button id="limpar" class="secundario">Limpar filtros</button></div>
 <section id="mapa-publico" aria-label="Mapa atualizado" tabindex="-1" hidden></section>
-<p class="rodape">Disponibilidade e valores de referência podem mudar. Confirme as condições <span id="rod-zap">com a equipe</span> antes de fechar negócio.<span class="naoimprime"> Ao salvar, escolha “Salvar como PDF” na janela de impressão.</span></p>
+<p class="rodape">Disponibilidade e valores de referência podem mudar. Confirme as condições <span id="rod-zap">com a equipe</span> antes de fechar negócio.<span class="naoimprime"> O PDF inclui a lista filtrada e o mapa inteiro em uma página A3 própria.</span></p>
 </section>
 <div id="aviso" class="cartao aviso" role="status" hidden><h2 id="aviso-titulo"></h2><p id="aviso-texto"></p><button id="tentar" class="primario" hidden>Tentar novamente</button></div>
 </main><footer class="credito">developed by <b>Léo Gonçalves</b></footer>

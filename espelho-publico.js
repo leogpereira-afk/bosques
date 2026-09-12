@@ -55,9 +55,13 @@
     el('lista-nota').textContent=dados.exibirReservados===false?'Lotes disponíveis, conforme a consulta ao sistema.':'Disponíveis e reservados, conforme a consulta ao sistema.';
     MAPA_ESPELHO.montar(el('mapa-publico'),dados.mapaUrl);el('ver-mapa').hidden=el('mapa-publico').hidden;aplicar();
   }
-  function aplicar() {
+  function lotesFiltrados() {
     const termo=el('q').value.trim(),q=el('quadra').value;
-    const ls=dados.lotes.filter(l=>(!termo||String(l.lote).includes(termo))&&(!q||String(l.quadra)===q)&&(!status||l.status===status));
+    return dados.lotes.filter(l=>(!termo||String(l.lote).includes(termo))&&(!q||String(l.quadra)===q)&&(!status||l.status===status));
+  }
+  function aplicar() {
+    const ls=lotesFiltrados(),q=el('quadra').value;
+    el('pdf-status').textContent='';
     el('n-total').textContent=ls.length;el('n-disp').textContent=ls.filter(l=>l.status==='Disponível').length;
     el('n-res').textContent=ls.filter(l=>l.status==='Reservado').length;
     el('resultado').textContent=ls.length+' lote(s) neste recorte · '+(q?'Quadra '+q:'Todas as quadras')+' · '+(status||'Todas as situações');
@@ -112,7 +116,20 @@
   el('q').oninput=aplicar;el('quadra').onchange=aplicar;
   document.querySelectorAll('[data-status]').forEach(b=>b.onclick=()=>{status=b.dataset.status;document.querySelectorAll('[data-status]').forEach(c=>c.setAttribute('aria-pressed',String(c===b)));aplicar();});
   el('limpar').onclick=()=>{el('q').value='';el('quadra').value='';document.querySelector('[data-status=""]').click();};
-  el('pdf').onclick=()=>window.print();el('fechar').onclick=()=>el('detalhe').close();
+  el('pdf').onclick=async()=>{
+    const botao=el('pdf'),rotulo=botao.textContent;
+    if(!dados||botao.disabled)return;
+    botao.disabled=true;botao.textContent='Preparando PDF…';el('pdf-status').textContent='Preparando a lista e o mapa em tamanho grande…';
+    try {
+      const recorte=[el('quadra').value?'Quadra '+el('quadra').value:'Todas as quadras',status||(dados.exibirReservados===false?'Disponíveis':'Disponíveis e reservados'),el('q').value.trim()?'Busca: '+el('q').value.trim():''].filter(Boolean).join(' · ');
+      const resultado=await PDF.espelho(lotesFiltrados(),null,{empresa:dados.empresa,espelho:{mapaUrl:dados.mapaUrl}},recorte,{publico:true,salvar:(blob,nome)=>{
+        const url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=nome;document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),30000);
+      }});
+      el('pdf-status').textContent=resultado.comMapa?'PDF pronto: lotes primeiro e mapa inteiro em uma página A3.':'PDF da lista pronto. O mapa ainda não foi configurado pela equipe.';
+    }catch(erro){el('pdf-status').textContent=erro.message||'Não foi possível salvar o PDF. Tente novamente.';}
+    finally{botao.disabled=false;botao.textContent=rotulo;}
+  };
+  el('fechar').onclick=()=>el('detalhe').close();
   if(!token)aviso('Link incompleto','Peça à equipe o link completo do espelho.');
   else if(sessao)carregar();
   else mostrarEntrada();

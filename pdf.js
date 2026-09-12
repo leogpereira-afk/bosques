@@ -561,10 +561,10 @@ const PDF = (() => {
   }
 
   // ── Espelho de vendas em PDF: o mapa das quadras para levar/mandar ─────────
-  function espelho(ls, atrasos, cfg, recorte) {
+  async function espelho(ls, atrasos, cfg, recorte, opcoes = {}) {
     const doc = novo();
     const hojeTxt = dataBR(new Date().toISOString());
-    const rod = 'Espelho de vendas' + (recorte ? ' (' + recorte + ')' : '') + ' · ' + hojeTxt + ' · gerado por ' + (S.quem || '—');
+    const rod = 'Espelho de vendas · ' + hojeTxt + (opcoes.publico ? '' : ' · gerado por ' + (S.quem || '—'));
     cabecalho(doc, cfg, 'ESPELHO · ' + hojeTxt);
 
     let y = 40;
@@ -573,14 +573,19 @@ const PDF = (() => {
     // na mesma linha eles se atropelavam.
     const disp = ls.filter((l) => l.status === 'Disponível').length;
     const vend = ls.filter((l) => l.status === 'Vendido').length;
+    const res = ls.filter((l) => l.status === 'Reservado').length;
     doc.setFont('helvetica', 'bold'); doc.setFontSize(11);
     doc.setTextColor(30, 43, 33);
-    doc.text(ls.length + ' lote(s)' + (recorte ? ' — recorte: ' + recorte : ' · ' + disp + ' disponíveis · ' + vend + ' vendidos (' +
-      Math.round(vend / Math.max(1, ls.length) * 100) + '%)'), 14, y);
+    doc.text(ls.length + ' lote(s) · ' + disp + ' disponíveis · ' + res + ' reservados' + (opcoes.publico ? '' : ' · ' + vend + ' vendidos'), 14, y);
     y += 5;
+    if (recorte) {
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(8);
+      const linhas = doc.splitTextToSize('Recorte: ' + recorte, 182);
+      doc.text(linhas, 14, y); y += linhas.length * 4;
+    }
     doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5);
     doc.setTextColor(...CINZA);
-    doc.text('verde = disponível (com o preço) · cinza = vendido · ! = parcela em atraso', 14, y);
+    doc.text('verde = disponível · amarelo = reservado' + (opcoes.publico ? ' · valores sujeitos a confirmação' : ' · cinza = vendido · ! = parcela em atraso'), 14, y);
     y += 5;
 
     const quadras = [...new Set(ls.map((l) => l.quadra))].sort((a, b) => a - b);
@@ -616,6 +621,8 @@ const PDF = (() => {
         doc.setFontSize(6.2);
         if (vendido) {
           doc.text('Vendido', x + 1.8, yc + 10.8);
+        } else if (opcoes.publico && (l.status !== 'Disponível' || !(Number(l.preco) > 0))) {
+          doc.text('Consultar equipe', x + 1.8, yc + 10.8);
         } else {
           doc.setFont('helvetica', 'bold');
           doc.setTextColor(...VERDE);
@@ -626,8 +633,10 @@ const PDF = (() => {
       y += linhasQ * (ALT + 1.6) + 4;
     }
     rodape(doc, rod);
-    salvarNoAparelho(doc.output('blob'), 'Espelho-Bosques-' + new Date().toISOString().slice(0, 10) +
+    const comMapa = await MAPA_ESPELHO.adicionarAoPdf(doc, cfg.espelho?.mapaUrl);
+    (opcoes.salvar || salvarNoAparelho)(doc.output('blob'), 'Espelho-Bosques-' + new Date().toISOString().slice(0, 10) +
       (recorte ? '-recorte' : '') + '.pdf');
+    return { comMapa };
   }
 
   // ── Relatório do empreendimento (a aba Relatórios, no papel) ───────────────

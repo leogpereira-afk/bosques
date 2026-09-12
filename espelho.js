@@ -261,7 +261,7 @@ TELAS.espelho = function () {
     '<section id="esp-mapa" aria-label="Mapa atualizado" hidden></section>';
 
   MAPA_ESPELHO.montar(document.getElementById('esp-mapa'), S.cfg?.espelho?.mapaUrl);
-  document.getElementById('esp-pdf').onclick = () => {
+  document.getElementById('esp-pdf').onclick = async (e) => {
     // O papel sai IGUAL à tela: filtrou, o PDF leva só o filtrado — e com o
     // recorte escrito, senão o pedaço vira "o total" na mão de alguém.
     const pedacos = [];
@@ -269,8 +269,14 @@ TELAS.espelho = function () {
     if (filtro.atraso) pedacos.push('só com atraso');
     if (filtro.quadra) pedacos.push('quadra ' + filtro.quadra);
     if (filtro.q) pedacos.push('busca "' + filtro.q + '"');
-    PDF.espelho(filtrados, atrasos, S.cfg || {}, pedacos.join(' · '));
-    toast('Espelho em PDF gerado — ' + filtrados.length + ' lote(s)' + (pedacos.length ? ' (recorte)' : ''));
+    const botao = e.currentTarget, texto = botao.textContent;
+    if (botao.disabled) return;
+    botao.disabled = true; botao.textContent = 'Preparando PDF e mapa…';
+    try {
+      const { comMapa } = await PDF.espelho(filtrados, atrasos, S.cfg || {}, pedacos.join(' · '));
+      toast('PDF gerado com ' + filtrados.length + ' lote(s)' + (comMapa ? ' e mapa grande em página A3' : ''));
+    } catch (erro) { toast(erro.message || 'Não foi possível salvar o PDF. Tente novamente.'); }
+    finally { botao.disabled = false; botao.textContent = texto; }
   };
   const bNovo = document.getElementById('esp-novo-lote');
   if (bNovo) bNovo.onclick = () => abrirCadastroLote(null);

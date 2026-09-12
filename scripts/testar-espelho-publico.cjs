@@ -60,10 +60,10 @@ const linhas=['Disponível','Reservado','Vendido','Cancelado','',null].map((stat
   }
   document.querySelector('form').reset=()=>{};
   const Option=function(text,value){const o=document.createElement('option');o.textContent=text;o.value=value;return o;};
-  const calls=[];let prints=0,postStatus=200;
-  const ctx=vm.createContext({...base,document,window:{addEventListener(){},print(){prints++;}},sessionStorage:{getItem:k=>mem.get(k)||null,setItem:(k,v)=>mem.set(k,v),removeItem:k=>mem.delete(k)},location:{hash},Option,AbortController,setTimeout,clearTimeout,fetch:async(u,opts)=>{calls.push(opts);return opts.method==='POST'?{ok:postStatus===200,status:postStatus,json:async()=>postStatus===200?{sessao:'sessao-teste',nome:'Ana Teste'}:{erro:'Senha incorreta.'}}:{ok:status===200,status,json:async()=>data};}});
+  const calls=[],pdfs=[];let pdfFalha=false,postStatus=200;
+  const ctx=vm.createContext({...base,document,window:{addEventListener(){}},PDF:{espelho:async(...args)=>{pdfs.push(args);if(pdfFalha)throw Error("Não foi possível incluir o mapa no PDF.");return {comMapa:true};}},sessionStorage:{getItem:k=>mem.get(k)||null,setItem:(k,v)=>mem.set(k,v),removeItem:k=>mem.delete(k)},location:{hash},Option,AbortController,setTimeout,clearTimeout,fetch:async(u,opts)=>{calls.push(opts);return opts.method==='POST'?{ok:postStatus===200,status:postStatus,json:async()=>postStatus===200?{sessao:'sessao-teste',nome:'Ana Teste'}:{erro:'Senha incorreta.'}}:{ok:status===200,status,json:async()=>data};}});
   vm.runInContext(ler('mapa-espelho.js'),ctx);vm.runInContext(ler('espelho-publico.js'),ctx);await new Promise(setImmediate);
-  return {document,ctx,calls,mem,get prints(){return prints;},setStatus:n=>status=n,setPostStatus:n=>postStatus=n};
+  return {document,ctx,calls,mem,pdfs,setPdfFalha:v=>pdfFalha=v,setStatus:n=>status=n,setPostStatus:n=>postStatus=n};
  }
  let p=await pagina(),d=p.document;
  assert.equal(p.calls.length,0);assert.equal(d.querySelector('#entrada').hidden,false);assert.equal(d.querySelector('#conteudo').hidden,true);assert.equal(d.querySelector('#mapa-publico img'),null);
@@ -78,7 +78,9 @@ const linhas=['Disponível','Reservado','Vendido','Cancelado','',null].map((stat
  d.querySelectorAll('.mapa-acoes button')[1].onclick();assert.match(img.src,/atualizacao=/);d.querySelectorAll('.mapa-acoes button')[0].onclick();assert.ok(d.querySelector('.mapa-visor').classList.contains('mapa-zoom'));
  d.querySelector('.lote').onclick();assert.equal(d.querySelector('#detalhe').hasAttribute('open'),true);assert.ok(d.querySelector('#det-preco').textContent.includes('40.684,40'));d.querySelector('#fechar').onclick();
  d.querySelector('[data-status="Reservado"]').onclick();assert.equal(d.querySelectorAll('.lote').length,1);d.querySelector('#q').value='999';d.querySelector('#q').oninput();assert.equal(d.querySelector('#vazio').hidden,false);d.querySelector('#limpar').onclick();assert.equal(d.querySelectorAll('.lote').length,2);
- d.querySelector('#pdf').onclick();assert.equal(p.prints,1);await d.querySelector('#atualizar-lista').onclick();
+ d.querySelector('[data-status="Reservado"]').onclick();
+ await d.querySelector('#pdf').onclick();assert.equal(p.pdfs.length,1);assert.equal(p.pdfs[0][0].length,1);assert.equal(p.pdfs[0][0][0].status,'Reservado');assert.equal(p.pdfs[0][2].espelho.mapaUrl,mapa);assert.equal(p.pdfs[0][4].publico,true);assert.match(d.querySelector('#pdf-status').textContent,/página A3/);assert.equal(d.querySelector('#pdf').disabled,false);
+ p.setPdfFalha(true);await d.querySelector('#pdf').onclick();assert.match(d.querySelector('#pdf-status').textContent,/Não foi possível incluir/);assert.equal(d.querySelector('#pdf').disabled,false);await d.querySelector('#atualizar-lista').onclick();
  d.querySelector('#sair').onclick();assert.equal(d.querySelector('#conteudo').hidden,true);assert.equal(d.querySelector('#mapa-publico img'),null);assert.equal(p.mem.size,0);
  p=await pagina({session:'sessao-teste',data:{...payload,exibirReservados:false,visitante:{nome:'<img src=x>'}}});assert.equal(p.document.querySelectorAll('.lote').length,1);assert.equal(p.document.querySelector('#saudacao img'),null);
  p=await pagina({session:'sessao-teste',status:401});assert.equal(p.document.querySelector('#entrada').hidden,false);assert.equal(p.mem.size,0);
@@ -89,7 +91,7 @@ const linhas=['Disponível','Reservado','Vendido','Cancelado','',null].map((stat
  vm.runInNewContext(ler('sw.js'),{URL,Request,caches:{open:async()=>({addAll:async rs=>arquivos.push(...rs)})},self:{location:{href:'https://example.test/bosques/sw.js'},addEventListener:(n,fn)=>eventos[n]=fn,skipWaiting:async()=>{}}});
  eventos.install({waitUntil:p=>instalacao=p});await instalacao;
  assert.ok(arquivos.some(r=>new URL(r.url).pathname.endsWith('mapa-espelho.js')));
- for(const r of arquivos){assert.equal(new URL(r.url).searchParams.get('v'),'bsq-shell-v67');assert.equal(r.cache,'reload');}
+ for(const r of arquivos){assert.equal(new URL(r.url).searchParams.get('v'),'bsq-shell-v68');assert.equal(r.cache,'reload');}
  console.log('OK atualização: arquivos do mapa e da tela consultados com a versão nova.');
  console.log('PASSOU página: acesso obrigatório, saída, mapa abaixo dos lotes, zoom, atualização, filtros, segurança de texto e falhas de rede.');
 })().catch(e=>{console.error(e);process.exit(1)});

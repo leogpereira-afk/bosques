@@ -31,5 +31,32 @@ const MAPA_ESPELHO = (() => {
     botoes.append(ampliar,atualizar);topo.append(texto,botoes);visor.append(img);
     alvo.classList.add('mapa-espelho');alvo.append(topo,aviso,visor);carregar();
   }
-  return { arquivo, montar };
+  async function adicionarAoPdf(doc, valor) {
+    if (!String(valor || '').trim()) return false;
+    const mapa = arquivo(valor);
+    if (!mapa) throw Error('Confira o link do mapa em Configurações antes de salvar o PDF.');
+    const controlador = new AbortController(), limite = setTimeout(() => controlador.abort(), 30000);
+    try {
+      const url = mapa.imagem + (mapa.imagem.includes('?') ? '&' : '?') + 'atualizacao=' + Date.now();
+      const resposta = await fetch(url, {signal: controlador.signal, cache: 'no-store', credentials: 'omit', referrerPolicy: 'no-referrer'});
+      if (!resposta.ok) throw Error('imagem');
+      const bytes = new Uint8Array(await resposta.arrayBuffer());
+      const info = doc.getImageProperties(bytes);
+      if (!(info.width > 0 && info.height > 0)) throw Error('dimensões');
+      // Uma página A3 exclusiva, sem recorte e sem reduzir os pixels da imagem.
+      doc.addPage('a3', info.width > info.height ? 'landscape' : 'portrait');
+      const largura = doc.internal.pageSize.getWidth(), altura = doc.internal.pageSize.getHeight();
+      const escala = Math.min((largura - 16) / info.width, (altura - 32) / info.height);
+      const w = info.width * escala, h = info.height * escala;
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(13); doc.setTextColor(18, 60, 45);
+      doc.text('Mapa do empreendimento', 8, 12);
+      doc.addImage(bytes, info.fileType, (largura - w) / 2, 18 + (altura - 32 - h) / 2, w, h, 'mapa-espelho', 'FAST');
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(8); doc.setTextColor(95, 122, 102);
+      doc.text('Imagem original. Confirme a disponibilidade na lista de lotes e com a equipe.', largura / 2, altura - 7, {align: 'center'});
+      return true;
+    } catch (_) {
+      throw Error('Não foi possível incluir o mapa no PDF. Confira sua conexão e tente salvar novamente.');
+    } finally { clearTimeout(limite); }
+  }
+  return { arquivo, montar, adicionarAoPdf };
 })();
