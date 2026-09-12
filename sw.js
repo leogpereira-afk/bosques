@@ -1,6 +1,6 @@
 /* Service worker — casca offline. SUBA O NÚMERO a cada publicação, senão o
    navegador continua servindo o arquivo velho (lição paga mais de uma vez). */
-const CACHE = 'bsq-shell-v66';
+const CACHE = 'bsq-shell-v67';
 const ARQUIVOS = [
   './', 'index.html', 'styles.css', 'design.css', 'mapa-espelho.css', 'mapa-espelho.js', 'config.js', 'ui.js', 'store.js', 'carne.js', 'financeiro-core.js', 'financeiro.js',
   'pdf.js', 'espelho.js', 'vendas.js', 'caixa.js', 'cadastros.js', 'cronograma.js', 'apresentacao.js', 'contratos.js', 'omie.js', 'app.js',
@@ -13,7 +13,13 @@ self.addEventListener('install', (e) => {
   // nascia com arquivos velhos herdados do cache HTTP do navegador, e nem
   // "recarregar 2 vezes" resolvia.
   e.waitUntil(caches.open(CACHE)
-    .then((c) => c.addAll(ARQUIVOS.map((u) => new Request(u, { cache: 'reload' }))))
+    .then((c) => c.addAll(ARQUIVOS.map((u) => {
+      // A versão na URL também evita que o CDN entregue um arquivo antigo
+      // durante a instalação da nova casca.
+      const url = new URL(u, self.location.href);
+      url.searchParams.set('v', CACHE);
+      return new Request(url, { cache: 'reload' });
+    })))
     .then(() => self.skipWaiting()));
 });
 

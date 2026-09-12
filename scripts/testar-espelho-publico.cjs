@@ -85,5 +85,11 @@ const linhas=['Disponível','Reservado','Vendido','Cancelado','',null].map((stat
  p=await pagina({session:'sessao-teste',status:500});assert.equal(p.document.querySelector('#tentar').hidden,false);p.setStatus(200);await p.document.querySelector('#tentar').onclick();assert.equal(p.document.querySelector('#conteudo').hidden,false);
  p=await pagina({session:'sessao-teste',status:403});assert.equal(p.document.querySelector('#conteudo').hidden,true);
  p=await pagina({hash:''});assert.equal(p.calls.length,0);assert.equal(p.document.querySelector('#aviso-titulo').textContent,'Link incompleto');
+ const eventos={},arquivos=[];let instalacao;
+ vm.runInNewContext(ler('sw.js'),{URL,Request,caches:{open:async()=>({addAll:async rs=>arquivos.push(...rs)})},self:{location:{href:'https://example.test/bosques/sw.js'},addEventListener:(n,fn)=>eventos[n]=fn,skipWaiting:async()=>{}}});
+ eventos.install({waitUntil:p=>instalacao=p});await instalacao;
+ assert.ok(arquivos.some(r=>new URL(r.url).pathname.endsWith('mapa-espelho.js')));
+ for(const r of arquivos){assert.equal(new URL(r.url).searchParams.get('v'),'bsq-shell-v67');assert.equal(r.cache,'reload');}
+ console.log('OK atualização: arquivos do mapa e da tela consultados com a versão nova.');
  console.log('PASSOU página: acesso obrigatório, saída, mapa abaixo dos lotes, zoom, atualização, filtros, segurança de texto e falhas de rede.');
 })().catch(e=>{console.error(e);process.exit(1)});
