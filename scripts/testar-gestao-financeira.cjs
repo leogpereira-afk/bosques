@@ -20,10 +20,12 @@ vm.runInNewContext(ts.transpileModule(fs.readFileSync('supabase/functions/_share
 const compacto=exportsTS.camposFinanceiros({original:{detalhes:{cCodCateg:'c1',nCodCliente:1,cNumTitulo:'Doc1',dDtPagamento:'10/09/2026',cCodProjeto:'PRIVADO'},departamentos:[{cCodDepartamento:'d1',nDistrPercentual:100}],categorias:[{cCodCateg:'c1',nDistrPercentual:100}]}},{categorias:{c1:'Lucros'},centros:{d1:'Administração'},pessoas:{1:'Pessoa teste'}});
 assert.equal(compacto.pessoaNome,'Pessoa teste');assert.equal(compacto.centros[0].nome,'Administração');assert.equal(compacto.categorias[0].nome,'Lucros');assert.ok(!JSON.stringify(compacto).includes('PRIVADO'));
 // Gera o arquivo real para inspeção de paginação, valores e textos completos.
-const {jsPDF}=require('../libs/jspdf.umd.min.js');let blob;
-const ctx=vm.createContext({window:{jspdf:{jsPDF}},FIN_GESTAO:F,fetch:async()=>({ok:false}),salvarNoAparelho:b=>blob=b,nomeMes:m=>m,Date,console});
+const {jsPDF}=require('../libs/jspdf.umd.min.js');let blob;const textosPDF=[];function Documento(opts){const doc=new jsPDF(opts),text=doc.text.bind(doc);doc.text=(t,...args)=>{textosPDF.push({t,font:doc.getFont().fontStyle});return text(t,...args);};return doc;}
+const ctx=vm.createContext({window:{jspdf:{jsPDF:Documento}},FIN_GESTAO:F,fetch:async()=>({ok:false}),salvarNoAparelho:b=>blob=b,nomeMes:m=>m,Date,console});
 vm.runInContext(fs.readFileSync('pdf.js','utf8'),ctx);
 const itens=Array.from({length:95},(_,i)=>({...b.movimentos[i%6],id:'PDF-'+i,pessoa:'Fornecedor completo para teste '+i,descricao:'Pagamento de materiais e serviços da associação, documento de referência '+i}));
 ctx.d={titulo:'Relatório financeiro de validação',periodo:'Ano 2026',itens,meses:F.meses(itens,'2026'),categorias:F.agrupar(itens.filter(x=>!x.entrada),'categorias')};
 vm.runInContext('PDF.gestao(d,{})',ctx);
+assert.ok(textosPDF.some(x=>Array.isArray(x.t)&&x.t.length>1&&x.t.some(l=>l.includes('Fornecedor completo'))),'nomes devem manter quebras de linha');
+assert.ok(textosPDF.filter(x=>Array.isArray(x.t)&&x.t.some(l=>l.includes('Fornecedor completo'))).every(x=>x.font==='normal'),'células devem manter a fonte normal');
 blob.arrayBuffer().then(a=>{fs.writeFileSync('/tmp/Bosques-financeiro-validacao.pdf',Buffer.from(a));console.log('PASSOU: Omie sem duplicidade; anos e meses; títulos separados; transferências/datas futuras; rateios em centavos; sócios sem inferir pelo nome; referências; PDF com 95 lançamentos.');}).catch(e=>{console.error(e);process.exit(1)});

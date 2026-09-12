@@ -854,7 +854,7 @@ const PDF = (() => {
   function gestao(d,cfg={}) {
     const doc=novo(),itens=d.itens||[],tot=FIN_GESTAO.resumo(itens);
     let y=42;
-    const texto=(t,x,yy,opts={})=>doc.text(soLatin1(t),x,yy,opts);
+    const texto=(t,x,yy,opts={})=>doc.text(Array.isArray(t)?t.map(soLatin1):soLatin1(t),x,yy,opts);
     const nova=()=>{doc.addPage();cabecalho(doc,cfg,'FINANCEIRO');y=42;};
     const espaco=h=>{if(y+h>276)nova();};
     const paragrafo=(t,tamanho=9,cor=CINZA)=>{doc.setFont('helvetica','normal');doc.setFontSize(tamanho);doc.setTextColor(...cor);const ls=doc.splitTextToSize(soLatin1(t),182);for(const l of ls){espaco(5);texto(l,14,y);y+=5;}y+=2;};
@@ -871,7 +871,7 @@ const PDF = (() => {
         while(offset<max){
           if(y+8>276){nova();header();}
           const cabem=Math.max(1,Math.floor((274-y)/4.1)),n=Math.min(max-offset,cabem);let x=14;
-          cs.forEach((c,i)=>{doc.setFont('helvetica',c?.bold?'bold':'normal');doc.setFontSize(8.5);doc.setTextColor(...(c?.cor||NEUTRO_FIN));const linhas=ls[i].slice(offset,offset+n);if(linhas.length)texto(linhas,c?.right?x+larguras[i]-2:x+2,y,{align:c?.right?'right':'left',lineHeightFactor:1.36});x+=larguras[i];});
+          cs.forEach((c,i)=>{doc.setFont('helvetica',typeof c==='object'&&c.bold?'bold':'normal');doc.setFontSize(8.5);doc.setTextColor(...(c?.cor||NEUTRO_FIN));const linhas=ls[i].slice(offset,offset+n);if(linhas.length)texto(linhas,c?.right?x+larguras[i]-2:x+2,y,{align:c?.right?'right':'left',lineHeightFactor:1.36});x+=larguras[i];});
           y+=n*4.1+4;offset+=n;
           if(offset<max){nova();header();}
         }
