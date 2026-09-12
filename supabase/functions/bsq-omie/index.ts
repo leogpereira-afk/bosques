@@ -106,7 +106,7 @@ async function clientesDoOmie(): Promise<any[]> {
 // Referências pequenas, guardadas no servidor para não consultar o ERP a cada tela.
 async function referenciasFinanceiras(forcar=false) {
   const anterior=await lerMeta("omie_referencias");
-  if(!forcar && anterior?.quando && Date.now()-Date.parse(anterior.quando)<86400e3)return anterior;
+  if(!forcar && anterior?.contas && anterior?.quando && Date.now()-Date.parse(anterior.quando)<86400e3)return anterior;
   const listar=async(modulo:string,call:string,campo:string)=>{
     const itens:any[]=[];const signal=AbortSignal.timeout(25000);
     for(let pagina=1;pagina<=100;pagina++){
@@ -117,12 +117,13 @@ async function referenciasFinanceiras(forcar=false) {
     }
     throw new Error("Referências Omie excederam o limite de páginas; cache anterior preservado.");
   };
-  const [categorias,centros,pessoas]=await Promise.all([
+  const [categorias,centros,pessoas,contas]=await Promise.all([
     listar("geral/categorias","ListarCategorias","categoria_cadastro"),
     listar("geral/departamentos","ListarDepartamentos","departamentos"),
     listar("geral/clientes","ListarClientes","clientes_cadastro"),
+    listar("geral/contacorrente","ListarContasCorrentes","ListarContasCorrentes"),
   ]);
-  const refs={quando:agora(),categorias:Object.fromEntries(categorias.map(c=>[String(c.codigo),String(c.descricao||c.descricao_padrao||'')])),
+  const refs={quando:agora(),contas:Object.fromEntries(contas.map(c=>[String(c.nCodCC),String(c.descricao||'')])),categorias:Object.fromEntries(categorias.map(c=>[String(c.codigo),String(c.descricao||c.descricao_padrao||'')])),
     centros:Object.fromEntries(centros.map(c=>[String(c.codigo),String(c.descricao||'')])),
     pessoas:Object.fromEntries(pessoas.map(c=>[String(c.codigo_cliente_omie),String(c.nome_fantasia||c.razao_social||'')]))};
   await gravarMeta("omie_referencias",refs);await marcarMudanca("cfg");return refs;

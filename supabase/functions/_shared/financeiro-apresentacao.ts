@@ -7,7 +7,7 @@ export function camposFinanceiros(registro:any, referencias:any={}) {
     categoriaCodigo:codigo,categoriaNome:referencias.categorias?.[codigo]||'',
     pessoaCodigo:String(d.nCodCliente||''),pessoaNome:pessoa,
     documento:String(d.cNumTitulo||''),observacao:String(d.observacao||''),
-    contaCodigo:String(d.nCodCC||registro.contaOmie||''),
+    contaCodigo:String(d.nCodCC||registro.contaOmie||''),contaNome:referencias.contas?.[String(d.nCodCC||registro.contaOmie)]||'',
     dataPagamento:String(d.dDtPagamento||''),dataCredito:String(d.dDtCredito||''),
     dataVencimento:String(d.dDtVenc||''),dataEmissao:String(d.dDtEmissao||''),
     centros:(o.departamentos||[]).map((c:any)=>({codigo:String(c.cCodDepartamento||''),nome:referencias.centros?.[String(c.cCodDepartamento)]||'',percentual:Number(c.nDistrPercentual)||0,valor:Number(c.nDistrValor)||0})),

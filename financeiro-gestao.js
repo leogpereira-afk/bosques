@@ -29,14 +29,14 @@ const FIN_GESTAO = (() => {
       const t=pendente?r:titulos.get(k),refs=t?.financeiroOmie||{},orig=r.financeiroOmie||{};
       const ref={...refs,...Object.fromEntries(Object.entries(orig).filter(([,v])=>v!==''&&v!=null&&(!Array.isArray(v)||v.length)))};
       const locais=vinculados.get(k)||[],venda=locais.map(l=>vendas.get(l.vendaId)).find(Boolean);
-      const pessoa=ref.pessoaNome||venda?.clienteNome||'Nome não informado';
+      const pessoa=ref.pessoaNome||venda?.clienteNome||(ref.pessoaCodigo?'Favorecido Omie '+ref.pessoaCodigo:'Nome não informado');
       const categoria=ref.categoriaNome|| (ref.categoriaCodigo?'Categoria Omie '+ref.categoriaCodigo:'Sem categoria');
       const valor=pendente?Number(t.original?.resumo?.nValAberto)||0:Number(r.valor)||0;
       const dt=pendente?data(r.venc):data(r.data);
       return {...r,valor,data:dt,entrada,pendente,ref,tituloOriginal:t,locais,vendaId:venda?.id,
         pessoa,pessoaCodigo:ref.pessoaCodigo||pessoa,descricao:ref.observacao||ref.documento||locais.find(l=>l.descricao&&!/^Título Omie/.test(l.descricao))?.descricao||(r.transferencia?'Transferência entre contas':r.titulo?'Título '+r.titulo:'Movimento '+r.id),
         categoria,categorias:ref.categorias||[],centros:ref.centros||[],centroCusto:'',
-        conta:String(r.contaOmie||ref.contaCodigo||''),contaNome:conta.get(String(r.contaOmie||ref.contaCodigo))||'Conta Omie '+(r.contaOmie||ref.contaCodigo||'não informada'),
+        conta:String(r.contaOmie||ref.contaCodigo||''),contaNome:ref.contaNome||conta.get(String(r.contaOmie||ref.contaCodigo))||'Conta Omie '+(r.contaOmie||ref.contaCodigo||'não informada'),
         situacao:pendente?(!valida(dt)?'Sem vencimento':dt<hoje?'Vencido':dt===hoje?'Vence hoje':'A vencer'):r.transferencia?'Transferência':!valida(dt)?'Sem data':dt>hoje?'Data futura na origem':'Realizado',
       };
     };
