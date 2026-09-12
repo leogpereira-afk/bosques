@@ -50,6 +50,8 @@ assert.ok(document.querySelector('#gf-busca'));
 assert.ok(!document.querySelector('#app').textContent.includes('Cronograma'));
 vm.runInContext("location.hash='#/cronograma';render()",ctx);assert.equal(vm.runInContext('rotaAtual().nome',ctx),'centros');assert.ok(document.querySelector('#menu').textContent.includes('Centro de custos'));
 assert.ok(!document.querySelector('#menu').textContent.includes('Cronograma'));
+assert.equal(document.querySelector('.gf-tabela thead').textContent,'MêsPagoLançamentos');
+assert.equal(document.querySelectorAll('.gf-barra-entrada').length,0);
 assert.equal(vm.runInContext("correspondeBusca('João · 12345678901','Joao') && correspondeBusca('12345678901','123.456.789-01')",ctx),true);
 vm.runInContext("location.hash='#/venda/v1';render()",ctx);assert.ok(document.querySelector('.voltar-tela').getAttribute('href').includes('vendas'));
 assert.ok(document.querySelector('#ir-tela'));
