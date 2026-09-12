@@ -881,15 +881,15 @@ const PDF = (() => {
     };
     cabecalho(doc,cfg,'FINANCEIRO');titulo(d.titulo||'Relatório financeiro');
     paragrafo((d.periodo||'Todo o histórico')+' · '+itens.length+' lançamentos');
-    const abertos=itens.length&&itens.every(x=>x.pendente),transferencias=itens.some(x=>x.transferencia);
+    const custos=d.titulo==='Centro de custos',abertos=itens.length&&itens.every(x=>x.pendente),transferencias=itens.some(x=>x.transferencia);
     paragrafo(abertos?'Base: títulos em aberto no Omie, pela data de vencimento. Não são valores já recebidos ou pagos.':transferencias?'Base: movimentos bancários do Omie, incluindo transferências neste recorte. Transferências são excluídas do resultado geral.':'Base: movimentações bancárias do Omie, pela data do pagamento. Registros locais, títulos em aberto e transferências não são somados ao resultado realizado.');
     if(itens.some(x=>x.parcial))paragrafo('Valores com rateio representam somente a parcela atribuída ao grupo consultado.');
-    tabela(['Indicador','Valor'],[137,45],[
+    tabela(['Indicador','Valor'],[137,45],custos?[["Total pago no período",{t:brl(tot.saidas),cor:VERMELHO_FIN,right:true,bold:true}]]:[
       [abertos?'A receber':'Entradas',{t:brl(tot.entradas),cor:AZUL_FIN,right:true}],
       [abertos?'A pagar':'Saídas',{t:brl(tot.saidas),cor:VERMELHO_FIN,right:true}],
       [abertos?'Diferença dos saldos em aberto':'Resultado dos movimentos',{t:brl(tot.resultado),cor:tot.resultado<0?VERMELHO_FIN:AZUL_FIN,right:true,bold:true}],
     ]);
-    if(!abertos)paragrafo('Resultado dos movimentos = entradas menos saídas. Não equivale ao saldo bancário disponível.');
+    if(!abertos&&!custos)paragrafo('Resultado dos movimentos = entradas menos saídas. Não equivale ao saldo bancário disponível.');
     if(d.meses){titulo('Comparativo mensal · '+d.meses[0]?.mes.slice(0,4));paragrafo('Comparação do ano inteiro, na mesma conta selecionada. Meses sem dados importados não comprovam ausência de movimentação.');tabela(['Mês','Entrou','Saiu','Resultado'],[41,47,47,47],d.meses.map(m=>[nomeMes(m.mes),{t:brl(m.entradas),cor:AZUL_FIN,right:true},{t:brl(m.saidas),cor:VERMELHO_FIN,right:true},{t:brl(m.resultado),cor:m.resultado<0?VERMELHO_FIN:AZUL_FIN,right:true} ]));}
     if(d.categorias?.length){titulo(d.grupoTitulo||'Saídas por categoria');tabela(['Grupo','Lançamentos','Valor'],[112,28,42],d.categorias.map(g=>[g.nome,String(g.quantidade),{t:brl(g.saidas),cor:VERMELHO_FIN,right:true}]));}
     titulo('Lançamentos do recorte');
