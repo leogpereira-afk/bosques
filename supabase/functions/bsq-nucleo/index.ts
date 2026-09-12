@@ -17,6 +17,7 @@
 // gateway barraria antes de o código rodar. A autorização é feita AQUI.
 // ============================================================================
 import { json, preflight } from "../_shared/cors.ts";
+import { camposFinanceiros } from "../_shared/financeiro-apresentacao.ts";
 import { COLECOES } from "../_shared/colecoes.ts";
 import {
   PERFIS, identificar, cfgSemSegredo, podeFazer, motivoRecusa,
@@ -488,16 +489,20 @@ Deno.serve(async (req) => {
           registros = registros.map((r: any) => r._col === "corretor"
             ? { id: r.id, nome: r.nome, _col: "corretor" } : r);
         }
+        const {data:referenciasMeta}=await db.from("bsq_meta").select("valor").eq("chave","omie_referencias").maybeSingle();
+        const referencias=referenciasMeta?.valor||{};
         registros=registros.map((r:any)=>{
+          const financeiroOmie=camposFinanceiros(r,referencias);
           if(r._col==="titulo") {
             const {original,historico,...resumo}=r;
-            return {...resumo, original:{resumo:original?.resumo||{},detalhes:{cNumTitulo:original?.detalhes?.cNumTitulo,dDtPagamento:original?.detalhes?.dDtPagamento,cTipo:original?.detalhes?.cTipo,nCodCC:original?.detalhes?.nCodCC}},temHistorico:!!historico?.length};
+            return {...resumo, financeiroOmie, original:{resumo:original?.resumo||{},detalhes:{cNumTitulo:original?.detalhes?.cNumTitulo,dDtPagamento:original?.detalhes?.dDtPagamento,cTipo:original?.detalhes?.cTipo,nCodCC:original?.detalhes?.nCodCC}},temHistorico:!!historico?.length};
           }
-          if(r._col==="movbanco") {const {original,historico,...resumo}=r;return resumo;}
-          if(["rec","cx"].includes(r._col)&&r.omie?.original){const {original,...omie}=r.omie;return {...r,omie};}
+          if(r._col==="movbanco") {const {original,historico,...resumo}=r;return {...resumo,financeiroOmie};}
+          if(["rec","cx"].includes(r._col)&&r.omie?.original){const {original,...omie}=r.omie;return {...r,omie,financeiroOmie};}
           return r;
         });
         const cfgSaida = cfgSemSegredo(cfg);
+        if(["direcao","escritorio"].includes(perfilDe(quem)))cfgSaida.financeiroReferencias={quando:referencias.quando||null,centros:referencias.centros||{}};
         if (perfilDe(quem) === "corretor") cfgSaida.usuarios = [];
         return json({
           ok: true, cfg: cfgSaida, registros, em: agora(),

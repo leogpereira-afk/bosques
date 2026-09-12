@@ -850,5 +850,58 @@ const PDF = (() => {
     const corTotal=finCorTotal(linhas,aba);doc.setTextColor(...(corTotal==='fin-saida'?VERMELHO_FIN:corTotal==='fin-entrada'?AZUL_FIN:NEUTRO_FIN));doc.setFont('helvetica','bold');doc.text('TOTAL DO RECORTE: '+brl(total),196,y+7,{align:'right'});
     rodape(doc,titulo+' · '+recorte);salvarNoAparelho(doc.output('blob'),'Financeiro-Bosques.pdf');
   }
-  return { historico, financeiro, proposta, recibo, venda, vendasDash, dre, espelho, relatorio, cronograma, lancamentos, simulacao };
+  // Relatório e consultas usam exatamente os mesmos itens exibidos no painel.
+  function gestao(d,cfg={}) {
+    const doc=novo(),itens=d.itens||[],tot=FIN_GESTAO.resumo(itens);
+    let y=42;
+    const texto=(t,x,yy,opts={})=>doc.text(soLatin1(t),x,yy,opts);
+    const nova=()=>{doc.addPage();cabecalho(doc,cfg,'FINANCEIRO');y=42;};
+    const espaco=h=>{if(y+h>276)nova();};
+    const paragrafo=(t,tamanho=9,cor=CINZA)=>{doc.setFont('helvetica','normal');doc.setFontSize(tamanho);doc.setTextColor(...cor);const ls=doc.splitTextToSize(soLatin1(t),182);for(const l of ls){espaco(5);texto(l,14,y);y+=5;}y+=2;};
+    const titulo=t=>{espaco(38);doc.setFont('helvetica','bold');doc.setFontSize(12);doc.setTextColor(...NEUTRO_FIN);const ls=doc.splitTextToSize(soLatin1(t),182);texto(ls,14,y);y+=ls.length*5+5;};
+    // Altura calculada pelo texto: nomes e descrições não invadem a próxima linha.
+    const tabela=(cab,larguras,linhas)=>{
+      const header=()=>{doc.setFont('helvetica','bold');doc.setFontSize(8);doc.setTextColor(...CINZA);let x=14;cab.forEach((c,i)=>{texto(c,x+2,y);x+=larguras[i];});doc.setDrawColor(214,225,217);doc.line(14,y+3,196,y+3);y+=9;};
+      espaco(20);header();
+      for(const cs of linhas){
+        doc.setFont('helvetica','normal');doc.setFontSize(8.5);
+        const ls=cs.map((c,i)=>doc.splitTextToSize(soLatin1(typeof c==='object'?c.t:c),larguras[i]-5));
+        // Textos extensos continuam na página seguinte, sem truncar o lançamento.
+        let offset=0,max=Math.max(1,...ls.map(a=>a.length));
+        while(offset<max){
+          if(y+8>276){nova();header();}
+          const cabem=Math.max(1,Math.floor((274-y)/4.1)),n=Math.min(max-offset,cabem);let x=14;
+          cs.forEach((c,i)=>{doc.setFont('helvetica',c?.bold?'bold':'normal');doc.setFontSize(8.5);doc.setTextColor(...(c?.cor||NEUTRO_FIN));const linhas=ls[i].slice(offset,offset+n);if(linhas.length)texto(linhas,c?.right?x+larguras[i]-2:x+2,y,{align:c?.right?'right':'left',lineHeightFactor:1.36});x+=larguras[i];});
+          y+=n*4.1+4;offset+=n;
+          if(offset<max){nova();header();}
+        }
+        doc.setDrawColor(231,237,232);doc.line(14,y-2,196,y-2);
+      }
+      y+=7;
+    };
+    cabecalho(doc,cfg,'FINANCEIRO');titulo(d.titulo||'Relatório financeiro');
+    paragrafo((d.periodo||'Todo o histórico')+' · '+itens.length+' lançamentos');
+    const abertos=itens.length&&itens.every(x=>x.pendente),transferencias=itens.some(x=>x.transferencia);
+    paragrafo(abertos?'Base: títulos em aberto no Omie, pela data de vencimento. Não são valores já recebidos ou pagos.':transferencias?'Base: movimentos bancários do Omie, incluindo transferências neste recorte. Transferências são excluídas do resultado geral.':'Base: movimentações bancárias do Omie, pela data do pagamento. Registros locais, títulos em aberto e transferências não são somados ao resultado realizado.');
+    if(itens.some(x=>x.parcial))paragrafo('Valores com rateio representam somente a parcela atribuída ao grupo consultado.');
+    tabela(['Indicador','Valor'],[137,45],[
+      [abertos?'A receber':'Entradas',{t:brl(tot.entradas),cor:AZUL_FIN,right:true}],
+      [abertos?'A pagar':'Saídas',{t:brl(tot.saidas),cor:VERMELHO_FIN,right:true}],
+      [abertos?'Diferença dos saldos em aberto':'Resultado dos movimentos',{t:brl(tot.resultado),cor:tot.resultado<0?VERMELHO_FIN:AZUL_FIN,right:true,bold:true}],
+    ]);
+    if(!abertos)paragrafo('Resultado dos movimentos = entradas menos saídas. Não equivale ao saldo bancário disponível.');
+    if(d.meses){titulo('Comparativo mensal · '+d.meses[0]?.mes.slice(0,4));paragrafo('Comparação do ano inteiro, na mesma conta selecionada. Meses sem dados importados não comprovam ausência de movimentação.');tabela(['Mês','Entrou','Saiu','Resultado'],[41,47,47,47],d.meses.map(m=>[nomeMes(m.mes),{t:brl(m.entradas),cor:AZUL_FIN,right:true},{t:brl(m.saidas),cor:VERMELHO_FIN,right:true},{t:brl(m.resultado),cor:m.resultado<0?VERMELHO_FIN:AZUL_FIN,right:true} ]));}
+    if(d.categorias?.length){titulo(d.grupoTitulo||'Saídas por categoria');tabela(['Grupo','Lançamentos','Valor'],[112,28,42],d.categorias.map(g=>[g.nome,String(g.quantidade),{t:brl(g.saidas),cor:VERMELHO_FIN,right:true}]));}
+    titulo('Lançamentos do recorte');
+    if(!itens.length)paragrafo('Nenhum lançamento importado neste recorte.');
+    else tabela(['Data / tipo','Cliente ou favorecido / descrição','Categoria / título','Valor'],[25,76,43,38],[...itens].sort((a,b)=>b.data.localeCompare(a.data)).map(x=>[
+      (FIN_GESTAO.valida(x.data)?dataBR(x.data):'Sem data')+'\n'+(x.entrada?'Entrada':'Saída'),
+      x.pessoa+'\n'+x.descricao,
+      x.categoria+'\n'+(x.titulo?'Título '+x.titulo:x.id)+(x.parcial?'\nParcela do rateio':'')+(x.situacao!=='Realizado'?'\n'+x.situacao:''),
+      {t:brl(x.valor),cor:!x.entrada||x.situacao==='Vencido'?VERMELHO_FIN:AZUL_FIN,right:true},
+    ]));
+    for(let p=1;p<=doc.getNumberOfPages();p++){doc.setPage(p);rodape(doc,'Portal dos Bosques · '+dataBR(new Date().toISOString())+' · Página '+p+' de '+doc.getNumberOfPages());}
+    const blob=doc.output('blob');salvarNoAparelho(blob,(d.titulo==='Centro de custos'?'Centro-de-custos':'Financeiro')+'-Bosques.pdf');return blob;
+  }
+  return { gestao, historico, financeiro, proposta, recibo, venda, vendasDash, dre, espelho, relatorio, cronograma, lancamentos, simulacao };
 })();

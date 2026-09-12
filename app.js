@@ -17,7 +17,7 @@ const ROTAS = {
   lancamentos: { titulo: 'Lançamentos',  ic: '🧾' },
   simulacao:  { titulo: 'Simulação',     ic: '🧮', oculta: true }, // vive dentro de Vendas
   relatorios: { titulo: 'Relatórios',   ic: '📊' },
-  cronograma: { titulo: 'Cronograma',   ic: '🏗️' },
+  centros:    { titulo: 'Centro de custos', ic: '🧾' },
   apresentacao: { titulo: 'Apresentação', ic: '🏞️' },
   comissoes:  { titulo: 'Comissões',     ic: '🤝', oculta: true }, // vive dentro de Corretores
   clientes:   { titulo: 'Clientes',      ic: '👥' },
@@ -30,21 +30,21 @@ const ROTAS = {
 // oferecer o que a pessoa não pode abrir.
 function rotasDoPerfil() {
   if (S.perfil === 'corretor') return ['espelho', 'simulador', 'propostas', 'apresentacao'];
-  if (S.perfil === 'escritorio') return ['home', 'espelho', 'simulador', 'vendas', 'contratos', 'propostas', 'financeiro', 'relatorios', 'cronograma', 'clientes', 'corretores', 'apresentacao'];
-  return ['home', 'espelho', 'simulador', 'vendas', 'contratos', 'propostas', 'financeiro', 'relatorios', 'cronograma', 'clientes', 'corretores', 'acessos', 'apresentacao', 'config'];
+  if (S.perfil === 'escritorio') return ['home', 'espelho', 'simulador', 'vendas', 'contratos', 'propostas', 'financeiro', 'relatorios', 'centros', 'clientes', 'corretores', 'apresentacao'];
+  return ['home', 'espelho', 'simulador', 'vendas', 'contratos', 'propostas', 'financeiro', 'relatorios', 'centros', 'clientes', 'corretores', 'acessos', 'apresentacao', 'config'];
 }
 
 function rotaAtual() {
   const h = location.hash.replace(/^#\/?/, '');
   const [nome, id] = h.split('/');
-  return { nome: nome || (S.perfil === 'corretor' ? 'espelho' : 'home'), id: id || '' };
+  return { nome: (nome === 'cronograma' ? 'centros' : nome) || (S.perfil === 'corretor' ? 'espelho' : 'home'), id: id || '' };
 }
 
 /* ── Render ────────────────────────────────────────────────────────────────── */
-const DESCRICOES_TELA={home:'O empreendimento hoje, em um só lugar.',espelho:'Disponibilidade, reservas e vendas por lote.',lote:'Informações do lote e condições de venda.',vendas:'Acompanhe contratos, pagamentos e clientes.',venda:'Contrato, parcelas e histórico do cliente.',simulador:'Compare condições e monte um plano de pagamento.',simulacao:'Explore cenários de vendas e recebimentos.',contratos:'Prepare e consulte os contratos do empreendimento.',propostas:'Organize propostas e acompanhe cada negociação.',financeiro:'Recebimentos, despesas e vínculos para conferir.',caixa:'Acompanhe as entradas e saídas do período.',lancamentos:'Consulte e edite cada movimentação.',relatorios:'Resultados e previsões para orientar suas decisões.',cronograma:'Etapas, prazos e custos de cada projeto.',clientes:'Cadastros e informações dos seus clientes.',corretores:'Equipe comercial, desempenho e comissões.',apresentacao:'Fotos e materiais para apresentar o empreendimento.',acessos:'Cadastros de quem entrou pelo link compartilhado.',config:'Preferências e acessos do sistema.'};
-const ICONES_MENU={relatorios:'M4 3h16v18H4z M8 16v-4 M12 16V7 M16 16v-7',home:'M3 10l9-7 9 7v10a1 1 0 0 1-1 1h-5v-7H9v7H4a1 1 0 0 1-1-1z',espelho:'M3 3h7v7H3z M14 3h7v7h-7z M3 14h7v7H3z M14 14h7v7h-7z',simulador:'M5 3h14v18H5z M8 7h8 M8 11h1 M15 11h1 M8 15h1 M15 15h1 M8 18h1 M15 18h1',vendas:'M4 20V8l8-5 8 5v12H4z M8 12h8 M8 16h5',contratos:'M6 3h9l4 4v14H6z M14 3v5h5 M9 12h7 M9 16h7',propostas:'M3 5h18v14H3z M3 5l9 7 9-7',financeiro:'M3 7h18v14H3z M3 7V4h15v3 M15 12h6v5h-6z',cronograma:'M4 5h16v16H4z M8 3v4 M16 3v4 M4 10h16 M8 14h3 M8 17h7',clientes:'M16 8a4 4 0 1 1-8 0 4 4 0 0 1 8 0 M4 21v-2a8 6 0 0 1 16 0v2',corretores:'M13 7a3 3 0 1 1-6 0 3 3 0 0 1 6 0 M3 20v-2a7 5 0 0 1 14 0v2 M16 4a3 3 0 0 1 0 6 M18 14a5 4 0 0 1 3 4v2',apresentacao:'M3 4h18v16H3z M3 16l6-6 5 5 3-3 4 4 M15 8h.01',config:'M12 3v3 M12 18v3 M3 12h3 M18 12h3 M5.6 5.6l2 2 M16.4 16.4l2 2 M5.6 18.4l2-2 M16.4 7.6l2-2 M17 12a5 5 0 1 1-10 0 5 5 0 0 1 10 0'};
+const DESCRICOES_TELA={home:'O empreendimento hoje, em um só lugar.',espelho:'Disponibilidade, reservas e vendas por lote.',lote:'Informações do lote e condições de venda.',vendas:'Acompanhe contratos, pagamentos e clientes.',venda:'Contrato, parcelas e histórico do cliente.',simulador:'Compare condições e monte um plano de pagamento.',simulacao:'Explore cenários de vendas e recebimentos.',contratos:'Prepare e consulte os contratos do empreendimento.',propostas:'Organize propostas e acompanhe cada negociação.',financeiro:'Entradas, saídas e retiradas com acesso aos lançamentos.',caixa:'Acompanhe as entradas e saídas do período.',lancamentos:'Consulte e edite cada movimentação.',relatorios:'Resultados mensais e detalhamento dos gastos.',centros:'Gastos por centro de custo e categoria do Omie.',clientes:'Cadastros e informações dos seus clientes.',corretores:'Equipe comercial, desempenho e comissões.',apresentacao:'Fotos e materiais para apresentar o empreendimento.',acessos:'Cadastros de quem entrou pelo link compartilhado.',config:'Preferências e acessos do sistema.'};
+const ICONES_MENU={relatorios:'M4 3h16v18H4z M8 16v-4 M12 16V7 M16 16v-7',home:'M3 10l9-7 9 7v10a1 1 0 0 1-1 1h-5v-7H9v7H4a1 1 0 0 1-1-1z',espelho:'M3 3h7v7H3z M14 3h7v7h-7z M3 14h7v7H3z M14 14h7v7h-7z',simulador:'M5 3h14v18H5z M8 7h8 M8 11h1 M15 11h1 M8 15h1 M15 15h1 M8 18h1 M15 18h1',vendas:'M4 20V8l8-5 8 5v12H4z M8 12h8 M8 16h5',contratos:'M6 3h9l4 4v14H6z M14 3v5h5 M9 12h7 M9 16h7',propostas:'M3 5h18v14H3z M3 5l9 7 9-7',financeiro:'M3 7h18v14H3z M3 7V4h15v3 M15 12h6v5h-6z',centros:'M4 5h16v16H4z M8 3v4 M16 3v4 M4 10h16 M8 14h3 M8 17h7',clientes:'M16 8a4 4 0 1 1-8 0 4 4 0 0 1 8 0 M4 21v-2a8 6 0 0 1 16 0v2',corretores:'M13 7a3 3 0 1 1-6 0 3 3 0 0 1 6 0 M3 20v-2a7 5 0 0 1 14 0v2 M16 4a3 3 0 0 1 0 6 M18 14a5 4 0 0 1 3 4v2',apresentacao:'M3 4h18v16H3z M3 16l6-6 5 5 3-3 4 4 M15 8h.01',config:'M12 3v3 M12 18v3 M3 12h3 M18 12h3 M5.6 5.6l2 2 M16.4 16.4l2 2 M5.6 18.4l2-2 M16.4 7.6l2-2 M17 12a5 5 0 1 1-10 0 5 5 0 0 1 10 0'};
 function iconeMenu(nome){return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="'+(ICONES_MENU[nome]||ICONES_MENU.financeiro)+'"/></svg>';}
-function grupoMenu(nome){return nome==='home'?'Visão geral':['espelho','simulador','vendas','contratos','propostas'].includes(nome)?'Comercial':['financeiro','relatorios','cronograma'].includes(nome)?'Gestão':['clientes','corretores','acessos'].includes(nome)?'Cadastros':'Organização';}
+function grupoMenu(nome){return nome==='home'?'Visão geral':['espelho','simulador','vendas','contratos','propostas'].includes(nome)?'Comercial':['financeiro','relatorios','centros'].includes(nome)?'Gestão':['clientes','corretores','acessos'].includes(nome)?'Cadastros':'Organização';}
 
 function renderLateral() {
   const el = document.getElementById('lateral');
@@ -167,7 +167,7 @@ function renderLogin() {
 TELAS.home = function () {
   const app = document.getElementById('app');
   const mes = mesDe(hojeISO());
-  const t = totaisDoMes(mes);
+  const t = FIN_GESTAO.resumo(FIN_GESTAO.filtrar(GESTAO_UI.base().movimentos,{ano:mes.slice(0,4),mes:mes.slice(5)}));
   const vivas = vendasVivas();
   const comAtraso = vivas
     .map((v) => ({ v, r: resumoVenda(v) }))

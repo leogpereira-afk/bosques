@@ -27,7 +27,6 @@ function problemasDoLancamento(x) {
   if (x.col === 'cx' && !x.entrada) {
     if (!x.categoria || x.categoria === 'Outros') probs.push('sem categoria (Outros)');
     if (x.categoria === 'Comissão' && !x.corretorId && !x.temRateio) probs.push('comissão sem corretor');
-    if (x.categoria === 'Obra / infraestrutura' && !x.etapaId) probs.push('obra sem etapa');
     // só cobra centro de custo depois que a casa os cadastrou
     if (!x.centroCusto && ((S.cfg && S.cfg.centrosCusto) || []).length) probs.push('sem centro de custo');
   }
@@ -156,11 +155,9 @@ TELAS.caixa = function () {
   const semCategoria = vivos.filter((c) => c.tipo === 'saida' && (!c.categoria || c.categoria === 'Outros')).length;
   const comSemCor = vivos.filter((c) => c.tipo === 'saida' && c.categoria === 'Comissão' &&
     !c.corretorId && !(c.rateio && c.rateio.length)).length;
-  const obraSemEtapa = vivos.filter((c) => c.tipo === 'saida' && c.categoria === 'Obra / infraestrutura' && !c.etapaId).length;
   const pendencias = [];
   if (semCategoria) pendencias.push({ n: semCategoria, txt: 'saída(s) na categoria "Outros" — classifique para o DRE dizer a verdade', acao: 'outros' });
   if (comSemCor) pendencias.push({ n: comSemCor, txt: 'comissão(ões) paga(s) sem corretor — associe em Corretores', acao: 'corretores' });
-  if (obraSemEtapa) pendencias.push({ n: obraSemEtapa, txt: 'gasto(s) de obra sem etapa do cronograma', acao: 'cronograma' });
   const recsSoltos = lista('rec').filter((r) => !r.vendaId).length;
   if (recsSoltos) pendencias.push({ n: recsSoltos, txt: 'recebimento(s) do Omie sem venda — o caixa conta, o carnê não', acao: 'rec-omie' });
   const blocoVinculos = pendencias.length
@@ -344,8 +341,7 @@ function abrirEdicaoLancamento(id, aoTerminar) {
         campo('Corretor da comissão', seletor('corretorId', c.corretorId || '',
           lista('corretor').map((c2) => ({ v: c2.id, t: c2.nome })), '— escolher —'),
           (c.rateio && c.rateio.length ? 'este pagamento está DIVIDIDO (rateio) — mexa em Corretores' : 'vincula direto na conta dele')) + '</div>' +
-        campo('Etapa do cronograma', seletor('etapaId', c.etapaId || '',
-          lista('etapa').map((e2) => ({ v: e2.id, t: e2.nome })), 'nenhuma'), 'soma no "pago" da etapa')
+        ''
       : '') +
     (c.tipo === 'saida'
       ? campo('Centro de custo', seletor('centroCusto', c.centroCusto || '', (S.cfg.centrosCusto || []), '— nenhum —'), 'onde esse dinheiro trabalhou')
@@ -438,9 +434,7 @@ function abrirLancamento(tipo, aoTerminar, etapaPre) {
         campo('Corretor da comissão', seletor('corretorId', '', lista('corretor').map((c2) => ({ v: c2.id, t: c2.nome })), '— escolher —'),
           'vincula direto na conta dele') + '</div>'
       : '') +
-    (etapasVivas.length
-      ? campo('Etapa do cronograma', seletor('etapaId', etapaPre || '', etapasVivas.map((e) => ({ v: e.id, t: e.nome })), 'nenhuma'), 'soma no "pago" da etapa')
-      : '') +
+    '' +
     (tipo === 'saida'
       ? campo('Centro de custo', seletor('centroCusto', '', (S.cfg.centrosCusto || []), '— nenhum —'), 'onde esse dinheiro trabalhou')
       : '') +

@@ -19,12 +19,12 @@ import { identificar, perfilDe, type Quem } from "../_shared/acesso.ts";
 /* ── conversa com o Omie ───────────────────────────────────────────────────── */
 const OMIE_URL = "https://app.omie.com.br/api/v1/";
 
-async function omie(modulo: string, call: string, param: Record<string, unknown>) {
+async function omie(modulo: string, call: string, param: Record<string, unknown>, signal?:AbortSignal) {
   const APP_KEY = Deno.env.get("BSQ_OMIE_APP_KEY");
   const APP_SECRET = Deno.env.get("BSQ_OMIE_APP_SECRET");
   if (!APP_KEY || !APP_SECRET) throw new Error("Faltam os segredos BSQ_OMIE_APP_KEY / BSQ_OMIE_APP_SECRET.");
   const resp = await fetch(OMIE_URL + modulo + "/", {
-    method: "POST",
+    method: "POST",signal,
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ call, app_key: APP_KEY, app_secret: APP_SECRET, param: [param] }),
   });
@@ -103,6 +103,31 @@ async function clientesDoOmie(): Promise<any[]> {
   return todos;
 }
 
+// Referências pequenas, guardadas no servidor para não consultar o ERP a cada tela.
+async function referenciasFinanceiras(forcar=false) {
+  const anterior=await lerMeta("omie_referencias");
+  if(!forcar && anterior?.quando && Date.now()-Date.parse(anterior.quando)<86400e3)return anterior;
+  const listar=async(modulo:string,call:string,campo:string)=>{
+    const itens:any[]=[];const signal=AbortSignal.timeout(25000);
+    for(let pagina=1;pagina<=100;pagina++){
+      const r=await omie(modulo,call,{pagina,registros_por_pagina:100},signal);
+      if(!r.faultstring&&Number(r.total_de_registros)===0&&!r[campo])return itens;
+      if(r.faultstring||!Array.isArray(r[campo]))throw new Error("Referências Omie: "+call+" não retornou uma lista válida.");
+      itens.push(...r[campo]);if(pagina>=Number(r.total_de_paginas||1))return itens;
+    }
+    throw new Error("Referências Omie excederam o limite de páginas; cache anterior preservado.");
+  };
+  const [categorias,centros,pessoas]=await Promise.all([
+    listar("geral/categorias","ListarCategorias","categoria_cadastro"),
+    listar("geral/departamentos","ListarDepartamentos","departamentos"),
+    listar("geral/clientes","ListarClientes","clientes_cadastro"),
+  ]);
+  const refs={quando:agora(),categorias:Object.fromEntries(categorias.map(c=>[String(c.codigo),String(c.descricao||c.descricao_padrao||'')])),
+    centros:Object.fromEntries(centros.map(c=>[String(c.codigo),String(c.descricao||'')])),
+    pessoas:Object.fromEntries(pessoas.map(c=>[String(c.codigo_cliente_omie),String(c.nome_fantasia||c.razao_social||'')]))};
+  await gravarMeta("omie_referencias",refs);await marcarMudanca("cfg");return refs;
+}
+
 /* ── o casamento título → venda ────────────────────────────────────────────── */
 // Entre as vendas vivas do cliente, qual bate com o valor do título?
 // Confere o valor da parcela e, na Reajustada, cada degrau possível.
@@ -164,6 +189,10 @@ Deno.serve(async (req) => {
     switch (action) {
 
       /* ── saúde: a última sincronização, para o indicador da tela ─────────── */
+      case "referencias": {
+        const refs=await referenciasFinanceiras(body.forcar===true);
+        return json({ok:true,quando:refs.quando});
+      }
       case "saude": {
         const meta = await lerMeta("omie_sync");
         return json({ ok: true, sync: meta || null, corte: cfg.omie?.corteEntradas || null, automacao: await lerMeta("omie_automacao") });
@@ -191,6 +220,7 @@ Deno.serve(async (req) => {
         execucao=reserva;
         body={...body,pagina:reserva.pagina,parcial:reserva.parcial,completa:reserva.completa};
         const inicio = reserva.inicio;
+        if(Number(reserva.pagina||1)===1) await referenciasFinanceiras().catch(e=>console.warn("Referências financeiras: cache preservado",e.message));
         await gravarMeta("omie_sync", { ...(meta || {}), status:"em_andamento", inicio, erro:null });
 
 
@@ -354,7 +384,7 @@ Deno.serve(async (req) => {
             if (grupo.startsWith("CONTA_CORRENTE") && d.nCodMovCC) {
               const id="banco-"+d.nCodMovCC;
               const anterior=bancoPorId.get(id);
-              const original={detalhes:d,resumo:res};
+              const original={detalhes:d,resumo:res,departamentos:mov.departamentos||[],categorias:mov.categorias||[]};
               gravar.push({colecao:"movbanco",id,registro:{...(anterior||{}),id,contaOmie:d.nCodCC,titulo:d.nCodTitulo||null,
                 data:brParaISO(d.dDtPagamento),valor:Number(d.nValorMovCC ?? res.nValPago)||0,
                 entrada:d.cNatureza==="R",transferencia:["TRAP","TRAR"].includes(d.cOrigem),
@@ -365,7 +395,7 @@ Deno.serve(async (req) => {
             if (["CONTA_A_RECEBER", "CONTA_A_PAGAR"].includes(grupo) && d.nCodTitulo) {
               const tituloId = grupo + "-" + d.nCodTitulo;
               const anterior = titulosPorId.get(tituloId);
-              const original = { detalhes:d, resumo:res };
+              const original = { detalhes:d, resumo:res, departamentos:mov.departamentos||[], categorias:mov.categorias||[] };
               const mudou = JSON.stringify(anterior?.original) !== JSON.stringify(original);
               gravar.push({colecao:"titulo",id:tituloId,registro:{ ...(anterior || {}), id:tituloId,
                 grupo, titulo:d.nCodTitulo, valor:Number(d.nValorTitulo)||0, venc:brParaISO(d.dDtVenc),

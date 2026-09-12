@@ -264,14 +264,13 @@ function finVincularPagamento(r,aoTerminar){
   abrirModal({titulo:'Vincular pagamento a um lote',corpo:campo('Cliente e lote',seletor('vendaId',r.vendaId||'',vs.map(v=>({v:v.id,t:(v.clienteNome||'Cliente')+' · Q'+v.quadra+' L'+v.lote})),'Selecione'))+'<p>Após escolher o lote, distribua o pagamento pelas parcelas na ficha do recebimento.</p>'+campo('Motivo da associação',entrada('motivo','')),acoes:[{texto:'Voltar',aoClicar:fecharModal},{texto:'Vincular',classe:'primario',aoClicar:async f=>{const c=lerCampos(f);try{await api('vincularRecebimento',{id:r.id,...c});await puxar();fecharModal();finEditarRecebimento(achar('rec',r.id),aoTerminar);}catch(e){toast(e.message,'ruim');}}}]});
 }
 
-const FIN_GRUPOS={outros:'Despesas sem categoria',corretores:'Comissões sem corretor',cronograma:'Despesas de obra sem etapa','rec-omie':'Recebimentos sem lote','centro':'Despesas sem centro de custo'};
+const FIN_GRUPOS={outros:'Despesas sem categoria',corretores:'Comissões sem corretor','rec-omie':'Recebimentos sem lote','centro':'Despesas sem centro de custo'};
 function finPertenceGrupo(x,grupo){
   const c=x.cx;
   if(grupo==='rec-omie')return !!x.rec&&!x.rec.vendaId;
   if(!c||c.tipo!=='saida')return false;
   if(grupo==='outros')return !c.categoria||c.categoria==='Outros';
   if(grupo==='corretores')return c.categoria==='Comissão'&&!c.corretorId&&!c.rateio?.length;
-  if(grupo==='cronograma')return c.categoria==='Obra / infraestrutura'&&!c.etapaId;
   if(grupo==='centro')return !c.centroCusto;
   return false;
 }

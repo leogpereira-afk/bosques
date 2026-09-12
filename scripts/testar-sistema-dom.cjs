@@ -2,11 +2,11 @@
 const fs=require('fs'),vm=require('vm'),assert=require('node:assert/strict');
 (async()=>{
 const {parseHTML}=await import((process.env.BSQ_TEST_DEPS||'/tmp/bosques-test-deps')+'/node_modules/linkedom/esm/index.js');
-const {document}=parseHTML('<html><body><nav id="menu"></nav><div id="topo"></div><div id="lateral"></div><div id="app"></div><div id="badge-sync"></div></body></html>');
+const {document}=parseHTML('<html><body><div id="topo"></div><div id="lateral"></div><div id="app"></div><div id="badge-sync"></div></body></html>');
 const mem=new Map(),localStorage={getItem:k=>mem.get(k)||null,setItem:(k,v)=>mem.set(k,String(v)),removeItem:k=>mem.delete(k)};
 const fakeWindow={addEventListener(){},matchMedia:()=>({matches:false}),FINANCEIRO_EM_VALIDACAO:true};
 const ctx=vm.createContext({window:fakeWindow,document,localStorage,navigator:{onLine:false},location:{hash:'#/home'},console,URL,Blob,TextEncoder,TextDecoder,CustomEvent:document.defaultView.CustomEvent,Event:document.defaultView.Event,setTimeout:()=>0,clearTimeout(){},setInterval:()=>0,clearInterval(){},fetch:async()=>({ok:true,json:async()=>({ok:true,sync:{status:'completa',quando:new Date().toISOString()},registros:[]})}),crypto:require('node:crypto').webcrypto,Intl});
-for(const f of ['config.js','ui.js','mapa-espelho.js','store.js','carne.js','financeiro-core.js','pdf.js','espelho.js','vendas.js','caixa.js','cadastros.js','cronograma.js','omie.js','financeiro.js','contratos.js','apresentacao.js','app.js']) {
+for(const f of ['config.js','ui.js','mapa-espelho.js','store.js','carne.js','financeiro-core.js','pdf.js','espelho.js','vendas.js','caixa.js','cadastros.js','cronograma.js','omie.js','financeiro.js','financeiro-gestao.js','financeiro-painel.js','contratos.js','apresentacao.js','app.js']) {
  let s=fs.readFileSync(f,'utf8');if(f==='app.js')s=s.slice(0,s.indexOf('(async function iniciar()'));vm.runInContext(s,ctx,{filename:f});
 }
 const snap=process.env.BSQ_TEST_SNAPSHOT?JSON.parse(fs.readFileSync(process.env.BSQ_TEST_SNAPSHOT,'utf8')):{cfg:{formasPg:['PIX'],centrosCusto:[],categoriasDespesa:['Obra'],categoriasReceita:[]},registros:[
@@ -28,11 +28,11 @@ for(const aba of ['visao','recebimentos','despesas','receber','pagar','diferenca
  assert.ok(!/undefined|NaN/.test(document.querySelector('#app').textContent),aba);console.log('OK financeiro '+aba);
 }
 vm.runInContext("TELAS._relMes='2025-01';TELAS.relatorios()",ctx);
-assert.ok(document.querySelector('#app').textContent.includes('Nenhum lançamento importado para 2025'));
+assert.ok(document.querySelector('#app').textContent.includes('Sem movimentações importadas em Janeiro de 2025'));
 vm.runInContext("TELAS._relMes=hojeISO().slice(0,7);TELAS.relatorios()",ctx);
-assert.equal(document.querySelectorAll('.rel-grafico-mes').length,12);
-assert.ok(document.querySelector('#app').textContent.includes('Previsão parcial'));
-assert.ok(document.querySelector('#app').textContent.includes('Parcial até'));
+assert.equal(document.querySelectorAll('.gf-grafico-mes').length,12);
+assert.ok(document.querySelector('#app').textContent.includes('Contas ainda em aberto'));
+assert.ok(document.querySelector('#app').textContent.includes('Mês a mês'));
 // Regressões da revisão de navegação: atalhos respeitam período e registros sem lote.
 vm.runInContext("TELAS.home()",ctx);
 document.querySelector('[data-aba="despesas"]').onclick();
@@ -44,12 +44,28 @@ assert.ok(document.querySelector('.fundo-modal').textContent.includes('Recebimen
 let fechados=0;document.addEventListener('ui:modais-fechados',()=>fechados++);
 vm.runInContext('fecharModal()',ctx);assert.equal(fechados,1);
 vm.runInContext("TELAS._fin={aba:'recebimentos',ano:'2025',mes:'02',q:'inexistente',centro:'Obra',fila:'futuros'};TELAS.financeiro()",ctx);
-assert.ok(document.querySelector('.fin-filtros-ativos').textContent.includes('Centro: Obra'));
-document.querySelector('#fin-limpar').onclick();assert.equal(vm.runInContext('TELAS._fin.ano',ctx),'');
-assert.equal(vm.runInContext('TELAS._fin.fila',ctx),undefined);
+assert.equal(vm.runInContext('TELAS._gestao.ano',ctx),'2025');
+assert.equal(vm.runInContext('TELAS._gestao.mes',ctx),'02');
+assert.ok(document.querySelector('#gf-busca'));
+assert.ok(!document.querySelector('#app').textContent.includes('Cronograma'));
+vm.runInContext("location.hash='#/cronograma';render()",ctx);assert.equal(vm.runInContext('rotaAtual().nome',ctx),'centros');assert.ok(document.querySelector('#menu').textContent.includes('Centro de custos'));
+assert.ok(!document.querySelector('#menu').textContent.includes('Cronograma'));
 assert.equal(vm.runInContext("correspondeBusca('João · 12345678901','Joao') && correspondeBusca('12345678901','123.456.789-01')",ctx),true);
 vm.runInContext("location.hash='#/venda/v1';render()",ctx);assert.ok(document.querySelector('.voltar-tela').getAttribute('href').includes('vendas'));
 assert.ok(document.querySelector('#ir-tela'));
+// Cada clique mensal abre exclusivamente seu conjunto, sem manter filtros de outra aba.
+vm.runInContext("S.reg.movbanco=[{id:'b1',origem:'omie',data:'2026-08-10',valor:320,entrada:false,financeiroOmie:{pessoaNome:'Fornecedor de agosto',categoriaNome:'Materiais'}},{id:'b2',origem:'omie',data:'2026-09-10',valor:750,entrada:true,financeiroOmie:{pessoaNome:'Cliente de setembro',categoriaNome:'Venda de lotes'}}];TELAS._fin={aba:'visao',ano:'2026',mes:'09'};TELAS.financeiro()",ctx);
+[...document.querySelectorAll('.gf-tabela button')].find(b=>b.textContent==='Agosto').click();
+assert.ok(document.querySelector('.fundo-modal').textContent.includes('Fornecedor de agosto'));
+assert.ok(!document.querySelector('.fundo-modal').textContent.includes('Cliente de setembro'));
+assert.ok(!document.querySelector('.gf-lista-contexto').textContent.includes('Setembro'));
+document.querySelector('.fundo-modal .gf-pessoa').click();
+assert.ok([...document.querySelectorAll('.fundo-modal')].at(-1).textContent.includes('Detalhes do lançamento'));
+vm.runInContext('fecharModal();fecharModal()',ctx);
+vm.runInContext("TELAS._fin={aba:'recebimentos',ano:'2026',mes:''};TELAS.financeiro()",ctx);
+[...document.querySelectorAll('.gf-nav button')].find(b=>b.textContent==='Resumo').click();
+assert.equal(vm.runInContext('TELAS._gestao.tipo',ctx),'');
+assert.ok(document.querySelector('.gf-cards').textContent.includes('320,00'));
 console.log('OK atalhos mensais, recebimento sem lote, atualização após modal, filtros visíveis e limpeza, busca e retorno.');
 vm.runInContext("S.cacheCompleto=false;location.hash='#/financeiro';render()",ctx);
 assert.ok(document.querySelector('#app').textContent.includes('Preparando os dados'));assert.equal(document.querySelectorAll('.painel').length,0);
