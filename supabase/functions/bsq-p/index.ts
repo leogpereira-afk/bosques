@@ -10,6 +10,9 @@
 // sistema responde "quem mandou, quando, e o cliente viu?".
 // ============================================================================
 import { lerUm, gravarUm, baixarParte, agora, idNovo, lerCfgBruta, lerColecaoBruta } from "../_shared/dados.ts";
+import { dadosEspelhoPublico } from "../_shared/espelho.ts";
+import { cadastroEspelho, senhaEspelhoConfere, sessaoEspelho, validarSessaoEspelho, tentativaEspelho } from "../_shared/espelho-acesso.ts";
+import { sha256 } from "../_shared/acesso.ts";
 
 const esc = (s: unknown) => String(s == null ? "" : s).replace(/[&<>"']/g, (c) =>
   ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c] as string));
@@ -32,7 +35,8 @@ const json = (code: number, obj: unknown) => new Response(JSON.stringify(obj), {
     /* A página do espelho mora no GitHub Pages, outra origem — sem isto o
        navegador engole a resposta e a tela fica branca sem erro visível. */
     "access-control-allow-origin": "*",
-    "access-control-allow-headers": "content-type",
+    "access-control-allow-headers": "content-type, authorization",
+    "access-control-allow-methods": "GET, POST, OPTIONS",
   },
 });
 
@@ -152,7 +156,7 @@ function tokenBate(a: string, b: string): boolean {
 }
 
 Deno.serve(async (req) => {
-  if (req.method === "OPTIONS") return new Response("ok", { status: 204 });
+  if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: { "access-control-allow-origin": "*", "access-control-allow-headers": "content-type, authorization", "access-control-allow-methods": "GET, POST, OPTIONS" } });
   const url = new URL(req.url);
   // caminho: /bsq-p/<id>/<token>
   const partes = url.pathname.split("/").filter(Boolean);
@@ -161,36 +165,36 @@ Deno.serve(async (req) => {
   const t = (iFn >= 0 ? partes[iFn + 2] : "") || url.searchParams.get("t") || "";
   if (!id || !t) return aviso(400, "Link inválido.");
 
-  /* O ESPELHO PÚBLICO entra ANTES da proposta: "espelho" ocupa o lugar do id.
-     Só GET — POST aqui não tem o que fazer, e recusar é mais claro que ignorar. */
+  // A identificação e a senha comum protegem apenas esta consulta de lotes.
   if (id === "espelho") {
-    if (req.method !== "GET") return json(405, { erro: "Este link é só de leitura." });
+    if (!["GET", "POST"].includes(req.method)) return json(405, { erro: "Método não permitido." });
     const cfgE = await lerCfgBruta();
-    const esperado = String((cfgE && cfgE.espelhoToken) || "");
-    if (!esperado) return json(404, { erro: "O espelho público não está ligado." });
+    const esperado = String(cfgE?.espelhoToken || "");
+    if (!esperado) return json(404, { erro: "O espelho compartilhado não está ligado." });
     if (!tokenBate(esperado, t)) return json(403, { erro: "Link inválido ou já substituído." });
+    if (!cfgE.espelhoAcesso?.hash) return json(503, { erro: "A equipe está preparando a senha de acesso. Tente novamente mais tarde." });
+    if (req.method === "POST") {
+      const ip = (req.headers.get("x-forwarded-for") || "sem-ip").split(",")[0].trim();
+      if (!tentativaEspelho(ip)) return json(429, { erro: "Muitas tentativas. Aguarde 10 minutos para tentar novamente." });
+      const texto = await req.text();
+      if (texto.length > 4096) return json(400, { erro: "Cadastro inválido." });
+      let body: any, cadastro: any;
+      try { body = JSON.parse(texto); cadastro = cadastroEspelho(body); }
+      catch (e) { return json(400, { erro: e instanceof SyntaxError ? "Cadastro inválido." : e.message }); }
+      if (!await senhaEspelhoConfere(body.senhaHash, cfgE.espelhoAcesso)) return json(401, { erro: "Senha incorreta. Confirme a senha com a equipe." });
+      const uid = await sha256(cadastro.telefone), anterior = await lerUm("espelho_acesso", uid);
+      if (anterior?.bloqueado || anterior?.apagadoEm) return json(403, { erro: "Este cadastro está bloqueado. Fale com a equipe." });
+      const em = agora();
+      await gravarUm("espelho_acesso", uid, { id: uid, ...cadastro, criadoEm: anterior?.criadoEm || em, ultimoAcesso: em, atualizadoEm: em, bloqueado: false });
+      return json(200, { sessao: await sessaoEspelho(uid, cfgE), nome: cadastro.nome });
+    }
+    const credencial = (req.headers.get("authorization") || "").replace(/^Bearer /i, "");
+    const uid = await validarSessaoEspelho(credencial, cfgE);
+    if (!uid) return json(401, { erro: "Informe seu cadastro e a senha para entrar." });
+    const cadastro = await lerUm("espelho_acesso", uid);
+    if (!cadastro || cadastro.bloqueado || cadastro.apagadoEm) return json(401, { erro: "Acesso indisponível. Fale com a equipe." });
     const linhas = await lerColecaoBruta("lote", "registro", false);
-    /* O RECORTE ACONTECE AQUI, NO SERVIDOR, e não na página que desenha.
-       Mandar o lote inteiro e esconder campo na tela seria a mesma coisa que
-       mandar tudo: quem abre o inspetor vê. Só estes cinco campos saem — e o
-       preço só do disponível, porque no vendido ele é a tabela de HOJE, não o
-       que aquele comprador pagou: número certo respondendo pergunta errada. */
-    const lotes = linhas.map((l: any) => l.registro).filter(Boolean).map((l: any) => {
-      const st = String(l.status || "Disponível");
-      return {
-        quadra: Number(l.quadra) || 0,
-        lote: String(l.lote ?? ""),
-        areaM2: Number(l.areaM2) || 0,
-        status: st === "Vendido" || st === "Reservado" ? st : "Disponível",
-        preco: st === "Disponível" ? (Number(l.preco) || 0) : null,
-      };
-    });
-    const emp = (cfgE && cfgE.empresa) || {};
-    return json(200, {
-      empresa: { nome: String(emp.nome || "Portal dos Bosques"), telefone: String(emp.telefone || "") },
-      lotes,
-      geradoEm: agora(),
-    });
+    return json(200, { ...dadosEspelhoPublico(cfgE, linhas, agora()), visitante: { nome: cadastro.nome } });
   }
 
   const prop = await lerUm("prop", id);

@@ -473,3 +473,27 @@ function abrirPagarComissao(corId, nome, saldo) {
 
 // A rota antiga continua valendo (atalhos salvos), mas a casa é Corretores.
 TELAS.comissoes = function () { location.hash = '#/corretores'; };
+
+/* Cadastros do espelho compartilhado: acesso apenas da direção. */
+TELAS.acessos = async function () {
+  const app=document.getElementById('app');
+  if(S.perfil!=='direcao'){app.innerHTML=vazio('🔒','Acesso reservado à direção');return;}
+  app.innerHTML='<div class="cartao"><h2>Cadastros de acesso ao espelho</h2><p class="nota">Nome, telefone e perfil informados por quem entrou com a senha compartilhada. O telefone reúne os acessos da mesma pessoa.</p><div class="espelho-config-acoes"><input type="search" id="acesso-busca" aria-label="Buscar cadastro de acesso" placeholder="Nome, telefone ou perfil"><button class="btn" id="acesso-atualizar">Atualizar cadastros</button><a class="btn" href="#/config">Configurar senha e mapa</a></div></div><div id="acessos-lista" role="status">Consultando cadastros…</div>';
+  const alvo=document.getElementById('acessos-lista');
+  document.getElementById('acesso-atualizar').onclick=()=>TELAS.acessos();
+  try {
+    const r=await api('listarAcessosEspelho'), acessos=r.acessos||[];
+    if(document.getElementById('acessos-lista')!==alvo)return;
+    const desenhar=()=>{
+      const q=document.getElementById('acesso-busca').value;
+      const ls=acessos.filter(x=>correspondeBusca([x.nome,x.telefone,x.perfil].join(' '),q));
+      alvo.innerHTML='<p class="nota">'+ls.length+' cadastro(s) exibido(s)</p>'+ls.map(x=>'<div class="cartao acesso-espelho"><div><h3>'+esc(x.nome)+'</h3><p>'+esc(fmt.telefone(x.telefone))+' · '+esc(({corretor:'Corretor',cliente:'Cliente',outro:'Outro'})[x.perfil]||'Outro')+'</p><p class="nota">Cadastro: '+esc(fmt.quando(x.criadoEm))+' · Último acesso: '+esc(fmt.quando(x.ultimoAcesso))+'</p><p class="nota">'+(x.bloqueado?'Acesso bloqueado':'Acesso liberado')+'</p></div><button class="btn" data-acesso="'+esc(x.id)+'">'+(x.bloqueado?'Liberar acesso':'Bloquear acesso')+'</button></div>').join('')+(ls.length?'':vazio('👥','Nenhum cadastro encontrado','Os cadastros aparecem aqui quando alguém entra pelo link com a senha correta.'));
+      alvo.querySelectorAll('[data-acesso]').forEach(b=>b.onclick=async()=>{
+        const x=acessos.find(a=>a.id===b.dataset.acesso);b.disabled=true;
+        try{await api('bloquearAcessoEspelho',{id:x.id,bloqueado:!x.bloqueado});x.bloqueado=!x.bloqueado;desenhar();}
+        catch(e){toast(e.message||'Não foi possível alterar o acesso.','ruim');b.disabled=false;}
+      });
+    };
+    document.getElementById('acesso-busca').oninput=desenhar;desenhar();
+  }catch(e){alvo.textContent=e.message||'Não foi possível consultar. Use Atualizar cadastros para tentar novamente.';}
+};

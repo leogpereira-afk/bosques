@@ -3,22 +3,28 @@
 <head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="robots" content="noindex,nofollow"><meta name="referrer" content="no-referrer">
-<meta name="theme-color" content="#123c2d"><title>Explore os lotes · Portal dos Bosques</title>
-<link rel="icon" href="icons/icon-192.png"><link rel="stylesheet" href="espelho-publico.css?v=53">
-<script src="espelho-publico.js?v=53" defer></script>
+<meta name="theme-color" content="#123c2d"><title>Lotes e mapa · Portal dos Bosques</title>
+<link rel="icon" href="icons/icon-192.png"><link rel="stylesheet" href="espelho-publico.css?v=66"><link rel="stylesheet" href="mapa-espelho.css?v=66">
+<script src="mapa-espelho.js?v=66" defer></script><script src="espelho-publico.js?v=66" defer></script>
 </head>
 <body>
-<header class="capa"><div class="marca"><img src="icons/icon-192.png" alt="" width="48" height="48"><div><b id="cap-nome">Portal dos Bosques</b><span>Conheça seu próximo lugar</span></div></div><span class="selo">Espelho de lotes</span></header>
+<header class="capa"><div class="marca"><img src="icons/icon-192.png" alt="" width="48" height="48"><div><b id="cap-nome">Portal dos Bosques</b><span>Conheça seu próximo lugar</span></div></div><span class="selo">Lotes e mapa</span></header>
 <main class="folha">
 <section id="entrada" class="entrada" aria-labelledby="titulo-entrada">
-<div class="convite"><span class="eyebrow">Um novo começo</span><h1 id="titulo-entrada">Encontre o seu lugar <br>no Portal dos Bosques.</h1><p>Explore os lotes, compare as metragens e consulte a disponibilidade antes de conversar com a equipe.</p><div class="passos"><span>01 · Informe seu nome</span><span>02 · Explore os lotes</span><span>03 · Converse com a equipe</span></div></div>
-<form id="identificacao" class="cartao"><span class="eyebrow">Bem-vindo</span><h2>Como podemos chamar você?</h2><p>Informe seu nome para abrir o espelho.</p><label for="visitante">Seu nome</label><input id="visitante" name="nome" autocomplete="name" maxlength="100" required placeholder="Digite seu nome" aria-describedby="nome-nota nome-erro"><p id="nome-erro" class="erro" role="alert"></p><button class="primario" id="entrar" type="submit">Explorar os lotes <span aria-hidden="true">→</span></button><p class="nota" id="nome-nota">O nome personaliza esta consulta e a mensagem de contato. Nenhum cadastro de cliente é criado aqui.</p></form>
+<div class="convite"><span class="eyebrow">Acesso ao espelho</span><h1 id="titulo-entrada">Consulte os lotes<br>e o mapa atualizado.</h1><p>Identifique-se e informe a senha recebida da equipe. Depois de entrar, os lotes aparecem primeiro e o mapa já fica aberto logo abaixo.</p></div>
+<form id="identificacao" class="cartao"><h2>Seu cadastro de acesso</h2><label for="visitante">Nome</label><input id="visitante" name="nome" autocomplete="name" maxlength="100" required placeholder="Seu nome">
+<label for="telefone">Telefone com DDD</label><input id="telefone" name="telefone" type="tel" autocomplete="tel" maxlength="20" required placeholder="(38) 99999-9999">
+<label for="perfil">Você é</label><select id="perfil" name="perfil" required><option value="">Selecione</option><option value="corretor">Corretor</option><option value="cliente">Cliente</option><option value="outro">Outro</option></select>
+<label for="senha">Senha de acesso</label><input id="senha" name="senha" type="password" autocomplete="current-password" maxlength="128" required placeholder="Senha informada pela equipe">
+<p class="nota">Seu nome, telefone e perfil ficam registrados para a equipe responsável pelo empreendimento acompanhar os acessos.</p><p id="nome-erro" class="erro" role="alert"></p><button class="primario" id="entrar" type="submit">Entrar no espelho</button></form>
 </section>
 <section id="conteudo" hidden aria-labelledby="titulo-espelho">
-<div class="cabecalho"><div><span class="eyebrow" id="saudacao"></span><h1 id="titulo-espelho">Encontre o lote ideal</h1><p id="cap-sub"></p></div><button id="trocar" class="secundario" type="button">Alterar nome</button></div>
-<div class="resumo" aria-label="Resumo do filtro"><div><span>Lotes no recorte</span><b id="n-total">0</b></div><div class="verde"><span>Disponíveis</span><b id="n-disp">0</b></div><div><span>Reservados</span><b id="n-res">0</b></div><div><span>Vendidos</span><b id="n-vend">0</b></div></div>
-<div class="filtros"><div class="barra"><label class="busca">Buscar lote<input id="q" type="search" placeholder="Número do lote"></label><label>Quadra<select id="quadra"><option value="">Todas as quadras</option></select></label><button class="secundario" id="pdf" type="button">Salvar em PDF</button></div><div class="chips" role="group" aria-label="Situação dos lotes"><button class="chip" data-status="" aria-pressed="true">Todos</button><button class="chip" data-status="Disponível" aria-pressed="false">Disponíveis</button><button class="chip" data-status="Reservado" aria-pressed="false">Reservados</button><button class="chip" data-status="Vendido" aria-pressed="false">Vendidos</button></div></div>
+<div class="cabecalho"><div><span class="eyebrow" id="saudacao"></span><h1 id="titulo-espelho">Lotes e mapa do empreendimento</h1><p id="cap-sub"></p></div><div class="consulta-acoes"><button id="ver-mapa" class="secundario" type="button" hidden>Ver mapa abaixo</button><button id="sair" class="secundario" type="button">Sair</button></div></div>
+<div id="lista-lotes"><h2>Lotes para consultar</h2><p id="lista-nota">Disponíveis e reservados, conforme a consulta ao sistema.</p></div>
+<div class="resumo" aria-label="Resumo do filtro"><div><span>Lotes no filtro</span><b id="n-total">0</b></div><div class="verde"><span>Disponíveis</span><b id="n-disp">0</b></div><div id="resumo-reservados"><span>Reservados</span><b id="n-res">0</b></div></div>
+<div class="filtros"><div class="barra"><label class="busca">Buscar lote<input id="q" type="search" placeholder="Número do lote"></label><label>Quadra<select id="quadra"><option value="">Todas as quadras</option></select></label><button class="secundario" id="atualizar-lista" type="button">Atualizar lista</button><button class="secundario" id="pdf" type="button">Salvar lista em PDF</button></div><div class="chips" role="group" aria-label="Situação dos lotes"><button class="chip" data-status="" aria-pressed="true">Todos os exibidos</button><button class="chip" data-status="Disponível" aria-pressed="false">Disponíveis</button><button class="chip" data-status="Reservado" aria-pressed="false">Reservados</button></div></div>
 <p class="nota" id="resultado" role="status" aria-live="polite"></p><div id="quadras"></div><div id="vazio" class="cartao vazio" hidden><h2>Nenhum lote neste filtro</h2><p>Escolha outra quadra ou limpe os filtros para ver mais opções.</p><button id="limpar" class="secundario">Limpar filtros</button></div>
+<section id="mapa-publico" aria-label="Mapa atualizado" tabindex="-1" hidden></section>
 <p class="rodape">Disponibilidade e valores de referência podem mudar. Confirme as condições <span id="rod-zap">com a equipe</span> antes de fechar negócio.<span class="naoimprime"> Ao salvar, escolha “Salvar como PDF” na janela de impressão.</span></p>
 </section>
 <div id="aviso" class="cartao aviso" role="status" hidden><h2 id="aviso-titulo"></h2><p id="aviso-texto"></p><button id="tentar" class="primario" hidden>Tentar novamente</button></div>

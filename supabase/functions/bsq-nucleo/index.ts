@@ -30,6 +30,8 @@ import {
   lerColecaoBruta, gravarVarios,
 } from "../_shared/dados.ts";
 
+import { novaSenhaEspelho } from "../_shared/espelho-acesso.ts";
+
 const NOMES_COLECOES = Object.keys(COLECOES);
 
 // ── Configuração padrão ─────────────────────────────────────────────────────
@@ -599,6 +601,8 @@ Deno.serve(async (req) => {
       // ── Configurações ──────────────────────────────────────────────────────
       case "salvarCfg": {
         const novo = { ...cfg, ...(body.cfg || {}) };
+        novo.espelhoAcesso = cfg.espelhoAcesso; // senha do espelho muda apenas pela ação própria
+        delete novo.espelhoSenhaConfigurada;
         novo.senhaHash = cfg.senhaHash;      // senha só muda pela ação própria
         novo.usuarios = cfg.usuarios || [];  // idem os acessos
         novo.atualizadoEm = agora();
@@ -606,6 +610,30 @@ Deno.serve(async (req) => {
         await gravarCfg(novo);
         await registrarLog({ acao: "mudou configuração", por });
         return json({ ok: true, cfg: cfgSemSegredo(novo) });
+      }
+
+      case "salvarSenhaEspelho": {
+        let acesso;
+        try { acesso = await novaSenhaEspelho(String(body.novaHash || "")); }
+        catch { return json({ ok: false, error: "Informe uma senha válida." }, 400); }
+        const novo = { ...cfg, espelhoAcesso: acesso, atualizadoEm: agora(), atualizadoPor: por };
+        await gravarCfg(novo);
+        await registrarLog({ acao: "alterou a senha compartilhada do espelho", por });
+        return json({ ok: true, cfg: cfgSemSegredo(novo) });
+      }
+      case "listarAcessosEspelho": {
+        const linhas = await lerColecaoBruta("espelho_acesso", "registro", false);
+        return json({ ok: true, acessos: linhas.map(l => {
+          const r=l.registro;
+          return {id:r.id,nome:r.nome,telefone:r.telefone,perfil:r.perfil,criadoEm:r.criadoEm,ultimoAcesso:r.ultimoAcesso,bloqueado:!!r.bloqueado};
+        }).sort((a,b)=>String(b.ultimoAcesso).localeCompare(String(a.ultimoAcesso))) });
+      }
+      case "bloquearAcessoEspelho": {
+        const r = await lerUm("espelho_acesso", String(body.id || ""));
+        if (!r) return json({ ok: false, error: "Cadastro não encontrado." }, 404);
+        await gravarUm("espelho_acesso", r.id, { ...r, bloqueado: body.bloqueado === true, atualizadoEm: agora() });
+        await registrarLog({ acao: body.bloqueado === true ? "bloqueou acesso ao espelho" : "liberou acesso ao espelho", por, id:r.id });
+        return json({ ok: true });
       }
 
       /* ── Acessos da equipe: um por pessoa ──────────────────────────────────── */
@@ -700,7 +728,7 @@ Deno.serve(async (req) => {
         return json({ ok: true, linhas: await lerLog(body.limite || 200) });
 
       case "backup": {
-        const registros = await lerTudo(null, NOMES_COLECOES);
+        const registros = await lerTudo(null, [...NOMES_COLECOES, "espelho_acesso"]);
         const limpo = cfgSemSegredo(cfg);
         const seq = await lerNumeracao();
         return json({ ok: true, em: agora(), cfg: limpo, registros, seq });
@@ -715,7 +743,7 @@ Deno.serve(async (req) => {
         const maiorNumero: Record<string, number> = {};
         for (const r of registros) {
           const col = r._col;
-          if (!COLECOES[col] || !r.id) continue;
+          if ((!COLECOES[col] && col !== "espelho_acesso") || !r.id) continue;
           const copia = { ...r };
           delete copia._col;
           await gravarUm(col, r.id, copia);

@@ -53,7 +53,8 @@ Deno.serve(async (req) => {
 
   // 1. Cópia do dia
   try {
-    const registros = await lerTudo(null, NOMES_COLECOES);
+    // Cadastros de acesso são privados: entram no backup, não no snapshot do painel.
+    const registros = await lerTudo(null, [...NOMES_COLECOES, "espelho_acesso"]);
     const cfg = await lerCfgBruta();
     // Nenhum hash de senha entra na cópia.
     const copia = cfgSemSegredo(cfg);
@@ -114,7 +115,8 @@ Deno.serve(async (req) => {
   //    interrompido, registro apagado de vez). Sem isso uma planta de 60MB fica
   //    ocupando espaço para sempre.
   try {
-    const registros = await lerTudo(null, NOMES_COLECOES);
+    // Cadastros de acesso são privados: entram no backup, não no snapshot do painel.
+    const registros = await lerTudo(null, [...NOMES_COLECOES, "espelho_acesso"]);
     const usados = new Set<string>();
     for (const o of registros) for (const id of arquivosDoRegistro(o)) usados.add(id);
 

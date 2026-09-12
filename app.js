@@ -22,6 +22,7 @@ const ROTAS = {
   comissoes:  { titulo: 'Comissões',     ic: '🤝', oculta: true }, // vive dentro de Corretores
   clientes:   { titulo: 'Clientes',      ic: '👥' },
   corretores: { titulo: 'Corretores',    ic: '🧑‍💼' },
+  acessos:    { titulo: 'Acessos ao espelho', ic: '🔑' },
   config:     { titulo: 'Configurações', ic: '⚙️' },
 };
 
@@ -30,7 +31,7 @@ const ROTAS = {
 function rotasDoPerfil() {
   if (S.perfil === 'corretor') return ['espelho', 'simulador', 'propostas', 'apresentacao'];
   if (S.perfil === 'escritorio') return ['home', 'espelho', 'simulador', 'vendas', 'contratos', 'propostas', 'financeiro', 'relatorios', 'cronograma', 'clientes', 'corretores', 'apresentacao'];
-  return ['home', 'espelho', 'simulador', 'vendas', 'contratos', 'propostas', 'financeiro', 'relatorios', 'cronograma', 'clientes', 'corretores', 'apresentacao', 'config'];
+  return ['home', 'espelho', 'simulador', 'vendas', 'contratos', 'propostas', 'financeiro', 'relatorios', 'cronograma', 'clientes', 'corretores', 'acessos', 'apresentacao', 'config'];
 }
 
 function rotaAtual() {
@@ -40,10 +41,10 @@ function rotaAtual() {
 }
 
 /* ── Render ────────────────────────────────────────────────────────────────── */
-const DESCRICOES_TELA={home:'O empreendimento hoje, em um só lugar.',espelho:'Disponibilidade, reservas e vendas por lote.',lote:'Informações do lote e condições de venda.',vendas:'Acompanhe contratos, pagamentos e clientes.',venda:'Contrato, parcelas e histórico do cliente.',simulador:'Compare condições e monte um plano de pagamento.',simulacao:'Explore cenários de vendas e recebimentos.',contratos:'Prepare e consulte os contratos do empreendimento.',propostas:'Organize propostas e acompanhe cada negociação.',financeiro:'Recebimentos, despesas e vínculos para conferir.',caixa:'Acompanhe as entradas e saídas do período.',lancamentos:'Consulte e edite cada movimentação.',relatorios:'Resultados e previsões para orientar suas decisões.',cronograma:'Etapas, prazos e custos de cada projeto.',clientes:'Cadastros e informações dos seus clientes.',corretores:'Equipe comercial, desempenho e comissões.',apresentacao:'Fotos e materiais para apresentar o empreendimento.',config:'Preferências e acessos do sistema.'};
+const DESCRICOES_TELA={home:'O empreendimento hoje, em um só lugar.',espelho:'Disponibilidade, reservas e vendas por lote.',lote:'Informações do lote e condições de venda.',vendas:'Acompanhe contratos, pagamentos e clientes.',venda:'Contrato, parcelas e histórico do cliente.',simulador:'Compare condições e monte um plano de pagamento.',simulacao:'Explore cenários de vendas e recebimentos.',contratos:'Prepare e consulte os contratos do empreendimento.',propostas:'Organize propostas e acompanhe cada negociação.',financeiro:'Recebimentos, despesas e vínculos para conferir.',caixa:'Acompanhe as entradas e saídas do período.',lancamentos:'Consulte e edite cada movimentação.',relatorios:'Resultados e previsões para orientar suas decisões.',cronograma:'Etapas, prazos e custos de cada projeto.',clientes:'Cadastros e informações dos seus clientes.',corretores:'Equipe comercial, desempenho e comissões.',apresentacao:'Fotos e materiais para apresentar o empreendimento.',acessos:'Cadastros de quem entrou pelo link compartilhado.',config:'Preferências e acessos do sistema.'};
 const ICONES_MENU={relatorios:'M4 3h16v18H4z M8 16v-4 M12 16V7 M16 16v-7',home:'M3 10l9-7 9 7v10a1 1 0 0 1-1 1h-5v-7H9v7H4a1 1 0 0 1-1-1z',espelho:'M3 3h7v7H3z M14 3h7v7h-7z M3 14h7v7H3z M14 14h7v7h-7z',simulador:'M5 3h14v18H5z M8 7h8 M8 11h1 M15 11h1 M8 15h1 M15 15h1 M8 18h1 M15 18h1',vendas:'M4 20V8l8-5 8 5v12H4z M8 12h8 M8 16h5',contratos:'M6 3h9l4 4v14H6z M14 3v5h5 M9 12h7 M9 16h7',propostas:'M3 5h18v14H3z M3 5l9 7 9-7',financeiro:'M3 7h18v14H3z M3 7V4h15v3 M15 12h6v5h-6z',cronograma:'M4 5h16v16H4z M8 3v4 M16 3v4 M4 10h16 M8 14h3 M8 17h7',clientes:'M16 8a4 4 0 1 1-8 0 4 4 0 0 1 8 0 M4 21v-2a8 6 0 0 1 16 0v2',corretores:'M13 7a3 3 0 1 1-6 0 3 3 0 0 1 6 0 M3 20v-2a7 5 0 0 1 14 0v2 M16 4a3 3 0 0 1 0 6 M18 14a5 4 0 0 1 3 4v2',apresentacao:'M3 4h18v16H3z M3 16l6-6 5 5 3-3 4 4 M15 8h.01',config:'M12 3v3 M12 18v3 M3 12h3 M18 12h3 M5.6 5.6l2 2 M16.4 16.4l2 2 M5.6 18.4l2-2 M16.4 7.6l2-2 M17 12a5 5 0 1 1-10 0 5 5 0 0 1 10 0'};
 function iconeMenu(nome){return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="'+(ICONES_MENU[nome]||ICONES_MENU.financeiro)+'"/></svg>';}
-function grupoMenu(nome){return nome==='home'?'Visão geral':['espelho','simulador','vendas','contratos','propostas'].includes(nome)?'Comercial':['financeiro','relatorios','cronograma'].includes(nome)?'Gestão':'Organização';}
+function grupoMenu(nome){return nome==='home'?'Visão geral':['espelho','simulador','vendas','contratos','propostas'].includes(nome)?'Comercial':['financeiro','relatorios','cronograma'].includes(nome)?'Gestão':['clientes','corretores','acessos'].includes(nome)?'Cadastros':'Organização';}
 
 function renderLateral() {
   const el = document.getElementById('lateral');
@@ -257,6 +258,20 @@ TELAS.config = function () {
       'ex.:\nPortaria\nRede de água\nRede de energia\nRuas\nAdministração\nComercial'), 'depois de salvar, o campo "Centro de custo" aparece em toda despesa') +
     '<button class="btn primario" id="cf-salvar">Salvar configurações</button></div>' +
 
+    '<div class="cartao" id="cf-espelho"><h2>Espelho e mapa</h2>' +
+      '<p class="nota">O mapa abre dentro do Espelho e do link compartilhado. A lista pública mostra apenas disponíveis e reservados.</p>' +
+      campo('Link do arquivo do mapa no Google Drive', entrada('espelho.mapaUrl', cfg.espelho?.mapaUrl || '', { tipo: 'url', placeholder: 'https://drive.google.com/file/d/…/view' }),
+        'O arquivo deve permitir visualização por quem tem o link. Use o link do arquivo, não o da pasta. Atualize esse mesmo arquivo no Drive para manter o mapa atual. Se criar outro arquivo, substitua o link aqui.') +
+      campo('Lotes no link compartilhado', seletor('espelho.exibirReservados', cfg.espelho?.exibirReservados === false ? 'nao' : 'sim', [
+        {v:'sim',t:'Disponíveis e reservados'},{v:'nao',t:'Somente disponíveis'}])) +
+      '<div id="cf-mapa-erro" class="mapa-erro" role="alert"></div>' +
+      '<div class="espelho-config-acoes"><button class="btn primario" id="cf-espelho-salvar">Salvar espelho e mapa</button>' +
+      '<button class="btn" id="cf-mapa-ver">Conferir mapa</button><button class="btn" id="cf-espelho-link">Compartilhar espelho</button></div>' +
+      '<h3 style="margin-top:22px">Senha do link compartilhado</h3><p class="nota" id="cf-senha-status">' + (cfg.espelhoSenhaConfigurada ? 'Senha configurada. Quem recebe o link precisa se identificar e informar a senha.' : 'Configure a senha para liberar o link compartilhado.') + '</p>' +
+      campo('Nova senha comum', entrada('senhaEspelho', '', {tipo:'password',autocomplete:'new-password'}), 'Use pelo menos 6 caracteres. Trocar a senha encerra os acessos anteriores.') +
+      '<div class="espelho-config-acoes"><button class="btn" id="cf-senha-espelho">Salvar senha do espelho</button><a class="btn" href="#/acessos">Ver cadastros de acesso</a></div>' +
+    '</div>' +
+
     '<div class="cartao"><h2>Acessos da equipe <span class="nota">— um por pessoa; o histórico diz quem fez</span></h2>' +
       (usuarios.map((u) =>
         '<div class="lin us-lin" data-id="' + esc(u.id) + '"' + (u.ativo === false ? ' style="opacity:.55"' : '') + '>' +
@@ -303,10 +318,43 @@ TELAS.config = function () {
     }
   })();
 
+  const lerEspelho = () => {
+    const v = lerCampos(document.getElementById('cf-espelho')).espelho || {};
+    const texto = String(v.mapaUrl || '').trim(), mapa = MAPA_ESPELHO.arquivo(texto);
+    if (texto && !mapa) throw Error('Cole o link do arquivo do mapa no Google Drive. O link de uma pasta não abre a imagem diretamente.');
+    return { ...(cfg.espelho || {}), mapaUrl: mapa?.url || '', exibirReservados: v.exibirReservados === 'sim' };
+  };
+  document.getElementById('cf-espelho-salvar').onclick = async () => {
+    const erro = document.getElementById('cf-mapa-erro'), botao = document.getElementById('cf-espelho-salvar');
+    try {
+      erro.textContent = ''; const espelho = lerEspelho(); botao.disabled = true;
+      const r = await api('salvarCfg', { cfg: { espelho } });
+      S.cfg = { ...S.cfg, ...r.cfg }; gravarCache(); toast('Mapa e lotes do link atualizados');
+    } catch (e) { erro.textContent = e.message || 'Não foi possível salvar'; }
+    finally { botao.disabled = false; }
+  };
+  document.getElementById('cf-mapa-ver').onclick = () => {
+    try {
+      const espelho = lerEspelho(); if (!espelho.mapaUrl) throw Error('Informe o link do arquivo do mapa.');
+      abrirModal({ titulo: 'Mapa atualizado', corpo: '<section id="cf-mapa-preview"></section>', largo: true });
+      MAPA_ESPELHO.montar(document.getElementById('cf-mapa-preview'), espelho.mapaUrl);
+    } catch (e) { document.getElementById('cf-mapa-erro').textContent = e.message; }
+  };
+  document.getElementById('cf-espelho-link').onclick = abrirLinkEspelho;
+  document.getElementById('cf-senha-espelho').onclick = async () => {
+    const entradaSenha=app.querySelector('[data-campo="senhaEspelho"]'), erro=document.getElementById('cf-mapa-erro'), b=document.getElementById('cf-senha-espelho');
+    try {
+      if(entradaSenha.value.length<6)throw Error('Use pelo menos 6 caracteres na senha.');
+      b.disabled=true;erro.textContent='';
+      const r=await api('salvarSenhaEspelho',{novaHash:await sha256(entradaSenha.value)});
+      S.cfg={...S.cfg,...r.cfg};gravarCache();entradaSenha.value='';document.getElementById('cf-senha-status').textContent='Senha configurada. Os acessos anteriores foram encerrados.';toast('Senha do espelho salva');
+    }catch(e){erro.textContent=e.message||'Não foi possível salvar a senha.';}finally{b.disabled=false;}
+  };
   document.getElementById('cf-salvar').onclick = async () => {
     const v = lerCampos(app);
     try {
       const r = await api('salvarCfg', { cfg: {
+        espelho: lerEspelho(),
         empresa: { ...emp, ...v.empresa },
         reajuste: { pct: numeroBR(v.reajuste.pct), aCada: Math.max(1, Math.round(numeroBR(v.reajuste.aCada))) },
         validadeProposta: Math.max(1, Math.round(numeroBR(v.validadeProposta))),

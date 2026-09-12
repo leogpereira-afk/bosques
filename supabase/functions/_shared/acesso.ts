@@ -37,7 +37,7 @@ export const PERFIS: Record<string, {
 };
 
 export const ACOES_DIRECAO = ["salvarCfg", "trocarSenha", "esvaziarLixeira", "reiniciarNumeracao",
-  "restaurar", "restaurarItem", "salvarUsuario", "apagarUsuario", "log", "backup", "importar", "saude"];
+  "listarAcessosEspelho", "salvarSenhaEspelho", "bloquearAcessoEspelho", "restaurar", "restaurarItem", "salvarUsuario", "apagarUsuario", "log", "backup", "importar", "saude"];
 
 // Apagar mexe em dinheiro (estorno de recebimento, venda). Corretor não apaga
 // nada; escritório apaga (vai para a lixeira, com log — a direção restaura).
@@ -71,6 +71,8 @@ export async function identificar(cfg: any, senhaCliente: string): Promise<Quem 
 export function cfgSemSegredo(cfg: any) {
   const c = { ...(cfg || {}) };
   delete c.senhaHash;
+  delete c.espelhoAcesso;
+  c.espelhoSenhaConfigurada = !!cfg?.espelhoAcesso?.hash;
   c.usuarios = ((cfg && cfg.usuarios) || []).map((u: any) => {
     const x = { ...u };
     delete x.hash;

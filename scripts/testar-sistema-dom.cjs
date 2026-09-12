@@ -6,7 +6,7 @@ const {document}=parseHTML('<html><body><nav id="menu"></nav><div id="topo"></di
 const mem=new Map(),localStorage={getItem:k=>mem.get(k)||null,setItem:(k,v)=>mem.set(k,String(v)),removeItem:k=>mem.delete(k)};
 const fakeWindow={addEventListener(){},matchMedia:()=>({matches:false}),FINANCEIRO_EM_VALIDACAO:true};
 const ctx=vm.createContext({window:fakeWindow,document,localStorage,navigator:{onLine:false},location:{hash:'#/home'},console,URL,Blob,TextEncoder,TextDecoder,CustomEvent:document.defaultView.CustomEvent,Event:document.defaultView.Event,setTimeout:()=>0,clearTimeout(){},setInterval:()=>0,clearInterval(){},fetch:async()=>({ok:true,json:async()=>({ok:true,sync:{status:'completa',quando:new Date().toISOString()},registros:[]})}),crypto:require('node:crypto').webcrypto,Intl});
-for(const f of ['config.js','ui.js','store.js','carne.js','financeiro-core.js','pdf.js','espelho.js','vendas.js','caixa.js','cadastros.js','cronograma.js','omie.js','financeiro.js','contratos.js','apresentacao.js','app.js']) {
+for(const f of ['config.js','ui.js','mapa-espelho.js','store.js','carne.js','financeiro-core.js','pdf.js','espelho.js','vendas.js','caixa.js','cadastros.js','cronograma.js','omie.js','financeiro.js','contratos.js','apresentacao.js','app.js']) {
  let s=fs.readFileSync(f,'utf8');if(f==='app.js')s=s.slice(0,s.indexOf('(async function iniciar()'));vm.runInContext(s,ctx,{filename:f});
 }
 const snap=process.env.BSQ_TEST_SNAPSHOT?JSON.parse(fs.readFileSync(process.env.BSQ_TEST_SNAPSHOT,'utf8')):{cfg:{formasPg:['PIX'],centrosCusto:[],categoriasDespesa:['Obra'],categoriasReceita:[]},registros:[
@@ -53,5 +53,26 @@ assert.ok(document.querySelector('#ir-tela'));
 console.log('OK atalhos mensais, recebimento sem lote, atualização após modal, filtros visíveis e limpeza, busca e retorno.');
 vm.runInContext("S.cacheCompleto=false;location.hash='#/financeiro';render()",ctx);
 assert.ok(document.querySelector('#app').textContent.includes('Preparando os dados'));assert.equal(document.querySelectorAll('.painel').length,0);
+// O mapa fica depois das quadras; salvar sua configuração preserva os demais dados.
+vm.runInContext("S.cfg.espelho={mapaUrl:'https://drive.google.com/file/d/arquivo_mapa_teste/view',exibirReservados:true};TELAS.espelho()",ctx);
+assert.ok(document.querySelector('#esp-mapa img'));
+assert.equal(document.querySelector('#app').lastElementChild.id,'esp-mapa');
+vm.runInContext("TELAS.config();api=async(acao,body)=>{if(acao==='salvarCfg'){window.ultimaCfg=body.cfg;return {ok:true,cfg:{...S.cfg,...body.cfg}};}return {ok:true};};",ctx);
+document.querySelector('[data-campo="espelho.mapaUrl"]').value='https://drive.google.com/drive/folders/pasta_mapa_teste';
+await document.querySelector('#cf-espelho-salvar').onclick();
+assert.match(document.querySelector('#cf-mapa-erro').textContent,/link do arquivo/);assert.equal(fakeWindow.ultimaCfg,undefined);
+document.querySelector('[data-campo="espelho.mapaUrl"]').value='https://drive.google.com/file/d/arquivo_mapa_teste/view';
+await document.querySelector('#cf-espelho-salvar').onclick();
+assert.deepEqual(Object.keys(fakeWindow.ultimaCfg),['espelho']);assert.equal(fakeWindow.ultimaCfg.espelho.exibirReservados,true);
+assert.ok(vm.runInContext("S.cfg.formasPg.includes('PIX')",ctx));
+vm.runInContext("S.cacheCompleto=true;location.hash='#/acessos';api=async()=>({ok:true,acessos:[{id:'acesso',nome:'Visitante teste',telefone:'38999999999',perfil:'corretor',criadoEm:'2026-09-12T12:00:00Z',ultimoAcesso:'2026-09-12T12:00:00Z',bloqueado:false}]})",ctx);
+await vm.runInContext("TELAS.acessos()",ctx);
+await new Promise(setImmediate);
+assert.ok(document.querySelector('#app').textContent.includes('Visitante teste'),document.querySelector('#app').textContent);
+assert.ok(document.querySelector('[data-acesso="acesso"]'));
+vm.runInContext("S.perfil='corretor'",ctx);await vm.runInContext("TELAS.acessos()",ctx);
+await new Promise(setImmediate);
+assert.ok(document.querySelector('#app').textContent.includes('reservado à direção'));
+console.log('OK mapa abaixo dos lotes e configuração isolada com validação de link.');
 console.log('PASSOU telas e abas; gráfico, período sem dados, mês parcial e bloqueio de indicadores com base incompleta.');
 })().catch(e=>{console.error(e);process.exit(1)});

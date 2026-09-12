@@ -95,7 +95,7 @@ function lotesComAtraso() {
  * que faz UMA leitura e mais nada (espelho-publico.html + a rota bsq-p/espelho).
  *
  * O QUE O CORRETOR VÊ: quadra, lote, metragem, preço do que está DISPONÍVEL, e
- * "Vendido"/"Reservado" no resto. O que NÃO vê, de propósito, porque link vai
+ * a indicação "Reservado" quando habilitada. Vendidos não são publicados. O que NÃO vê, de propósito, porque link vai
  * para o WhatsApp e é encaminhável: o nome de quem reservou (que o espelho
  * interno mostra), o VGV, a soma em tabela e os lotes em atraso.
  *
@@ -130,8 +130,8 @@ function abrirLinkEspelho() {
   if (!token) {
     abrirModal({
       titulo: 'Compartilhar espelho de lotes',
-      corpo: '<p>Ainda não há link. Ao gerar, quem receber informa o nome e abre a tabela de lotes ' +
-        'e imprime em PDF — <b>sem entrar no sistema e sem poder alterar nada</b>.</p>' +
+      corpo: '<p>O link pede um cadastro simples e a senha comum para abrir os lotes disponíveis e reservados com o mapa abaixo, ' +
+        '<b>sem entrar no sistema e sem poder alterar nada</b>.</p>' +
         '<p class="nota">Ele mostra quadra, lote, metragem e o preço do que está disponível. ' +
         'Não mostra nome de cliente, quem reservou, VGV nem lotes em atraso.</p>',
       acoes: [
@@ -144,12 +144,13 @@ function abrirLinkEspelho() {
 
   abrirModal({
     titulo: 'Compartilhar espelho de lotes',
-    corpo: '<p class="nota">Envie este link. A pessoa informa o nome, consulta os lotes e salva o recorte em PDF, ' +
+    corpo: '<p class="nota">Este link pede nome, telefone, perfil e a senha comum. Depois abre a lista de disponíveis e reservados com o mapa abaixo. A pessoa pode salvar a lista em PDF, ' +
       'sem entrar no sistema e sem poder alterar nada.</p>' +
       '<input class="campo" readonly value="' + esc(link) + '" ' +
       'onclick="this.select()" style="width:100%;font-family:ui-monospace,monospace;font-size:13px">' +
       '<p class="nota" style="margin-top:10px">Ele NÃO mostra nome de cliente, quem reservou, ' +
-      'VGV nem lotes em atraso. <b>Gerar um link novo derruba este</b> — use quando alguém sair da equipe.</p>',
+      'VGV nem lotes em atraso. <b>Gerar um link novo derruba este</b> — use quando alguém sair da equipe.</p>' +
+      '<p><a href="#/config" onclick="fecharModal()">Configurar mapa e lotes do link</a></p>',
     acoes: [
       { texto: 'Copiar link', classe: 'primario', aoClicar: () => {
         navigator.clipboard?.writeText(link).then(() => toast('Link copiado')).catch(() => toast('Selecione o link acima e copie manualmente.', 'erro'));
@@ -219,9 +220,9 @@ TELAS.espelho = function () {
     }).join('');
 
   app.innerHTML =
-    '<div class="cartao" style="background:var(--verde-escuro);border-color:var(--verde-escuro);padding:10px 16px;display:flex;align-items:center;justify-content:space-between;gap:12px">' +
+    '<div class="cartao espelho-cabecalho" style="background:var(--verde-escuro);border-color:var(--verde-escuro);padding:10px 16px;display:flex;align-items:center;justify-content:space-between;gap:12px">' +
       '<img src="icons/logo-full.png" alt="Portal dos Bosques" style="height:58px;max-width:52%;object-fit:contain">' +
-      '<div style="display:flex;gap:8px">' +
+      '<div class="espelho-acoes">' +
         (ehCorretorPerfil() ? '' : '<button class="btn mini" id="esp-novo-lote" style="background:rgba(255,255,255,.14);border-color:transparent;color:#eaf3ec">+ Lote</button>') +
         /* SÓ A DIREÇÃO GERA O LINK. Escritório e corretor não: quem cria um
            acesso que sai da casa tem de ser quem responde por ele. */
@@ -256,8 +257,10 @@ TELAS.espelho = function () {
     '</div>' +
     (ehCorretorPerfil() ? '' : '<span class="nota">🔒 no canto do lote verde = reservar na hora</span>') +
     '</div>' +
-    (blocos || vazio('🔍', 'Nada com esse filtro'));
+    (blocos || vazio('🔍', 'Nada com esse filtro')) +
+    '<section id="esp-mapa" aria-label="Mapa atualizado" hidden></section>';
 
+  MAPA_ESPELHO.montar(document.getElementById('esp-mapa'), S.cfg?.espelho?.mapaUrl);
   document.getElementById('esp-pdf').onclick = () => {
     // O papel sai IGUAL à tela: filtrou, o PDF leva só o filtrado — e com o
     // recorte escrito, senão o pedaço vira "o total" na mão de alguém.
