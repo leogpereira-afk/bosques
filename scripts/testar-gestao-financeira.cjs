@@ -24,6 +24,11 @@ const {jsPDF}=require('../libs/jspdf.umd.min.js');let blob;const textosPDF=[];fu
 const ctx=vm.createContext({window:{jspdf:{jsPDF:Documento}},FIN_GESTAO:F,fetch:async()=>({ok:false}),salvarNoAparelho:b=>blob=b,nomeMes:m=>m,Date,console});
 vm.runInContext(fs.readFileSync('pdf.js','utf8'),ctx);
 const itens=Array.from({length:95},(_,i)=>({...b.movimentos[i%6],id:'PDF-'+i,pessoa:'Fornecedor completo para teste '+i,descricao:'Pagamento de materiais e serviços da associação, documento de referência '+i}));
+ctx.custos={titulo:'Centro de custos',periodo:'Ano 2026',itens:itens.filter(x=>!x.entrada)};
+vm.runInContext('PDF.gestao(custos,{})',ctx);
+assert.ok(textosPDF.some(x=>String(x.t).includes('Total pago no período')));
+assert.ok(!textosPDF.some(x=>String(x.t).includes('Resultado dos movimentos')));
+textosPDF.length=0;
 ctx.d={titulo:'Relatório financeiro de validação',periodo:'Ano 2026',itens,meses:F.meses(itens,'2026'),categorias:F.agrupar(itens.filter(x=>!x.entrada),'categorias')};
 vm.runInContext('PDF.gestao(d,{})',ctx);
 assert.ok(textosPDF.some(x=>Array.isArray(x.t)&&x.t.length>1&&x.t.some(l=>l.includes('Fornecedor completo'))),'nomes devem manter quebras de linha');

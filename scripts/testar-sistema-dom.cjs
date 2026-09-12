@@ -68,6 +68,9 @@ vm.runInContext("TELAS._fin={aba:'recebimentos',ano:'2026',mes:''};TELAS.finance
 [...document.querySelectorAll('.gf-nav button')].find(b=>b.textContent==='Resumo').click();
 assert.equal(vm.runInContext('TELAS._gestao.tipo',ctx),'');
 assert.ok(document.querySelector('.gf-cards').textContent.includes('320,00'));
+vm.runInContext("S.reg.titulo.push({id:'futuro',titulo:999,grupo:'CONTA_A_RECEBER',venc:'2030-03-10',original:{resumo:{nValAberto:500}}});TELAS._fin={aba:'receber',ano:'2030',mes:'03'};TELAS.financeiro()",ctx);
+assert.ok([...document.querySelectorAll('#gf-ano option')].some(o=>o.value==='2030'));
+assert.ok(document.querySelector('.gf-tabela').textContent.includes('500,00'));
 console.log('OK atalhos mensais, recebimento sem lote, atualização após modal, filtros visíveis e limpeza, busca e retorno.');
 vm.runInContext("S.cacheCompleto=false;location.hash='#/financeiro';render()",ctx);
 assert.ok(document.querySelector('#app').textContent.includes('Preparando os dados'));assert.equal(document.querySelectorAll('.painel').length,0);
