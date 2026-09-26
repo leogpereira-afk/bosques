@@ -28,7 +28,7 @@ body[data-tela=espelho] .lote-q{border-radius:8px;box-shadow:none}body[data-tela
 body[data-tela=cronograma] .cartao,body[data-tela=clientes] .cartao,body[data-tela=corretores] .cartao{box-shadow:none}
 .sl-resumo>div{background:#f0f5e9;border:1px solid #dae4cd;border-radius:10px;padding:20px}.sl-resumo strong{font-size:24px;letter-spacing:-.04em;color:#26482e}.sl-lote-rapido{background:#f9fbf5;border:1px solid #dfe8d5;padding:20px;border-radius:10px}.sl-lote-rapido:hover{background:#edf4e4;border-color:#95b774}.sl-opcao.selecionada td{background:#e9f2df}
 .tela-login{background:#f1f4ed}.caixa-login{max-width:400px;border:1px solid #dbe5d4;box-shadow:0 16px 55px #233b2110;padding:36px;border-radius:20px}.caixa-login h1{font-size:24px;letter-spacing:-.04em}.caixa-login img{width:78px;height:78px}.caixa-login input{text-align:left;font-size:15px;background:#fcfdf9}.caixa-login .sub{margin:8px 0 25px}
-@media(max-width:1100px) and (min-width:861px){#lateral{width:212px}.marca{padding:22px 14px}#topo{padding:20px 24px}#app{padding:24px}}
+@media(max-width:1100px) and (min-width:861px){#topo{padding:20px 24px}#app{padding:24px}}
 @media(max-width:860px){#lateral{width:100%;border:0;border-top:1px solid #d7e0d3;background:#fafcf8;padding-bottom:env(safe-area-inset-bottom);box-shadow:0 -3px 14px #21321c0c}#menu{padding:7px 8px;gap:4px}#menu a{color:#5f7463;min-width:74px;min-height:54px;margin:0;padding:7px 10px;font-size:10px;line-height:1.3;gap:4px}#menu a.on{background:#e4eddd;color:#1c4a2e;box-shadow:none}#menu a:hover:not(.on){background:#eef3e8;color:#214b30}#menu .ic,#menu .ic svg{width:19px;height:19px}#menu a .selo{font-size:8px}#topo{padding:20px;min-height:110px;align-items:flex-start;gap:12px}#topo h1{font-size:24px}#topo p{max-width:380px;font-size:11px}#sync-badge{max-width:110px;font-size:9px;padding:6px 9px}.sobretitulo{font-size:9px}#app{padding:20px 16px 80px}.cartao{padding:18px}.paineis{gap:10px}.painel{padding:15px}.painel .num{font-size:23px}.painel .rot{font-size:9px}.painel .sub{font-size:10px}#credito{padding-bottom:100px}.fin-nav{gap:5px}.fin-nav .btn{font-size:11px;min-height:38px}.fin-table{min-width:680px}.fin-fila-item b{white-space:normal}.sl-resumo strong{font-size:21px}}
 @media(max-width:480px){#topo{flex-wrap:wrap;gap:10px}.titulo-pagina{flex-basis:100%}#sync-badge{max-width:100%;font-size:10px}#topo p{font-size:12px}.campo input,.campo select,.campo textarea{font-size:16px}.cartao{padding:16px;border-radius:12px}.cartao h2{font-size:14px}.cartao h2 .nota{display:block;margin:5px 0 0}.painel .num{font-size:21px}.fin-conta .num{font-size:25px}.fin-pager .btn{padding:8px;min-height:40px}.modal .corpo{padding:18px}.modal header{padding:18px}.modal footer{padding:14px 18px}.sl-comparacao td,.sl-plano td{padding:12px}.sl-comparacao tr,.sl-plano tr{margin:0 0 12px}.sl-comparacao tr:last-child,.sl-plano tr:last-child{margin-bottom:0}.sl-comparacao,.sl-plano{padding:8px}.sl-comparacao td:first-child,.sl-plano td:first-child{background:#f1f6ea}}
 @media(prefers-reduced-motion:reduce){*,*:before,*:after{scroll-behavior:auto!important;transition:none!important;animation:none!important}}
@@ -93,3 +93,27 @@ body:is([data-tela=financeiro],[data-tela=relatorios],[data-tela=caixa],[data-te
 :is(button,a,[role=button],summary):focus-visible{outline:3px solid #7455ce;outline-offset:3px}
 .fin-table td:nth-child(2){white-space:nowrap}details summary{cursor:pointer;padding:10px 0;font-weight:600}
 @media(max-width:600px){.rel-grafico{grid-template-columns:repeat(6,minmax(0,1fr));gap:12px}.rel-barras{height:64px}.fin-prioridades{grid-template-columns:1fr 1fr}.fin-prioridades strong{font-size:18px}.fin-prioridades .btn{padding:10px;font-size:12px}.rel-historico th:first-child{position:sticky;left:0;background:white;z-index:1}.rel-historico td:last-child{min-width:110px;white-space:normal}}
+
+/* Lateral no padrão da Central do Léo: fundo claro, 218px fixos, item ativo com a
+   barra da marca. Só no computador; o menu de baixo do celular segue como estava. */
+@media(min-width:861px){
+#lateral{width:218px;flex:0 0 218px;padding:18px 12px;background:var(--cartao);color:var(--tinta);border-right:1px solid var(--borda);position:sticky;top:0;height:100vh;overflow-y:auto;scrollbar-width:thin}
+#lateral .marca{padding:0 8px 14px;gap:9px}
+#lateral .marca img{width:38px;height:38px;flex:0 0 38px;object-fit:contain;border-radius:50%;background:#fff}
+#lateral .marca b{font-size:14px;line-height:1.25;letter-spacing:-.025em;color:var(--tinta)}
+#lateral .marca span{margin-top:3px;color:var(--tinta-fraca)}
+#menu{flex:1;display:flex;flex-direction:column;gap:2px;padding:0}
+#menu .grupo{margin:14px 10px 4px;padding:0;font-size:10px;font-weight:500;letter-spacing:.08em;text-transform:uppercase;color:var(--tinta-fraca)}
+#menu .grupo:first-child{margin-top:2px}
+#menu a{display:flex;align-items:center;gap:9px;width:100%;margin:0;padding:7px 10px;min-height:36px;border-radius:10px;font-size:13px;font-weight:500;line-height:1.3;color:var(--tinta-fraca);text-align:left;transition:background .15s,color .15s}
+#menu a:hover:not(.on){background:var(--fundo);color:var(--tinta)}
+#menu a.on{background:var(--verde-palido);color:var(--verde);font-weight:600;box-shadow:inset 3px 0 var(--verde)}
+#menu .ic{width:20px;height:auto;flex:0 0 20px;display:flex;justify-content:center;font-size:15px}
+#menu .ic svg{width:18px;height:18px}
+#menu .menu-texto{min-width:0}
+#menu a .selo{margin-left:auto}
+#rodape-lateral{margin-top:14px;padding:14px 10px 0;border-top:1px solid var(--borda);color:var(--tinta-fraca);font-size:12px}
+#rodape-lateral button{flex:1 1 auto;white-space:nowrap;background:var(--cartao);border:1px solid var(--borda);border-radius:10px;color:var(--tinta);min-height:36px;font-size:12px;transition:background .15s}
+#rodape-lateral button:hover{background:var(--fundo)}
+}
+@media(min-width:861px) and (pointer:coarse){#menu a,#rodape-lateral button{min-height:44px}}
