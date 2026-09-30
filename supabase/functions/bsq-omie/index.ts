@@ -12,7 +12,7 @@
 import { json, preflight } from "../_shared/cors.ts";
 import {
   agora, db, lerUm, gravarUm, gravarCfg, gravarVarios, guardarIndiceNumero, lerCfgBruta,
-  lerColecaoBruta, marcarMudanca, proximoNumero, registrarLog,
+  lerCampos, lerColecaoBruta, lerPorIds, marcarMudanca, proximoNumero, registrarLog,
 } from "../_shared/dados.ts";
 import { identificar, perfilDe, type Quem } from "../_shared/acesso.ts";
 
@@ -36,6 +36,15 @@ async function omie(modulo: string, call: string, param: Record<string, unknown>
 /* ── miudezas ──────────────────────────────────────────────────────────────── */
 const soDigitos = (s: unknown) => String(s || "").replace(/\D/g, "");
 const centavos = (v: unknown) => Math.round((Number(v) || 0) * 100);
+
+// Comparação estável do original do Omie. O jsonb do Postgres reordena as
+// chaves, então JSON.stringify do que veio do banco nunca batia com o que veio
+// do Omie: cada rodada empilhava no histórico uma cópia idêntica (chegou a 300+
+// por título e 125 MB no total, e a função passou a estourar a memória).
+const canonico = (v: unknown): string | undefined => JSON.stringify(v, (_k, x) =>
+  x && typeof x === "object" && !Array.isArray(x)
+    ? Object.fromEntries(Object.keys(x).sort().map((k) => [k, x[k]]))
+    : x);
 
 // O Deno das Edge Functions roda em UTC: das 21h à meia-noite no Brasil,
 // toISOString().slice(0,10) já devolve AMANHÃ. O dia que vale é o do Brasil (UTC-3).
@@ -88,6 +97,16 @@ async function lerMeta(chave: string): Promise<any | null> {
 async function gravarMeta(chave: string, valor: unknown): Promise<void> {
   const { error } = await db.from("bsq_meta").upsert({ chave, valor, atualizado_em: agora() });
   if (error) throw new Error("meta " + chave + ": " + error.message);
+}
+
+// Título e movimento bancário são milhares de registros com o original do Omie
+// e o histórico: carregar todos a cada chamada estourava a memória da função.
+// Por página, só os que ela toca (id consultado e ausente = registro novo).
+async function carregarPorIds(colecao: string, ids: string[], destino: Map<string, any>): Promise<void> {
+  const faltam = [...new Set(ids)].filter((id) => !destino.has(id));
+  if (!faltam.length) return;
+  const achados = await lerPorIds(colecao, faltam);
+  for (const id of faltam) destino.set(id, achados.get(id));
 }
 
 /* ── cadastro de clientes do Omie (também é o mapa CPF → código) ───────────── */
@@ -236,10 +255,16 @@ Deno.serve(async (req) => {
 
         // Estado local, uma leitura por chamada.
         // lerColecaoBruta devolve linhas { id, registro } — aqui só o registro importa.
-        const [vendas, clientesLocais, corretores, recs, cxs, titulosLocais, movimentosLocais] = (await Promise.all([
+        const [vendas, clientesLocais, corretores, recs, cxs] = (await Promise.all([
           lerColecaoBruta("venda"), lerColecaoBruta("cliente"),
-          lerColecaoBruta("corretor"), lerColecaoBruta("rec"), lerColecaoBruta("cx"), lerColecaoBruta("titulo"), lerColecaoBruta("movbanco"),
+          lerColecaoBruta("corretor"), lerColecaoBruta("rec"), lerColecaoBruta("cx"),
         ])).map((linhas) => linhas.map((l: any) => l.registro));
+        // Títulos e movimentos bancários não vêm inteiros (ver carregarPorIds):
+        // do título, só o índice de quem tem conta a receber.
+        const cpfsComReceber = new Set((await lerCampos("titulo", ["grupo", "cpf"]))
+          .filter((t: any) => t.grupo === "CONTA_A_RECEBER" && t.cpf).map((t: any) => t.cpf));
+        const titulosPorId = new Map<string, any>();
+        const bancoPorId = new Map<string, any>();
         const vendasPorCpf = new Map<string, any[]>();
         for (const v of vendas) {
           if (v.apagadoEm || v.situacao === "distratada") continue;
@@ -247,8 +272,6 @@ Deno.serve(async (req) => {
           if (!vendasPorCpf.has(cpf)) vendasPorCpf.set(cpf, []);
           vendasPorCpf.get(cpf)!.push(v);
         }
-        const titulosPorId=new Map(titulosLocais.map((r:any)=>[r.id,r]));
-        const bancoPorId=new Map(movimentosLocais.map((r:any)=>[r.id,r]));
         const recPorId = new Map(recs.map((r: any) => [r.id, r]));
         const cxPorId = new Map(cxs.map((c: any) => [c.id, c]));
         // Dedupe contra lançamento manual é por CONTAGEM, não por conjunto:
@@ -298,7 +321,7 @@ Deno.serve(async (req) => {
             const local = porCpfLocal.get(cpf);
             if (local?.apagadoEm || oc.inativo === "S") continue;
             const clienteMarcado = (oc.tags || []).some((t: any) => String(t.tag || "").toLowerCase() === "cliente");
-            const temReceber = titulosLocais.some((t: any) => t.grupo === "CONTA_A_RECEBER" && t.cpf === cpf);
+            const temReceber = cpfsComReceber.has(cpf);
             if (!local && !clienteMarcado && !temReceber) continue;
             // Decisão do Léo (25/08): o cadastro do Omie MANDA sobre o que veio
             // da planilha — sobrescreve quando o Omie tem o dado. Só recua para
@@ -378,7 +401,16 @@ Deno.serve(async (req) => {
           const r = await omie("financas/mf", "ListarMovimentos",
             { nPagina: pagina, nRegPorPagina: 100, ...janela });
           totPaginas = r.nTotPaginas || 1;
-          for (const mov of r.movimentos || []) {
+          const movs: any[] = r.movimentos || [];
+          await Promise.all([
+            carregarPorIds("titulo", movs
+              .filter((m) => ["CONTA_A_RECEBER", "CONTA_A_PAGAR"].includes(m.detalhes?.cGrupo) && m.detalhes?.nCodTitulo)
+              .map((m) => m.detalhes.cGrupo + "-" + m.detalhes.nCodTitulo), titulosPorId),
+            carregarPorIds("movbanco", movs
+              .filter((m) => String(m.detalhes?.cGrupo || "").startsWith("CONTA_CORRENTE") && m.detalhes?.nCodMovCC)
+              .map((m) => "banco-" + m.detalhes.nCodMovCC), bancoPorId),
+          ]);
+          for (const mov of movs) {
             const d = mov.detalhes || {}; const res = mov.resumo || {};
             const grupo = d.cGrupo || "";
 
@@ -390,14 +422,14 @@ Deno.serve(async (req) => {
                 data:brParaISO(d.dDtPagamento),valor:Number(d.nValorMovCC ?? res.nValPago)||0,
                 entrada:d.cNatureza==="R",transferencia:["TRAP","TRAR"].includes(d.cOrigem),
                 original,origem:"omie",atualizadoEm:agora(),
-                historico: anterior && JSON.stringify(anterior.original)!==JSON.stringify(original)?[...(anterior.historico||[]),{em:agora(),por:"omie",original:anterior.original}]:anterior?.historico||[]}});
+                historico: anterior && canonico(anterior.original)!==canonico(original)?[...(anterior.historico||[]),{em:agora(),por:"omie",original:anterior.original}]:anterior?.historico||[]}});
             }
 
             if (["CONTA_A_RECEBER", "CONTA_A_PAGAR"].includes(grupo) && d.nCodTitulo) {
               const tituloId = grupo + "-" + d.nCodTitulo;
               const anterior = titulosPorId.get(tituloId);
               const original = { detalhes:d, resumo:res, departamentos:mov.departamentos||[], categorias:mov.categorias||[] };
-              const mudou = JSON.stringify(anterior?.original) !== JSON.stringify(original);
+              const mudou = canonico(anterior?.original) !== canonico(original);
               gravar.push({colecao:"titulo",id:tituloId,registro:{ ...(anterior || {}), id:tituloId,
                 grupo, titulo:d.nCodTitulo, valor:Number(d.nValorTitulo)||0, venc:brParaISO(d.dDtVenc),
                 pago:Number(res.nValPago)||0, status:d.cStatus, cpf:soDigitos(d.cCPFCNPJCliente),

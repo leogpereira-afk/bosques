@@ -111,6 +111,28 @@ export async function lerColecaoBruta(
   return saida;
 }
 
+// Só alguns campos (como texto) de cada registro de UMA coleção. Para coleções
+// grandes — título e movimento bancário guardam o original do Omie e o
+// histórico — ler o registro inteiro de todos estourava a memória da função.
+export async function lerCampos(colecao: string, campos: string[]): Promise<any[]> {
+  const colunas = ["id", ...campos.map((c) => c + ":registro->>" + c)].join(", ");
+  return await lerColecaoBruta(colecao, colunas);
+}
+
+// Registros de UMA coleção pelos ids (lotes de 100 por consulta). Id ausente
+// no banco simplesmente não aparece no mapa.
+export async function lerPorIds(colecao: string, ids: string[]): Promise<Map<string, any>> {
+  const saida = new Map<string, any>();
+  const unicos = [...new Set(ids)];
+  for (let i = 0; i < unicos.length; i += 100) {
+    const { data, error } = await db.from("bsq_registros").select("id, registro")
+      .eq("colecao", colecao).in("id", unicos.slice(i, i + 100));
+    if (error) throw new Error("lerPorIds(" + colecao + "): " + error.message);
+    for (const l of (data || []) as any[]) saida.set(l.id, l.registro);
+  }
+  return saida;
+}
+
 // Todos os registros que estão na lixeira, de QUALQUER coleção (paginado,
 // coletado antes de apagar).
 export async function lerApagados(): Promise<any[]> {
