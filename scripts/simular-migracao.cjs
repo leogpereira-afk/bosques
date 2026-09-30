@@ -4,7 +4,7 @@ const key=(c,id)=>c+'|'+id;
 const backup=JSON.parse(fs.readFileSync('seed/backup-pre-reconstrucao.json'));
 for(const r of backup.registros)registros.set(key(r._col,r.id),clone(r));
 const cfg=backup.cfg;
-const dados={agora:()=>new Date().toISOString(),lerCfgBruta:async()=>clone(cfg),lerColecaoBruta:async c=>[...registros].filter(([k])=>k.startsWith(c+'|')).map(([,r])=>({registro:clone(r)})),lerUm:async(c,id)=>registros.has(key(c,id))?clone(registros.get(key(c,id))):null,
+const dados={agora:()=>new Date().toISOString(),lerCfgBruta:async()=>clone(cfg),lerColecaoBruta:async c=>[...registros].filter(([k])=>k.startsWith(c+'|')).map(([,r])=>({registro:clone(r)})),lerCampos:async(c,campos)=>[...registros].filter(([k])=>k.startsWith(c+'|')).map(([k,r])=>({id:k.slice(c.length+1),...Object.fromEntries(campos.map(f=>[f,r[f]==null?null:String(r[f])]))})),lerPorIds:async(c,ids)=>new Map(ids.filter(id=>registros.has(key(c,id))).map(id=>[id,clone(registros.get(key(c,id)))])),lerUm:async(c,id)=>registros.has(key(c,id))?clone(registros.get(key(c,id))):null,
  gravarUm:async(c,id,r)=>registros.set(key(c,id),clone(r)),gravarVarios:async xs=>{for(const x of xs)registros.set(key(x.colecao,x.id),clone(x.registro));},marcarMudanca:async()=>{},registrarLog:async()=>{},guardarIndiceNumero:async()=>{},proximoNumero:async()=>++numero,
  db:{from:()=>({select(){return this},eq(k,v){this.k=v;return this},maybeSingle:async function(){return {data:metas.has(this.k)?{valor:clone(metas.get(this.k))}:null}},upsert:async function(x){metas.set(x.chave,clone(x.valor));return{error:null}},delete(){return this}})}};
 const movimentos=JSON.parse(fs.readFileSync('seed/omie-leitura-reconstrucao.json')).movimentos;
