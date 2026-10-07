@@ -367,23 +367,8 @@ TELAS.config = function () {
       toast('Configurações salvas');
     } catch (e) { toast(e.message || 'Não salvou', 'ruim'); }
   };
-  // A saúde da ponte com o Omie: quando rodou, o que trouxe, o que ficou
-  // de fora por parecer repetido (esses saem daqui para a mão, nunca sozinhos).
-  (async () => {
-    const el = document.getElementById('cf-omie-saude');
-    try {
-      const r = await apiOmie('saude');
-      if (!r.sync || !r.sync.quando) { el.innerHTML = 'Nunca sincronizou — o primeiro ↻ confere tudo.'; return; }
-      const horas = (Date.now() - new Date(r.sync.quando).getTime()) / 3600e3;
-      const pend = r.sync.pendencias || [];
-      el.innerHTML = (horas < 26 ? '🟢' : '🔴') + ' Última sincronização ' + fmt.quando(r.sync.quando) +
-        (r.sync.por && r.sync.por !== '—' ? ' por ' + esc(r.sync.por) : '') + ' — ' + resumoOmie(r.sync.contagens) + '.' +
-        (pend.length ? '<br>⚠ <b>' + pend.length + ' lançamento(s) do Omie ficaram de fora</b> ' +
-          '(parecem repetidos, ou foram apagados aqui de propósito). Confira um a um — o que for real, lance à mão (despesa no Caixa; recebimento pela ficha da venda):<br>' +
-          pend.slice(0, 12).map((p) => '· ' + fmt.data(p.data) + ' — ' + fmt.brl(p.valor) + ' (' + esc(p.categoria || '') + ')').join('<br>') +
-          (pend.length > 12 ? '<br>… e mais ' + (pend.length - 12) : '') : '');
-    } catch (e) { el.textContent = '⚠ Não consegui falar com o Omie agora: ' + (e.message || 'sem resposta'); }
-  })();
+  // Mesma avaliação do Início; a consulta se renova sem recriar este formulário.
+  statusOmieConfig(document.getElementById('cf-omie-saude'));
   document.getElementById('cf-omie-sync').onclick = async () => {
     const b = document.getElementById('cf-omie-sync');
     b.disabled = true; b.textContent = 'sincronizando…';

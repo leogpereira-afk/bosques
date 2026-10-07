@@ -23,14 +23,43 @@ async function omie(modulo: string, call: string, param: Record<string, unknown>
   const APP_KEY = Deno.env.get("BSQ_OMIE_APP_KEY");
   const APP_SECRET = Deno.env.get("BSQ_OMIE_APP_SECRET");
   if (!APP_KEY || !APP_SECRET) throw new Error("Faltam os segredos BSQ_OMIE_APP_KEY / BSQ_OMIE_APP_SECRET.");
+  // Toda consulta tem prazo, inclusive fora da sincronização. O sinal do lote
+  // impede que muitas páginas consumam todo o tempo disponível da função.
+  const prazo = AbortSignal.timeout(25000);
   const resp = await fetch(OMIE_URL + modulo + "/", {
-    method: "POST",signal,
+    method: "POST", signal: signal ? AbortSignal.any([signal, prazo]) : prazo,
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ call, app_key: APP_KEY, app_secret: APP_SECRET, param: [param] }),
   });
-  const corpo = await resp.json().catch(() => ({}));
-  if (!resp.ok) throw new Error("Omie " + call + ": " + (corpo.faultstring || resp.status));
+  let corpo: any;
+  try { corpo = await resp.json(); }
+  catch { throw new Error("Omie " + call + ": resposta JSON inválida (HTTP " + resp.status + ")."); }
+  if (!corpo || typeof corpo !== "object" || Array.isArray(corpo)) {
+    throw new Error("Omie " + call + ": resposta inválida.");
+  }
+  // O ERP também devolve falhas de aplicação com HTTP 200.
+  if (!resp.ok || corpo.faultstring || corpo.faultcode) {
+    throw new Error("Omie " + call + ": " + (corpo.faultstring || corpo.faultcode || resp.status));
+  }
   return corpo;
+}
+
+// Contratos de ListarClientes e ListarMovimentos publicados pelo Omie:
+// /api/v1/geral/clientes/ e /api/v1/financas/mf/. Não presumir página única
+// nem lista vazia quando o servidor deixa de entregar esses campos.
+function paginaOmie(r: any, call: string, pagina: number, campo: string,
+  campoPaginas: string, campoTotal: string, campoPagina: string) {
+  const vazio = r[campoTotal] != null && Number(r[campoTotal]) === 0;
+  const paginas = Number(r[campoPaginas]);
+  const itens = r[campo] == null && vazio ? [] : r[campo];
+  if (!Array.isArray(itens) || !Number.isInteger(paginas) || paginas < 0 ||
+      (paginas === 0 && !(vazio && pagina === 1 && !itens.length)) ||
+      (paginas > 0 && paginas < pagina) ||
+      (r[campoPagina] != null && Number(r[campoPagina]) !== pagina) ||
+      (!itens.length && (pagina < paginas || Number(r[campoTotal]) > 0)) || (vazio && itens.length)) {
+    throw new Error("Omie " + call + ": página " + pagina + " incompleta ou inválida; sincronização não concluída.");
+  }
+  return { itens, paginas };
 }
 
 /* ── miudezas ──────────────────────────────────────────────────────────────── */
@@ -45,6 +74,28 @@ const canonico = (v: unknown): string | undefined => JSON.stringify(v, (_k, x) =
   x && typeof x === "object" && !Array.isArray(x)
     ? Object.fromEntries(Object.keys(x).sort().map((k) => [k, x[k]]))
     : x);
+
+// Somente cópias exatas: um título pode ter eventos com valor/data diferentes.
+const pendenciasUnicas = (itens: any[]): any[] => {
+  const vistas = new Set<string | undefined>();
+  return itens.filter((item) => { const k = canonico(item); if (vistas.has(k)) return false; vistas.add(k); return true; });
+};
+
+// A tela consulta saúde periodicamente. Contagens completas e uma pequena
+// amostra bastam; o modo legado mantém o relatório integral sob demanda.
+function resumirSaudeOmie(meta: any) {
+  if (!meta) return null;
+  const { pendencias = [], pendenciasParciais, pendenciasVendas = [], ...estado } = meta;
+  const grupos: Record<string, any[]> = { vinculo: [], possivel_duplicidade: [], outros: [] };
+  const totais = { total: 0, vinculo: 0, possivel_duplicidade: 0, outros: 0 };
+  for (const p of pendencias) {
+    const grupo = p?.tipo === "vinculo" ? "vinculo" : p?.tipo === "possivel_duplicidade" ? "possivel_duplicidade" : "outros";
+    totais.total++; totais[grupo]++;
+    if (grupos[grupo].length < 4) grupos[grupo].push(p);
+  }
+  return { ...estado, pendencias: Object.values(grupos).flat(), pendenciasResumo: totais,
+    pendenciasVendas: pendenciasVendas.slice(0, 4), pendenciasVendasTotal: pendenciasVendas.length };
+}
 
 // O Deno das Edge Functions roda em UTC: das 21h à meia-noite no Brasil,
 // toISOString().slice(0,10) já devolve AMANHÃ. O dia que vale é o do Brasil (UTC-3).
@@ -112,14 +163,14 @@ async function carregarPorIds(colecao: string, ids: string[], destino: Map<strin
 /* ── cadastro de clientes do Omie (também é o mapa CPF → código) ───────────── */
 async function clientesDoOmie(): Promise<any[]> {
   const todos: any[] = [];
-  let pagina = 1;
-  while (pagina <= 5) {                       // 117 hoje; 5 páginas = teto de 1.500
-    const r = await omie("geral/clientes", "ListarClientes", { pagina, registros_por_pagina: 300 });
-    todos.push(...(r.clientes_cadastro || []));
-    if (pagina >= (r.total_de_paginas || 1)) break;
-    pagina += 1;
+  const signal = AbortSignal.timeout(60000);
+  for (let pagina = 1; pagina <= 1000; pagina++) {
+    const r = await omie("geral/clientes", "ListarClientes", { pagina, registros_por_pagina: 300 }, signal);
+    const p = paginaOmie(r, "ListarClientes", pagina, "clientes_cadastro", "total_de_paginas", "total_de_registros", "pagina");
+    todos.push(...p.itens);
+    if (pagina >= p.paginas) return todos;
   }
-  return todos;
+  throw new Error("Omie ListarClientes excedeu o limite de páginas; cadastro anterior preservado.");
 }
 
 // Referências pequenas, guardadas no servidor para não consultar o ERP a cada tela.
@@ -215,7 +266,8 @@ Deno.serve(async (req) => {
       }
       case "saude": {
         const meta = await lerMeta("omie_sync");
-        return json({ ok: true, sync: meta || null, corte: cfg.omie?.corteEntradas || null, automacao: await lerMeta("omie_automacao") });
+        return json({ ok: true, sync: body.resumida === true ? resumirSaudeOmie(meta) : meta || null,
+          corte: cfg.omie?.corteEntradas || null, automacao: await lerMeta("omie_automacao") });
       }
 
       /* ── sincronizar: puxa do Omie o que mudou e espelha aqui ────────────── */
@@ -400,8 +452,9 @@ Deno.serve(async (req) => {
         while (pagina < fim) {
           const r = await omie("financas/mf", "ListarMovimentos",
             { nPagina: pagina, nRegPorPagina: 100, ...janela });
-          totPaginas = r.nTotPaginas || 1;
-          const movs: any[] = r.movimentos || [];
+          const p = paginaOmie(r, "ListarMovimentos", pagina, "movimentos", "nTotPaginas", "nTotRegistros", "nPagina");
+          totPaginas = p.paginas;
+          const movs: any[] = p.itens;
           await Promise.all([
             carregarPorIds("titulo", movs
               .filter((m) => ["CONTA_A_RECEBER", "CONTA_A_PAGAR"].includes(m.detalhes?.cGrupo) && m.detalhes?.nCodTitulo)
@@ -709,7 +762,7 @@ Deno.serve(async (req) => {
 
         const terminou = pagina === 0;
         const pendAntes: any[] = (body.pagina && body.pagina > 1 && meta?.pendenciasParciais) || [];
-        const pendTotal = [...pendAntes, ...pendNovas];
+        const pendTotal = pendenciasUnicas([...pendAntes, ...pendNovas]);
         if (terminou) {
           const { data: importacao, error: erroImportacao } = await db.rpc("bsq_importar_vendas_omie");
           if (erroImportacao) throw new Error("Importação de novas vendas: " + erroImportacao.message);
@@ -734,7 +787,7 @@ Deno.serve(async (req) => {
           if (!completa) {
             const antigas = (meta?.pendencias || []).filter((a: any) =>
               !pendTotal.some((n: any) => n.titulo === a.titulo));
-            pendFinal = [...antigas, ...pendTotal];
+            pendFinal = pendenciasUnicas([...antigas, ...pendTotal]);
           }
           pendFinal = pendFinal.filter((pnd: any) => {
             if (pnd.tipo === "vinculo" && confirmados.has(String(pnd.titulo))) return false;

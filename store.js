@@ -480,7 +480,12 @@ function salvarNoAparelho(blob, nome) {
 }
 
 /* ── Rede ──────────────────────────────────────────────────────────────────── */
-window.addEventListener('online', () => { S.online = true; subirFila(); puxarSeNecessario(); });
+window.addEventListener('online', () => {
+  S.online = true;
+  // Com cache recente e fila vazia não haverá requisição para atualizar o aviso.
+  document.dispatchEvent(new CustomEvent('bsq:status'));
+  subirFila(); puxarSeNecessario();
+});
 window.addEventListener('offline', () => { S.online = false; document.dispatchEvent(new CustomEvent('bsq:status')); });
 document.addEventListener('visibilitychange', () => {
   if (!document.hidden) puxarSeNecessario();

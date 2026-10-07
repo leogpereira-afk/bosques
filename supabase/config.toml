@@ -20,3 +20,7 @@ verify_jwt = false
 # Roda sozinha pelo pg_cron: a entrada é o ROTINA_TOKEN, conferido dentro.
 [functions.bsq-rotina]
 verify_jwt = false
+
+# Omie: senha do painel ou segredo exclusivo da rotina, validados na função.
+[functions.bsq-omie]
+verify_jwt = false

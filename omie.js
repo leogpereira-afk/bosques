@@ -38,29 +38,121 @@ function registrarSyncOmie(ok, detalhe) {
   } catch (e) { /* sem espaço: o indicador cai no servidor */ }
 }
 
-// Linha de status para a tela de Início — lê o registro local na hora e
-// confirma com o servidor em segundo plano (quem responde a verdade é ele).
-function statusOmieHome(el) {
-  const pinta = (ok, txt) => { if (el && document.body.contains(el)) el.innerHTML = (ok ? '🟢' : '🔴') + ' ' + txt; };
-  let local = null;
-  try { local = JSON.parse(localStorage.getItem(K_OMIE_ULTIMA) || 'null'); } catch (e) { local = null; }
-  if (local) pinta(local.ok, 'Omie: ' + (local.ok ? 'sincronizado' : 'FALHOU') + ' ' + fmt.quando(local.em) +
-    (local.detalhe ? ' — ' + esc(local.detalhe) : ''));
-  return apiOmie('saude').then((r) => {
-    if (!r.sync || !r.sync.quando) { pinta(false, 'Omie: nunca sincronizou — abra Configurações e rode o ↻'); return r; }
-    if (r.sync.status && r.sync.status !== 'completa') {
-      pinta(false, 'Omie: ' + (r.sync.status==='em_andamento'?'atualizando em segundo plano':r.sync.status==='falhou'?'falha na atualização':r.sync.status) + ' — ' + esc(r.sync.erro || 'aguardando conclusão') + ' · ' + fmt.quando(r.sync.inicio || r.sync.quando)); return r;
-    }
-    const horas = (Date.now() - new Date(r.sync.quando).getTime()) / 3600e3;
-    const automatico=!!r.automacao?.ativa;
-    const emDia=horas<(automatico?0.75:26);
-    pinta(emDia, 'Omie: última conclusão ' + new Date(r.sync.quando).toLocaleString('pt-BR') +
-      (emDia ? ' ✓' : ' — ATRASADA') +
-      (automatico?' · automático a cada '+r.automacao.intervaloMinutos+' min, mesmo com o Portal fechado':'') +
-      ' — ' + resumoOmie(r.sync.contagens));
-    return r;
-  }).catch((e) => { if (!local) pinta(false, 'Omie: sem resposta agora (' + esc(e.message || 'rede') + ')'); });
+// Home e Configurações usam a mesma saúde. Consultar não importa nem grava dados.
+// A meta muda mesmo sem novos lançamentos: atualizamos só estes elementos,
+// sem redesenhar a página ou apagar o que está sendo digitado no formulário.
+const _alvosSaudeOmie = new Map();
+const _htmlSaudeOmie = new WeakMap();
+let _dadosSaudeOmie = null, _erroSaudeOmie = '', _sessaoSaudeOmie = '', _consultaSaudeOmie = null;
+let _timerSaudeOmie = null;
+
+function pendenciasOmieHtml(pendencias, resumo) {
+  const linhas = Array.isArray(pendencias) ? pendencias : [];
+  const grupos = [
+    { chave: 'vinculo', nome: 'vínculo com vendas', nota: 'Títulos importados do Omie que precisam ter o contrato confirmado.', itens: [] },
+    { chave: 'possivel_duplicidade', nome: 'possível duplicidade', nota: 'Compare os registros antes de decidir se representam o mesmo pagamento.', itens: [] },
+    { chave: 'outros', nome: 'outras conferências', nota: 'Confira as informações de origem e os ajustes já registrados no Financeiro.', itens: [] },
+  ];
+  for (const p of linhas) {
+    if (!p || typeof p !== 'object') continue;
+    grupos[p.tipo === 'vinculo' ? 0 : p.tipo === 'possivel_duplicidade' ? 1 : 2].itens.push(p);
+  }
+  // Servidores anteriores enviam a lista inteira; os novos enviam totais e exemplos.
+  for (const g of grupos) g.total = Number.isInteger(resumo?.[g.chave]) && resumo[g.chave] >= g.itens.length ? resumo[g.chave] : g.itens.length;
+  const ativos = grupos.filter(g => g.total), total = ativos.reduce((n, g) => n + g.total, 0);
+  if (!total) return '';
+  const limite = Math.floor(12 / ativos.length);
+  return '<details class="omie-pendencias"><summary><b>' + total + ' registro(s) para conferir</b></summary>' +
+    '<p>São conferências de vínculo ou conciliação. Verifique os registros existentes antes de criar qualquer lançamento.</p>' +
+    ativos.map(g => '<p><b>' + g.total + ' · ' + g.nome + '</b><br>' + g.nota + '</p><ul>' +
+      g.itens.slice(0, limite).map(p => '<li data-pendencia-omie>' +
+        (p.titulo ? 'Título ' + esc(p.titulo) : 'Registro sem número de título') +
+        (p.data ? ' · ' + esc(fmt.data(p.data)) : '') +
+        (Number.isFinite(Number(p.valor)) ? ' · ' + esc(fmt.brl(Number(p.valor))) : '') + '</li>').join('') +
+      '</ul>' + (g.total > Math.min(limite, g.itens.length) ? '<p>Mais ' + (g.total - Math.min(limite, g.itens.length)) + ' registro(s) neste grupo.</p>' : '')).join('') +
+    '<p><a href="#/financeiro">Abrir Financeiro para conferir</a></p></details>';
 }
+
+function textoSaudeOmie(dados, erro) {
+  const sync = dados?.sync, quando = sync?.quando;
+  const data = quando && Number.isFinite(Date.parse(quando)) ? new Date(quando).toLocaleString('pt-BR') : '';
+  const ultima = data ? ' Última conclusão conhecida: ' + esc(data) + '.' : '';
+  if (erro) return '🟠 Não foi possível consultar a situação da integração agora. ' + esc(erro) + ultima +
+    ' A consulta será tentada novamente; os dados salvos continuam disponíveis.';
+  if (!dados) return '🟠 Consultando a situação da integração Omie…';
+  if (sync?.status === 'em_andamento') return '🟠 Omie: atualização em andamento no servidor.' + ultima;
+  if (sync?.status === 'falhou') return '🔴 Omie: a última tentativa de atualização falhou. ' +
+    esc(sync.erro || 'Confira a integração.') + ultima;
+  if (!data) return '🟠 Omie: nenhuma sincronização concluída foi registrada. Confira a integração antes de atualizar os dados.';
+  if (sync.status && sync.status !== 'completa') return '🟠 Omie: aguardando conclusão da atualização.' + ultima;
+  const automatico = dados.automacao?.ativa === true;
+  const horas = (Date.now() - Date.parse(quando)) / 3600e3, emDia = horas < (automatico ? 0.75 : 26);
+  const desativado = dados.automacao?.ativa === false;
+  return (emDia && !desativado ? '🟢' : '🟠') + ' Omie: última conclusão ' + esc(data) +
+    (emDia ? ' ✓' : ' — atualização atrasada') +
+    (automatico ? ' · automático a cada ' + esc(dados.automacao.intervaloMinutos || 15) + ' min, mesmo com o Portal fechado' :
+      desativado ? ' · atualização automática desativada' : '') +
+    ' — ' + esc(resumoOmie(sync.contagens));
+}
+
+function pintarSaudeOmie() {
+  for (const [el, detalhar] of _alvosSaudeOmie) {
+    if (!document.body.contains(el)) { _alvosSaudeOmie.delete(el); continue; }
+    const html = textoSaudeOmie(_dadosSaudeOmie, _erroSaudeOmie) +
+      (detalhar && _dadosSaudeOmie ? pendenciasOmieHtml(_dadosSaudeOmie.sync?.pendencias, _dadosSaudeOmie.sync?.pendenciasResumo) : '');
+    if (_htmlSaudeOmie.get(el) === html) continue;
+    const aberto = el.querySelector('details')?.open;
+    el.innerHTML = html; _htmlSaudeOmie.set(el, html);
+    if (aberto && el.querySelector('details')) el.querySelector('details').open = true;
+  }
+}
+
+async function atualizarSaudeOmie() {
+  for (const el of _alvosSaudeOmie.keys()) if (!document.body.contains(el)) _alvosSaudeOmie.delete(el);
+  if (document.hidden || !_alvosSaudeOmie.size || !S.senhaHash || S.perfil === 'corretor') return;
+  const sessao = S.senhaHash;
+  if (_sessaoSaudeOmie !== sessao) {
+    _sessaoSaudeOmie = sessao; _dadosSaudeOmie = null; _erroSaudeOmie = '';
+    pintarSaudeOmie();
+  }
+  if (_consultaSaudeOmie?.sessao === sessao) return _consultaSaudeOmie.promessa;
+  const consulta = { sessao, promessa: null };
+  _consultaSaudeOmie = consulta;
+  consulta.promessa = (async () => {
+    try {
+      const r = await apiOmie('saude', { resumida: true }, { prazoMs: 20000 });
+      if (!r || r.ok !== true) throw new Error('O servidor não confirmou a consulta.');
+      if (S.senhaHash !== sessao) return;
+      _dadosSaudeOmie = r; _erroSaudeOmie = '';
+      return r;
+    } catch (e) {
+      if (S.senhaHash !== sessao) return;
+      _erroSaudeOmie = e.semSenha ? 'Sua sessão no painel precisa ser renovada.' :
+        !navigator.onLine ? 'Este aparelho está sem conexão.' :
+        /fetch|network|load failed|abort/i.test(e.message || '') ? 'A conexão deste aparelho com o servidor não respondeu.' :
+        String(e.message || 'Falha temporária de conexão.');
+    } finally {
+      if (_consultaSaudeOmie === consulta) _consultaSaudeOmie = null;
+      if (S.senhaHash === sessao) pintarSaudeOmie();
+    }
+  })();
+  return consulta.promessa;
+}
+
+function acompanharSaudeOmie(el, detalhar) {
+  if (!el) return Promise.resolve();
+  el.setAttribute('role', 'status'); el.setAttribute('aria-live', 'polite');
+  _alvosSaudeOmie.set(el, detalhar);
+  if (_sessaoSaudeOmie === S.senhaHash) pintarSaudeOmie();
+  if (_timerSaudeOmie === null) {
+    _timerSaudeOmie = setInterval(atualizarSaudeOmie, 60000);
+    document.addEventListener('visibilitychange', () => { if (!document.hidden) atualizarSaudeOmie(); });
+    window.addEventListener('online', atualizarSaudeOmie);
+  }
+  return atualizarSaudeOmie();
+}
+function statusOmieHome(el) { return acompanharSaudeOmie(el, false); }
+function statusOmieConfig(el) { return acompanharSaudeOmie(el, true); }
 
 // Texto curto e humano do que a rodada fez.
 function resumoOmie(c) {
