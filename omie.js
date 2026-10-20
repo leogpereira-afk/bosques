@@ -44,7 +44,7 @@ function registrarSyncOmie(ok, detalhe) {
 const _alvosSaudeOmie = new Map();
 const _htmlSaudeOmie = new WeakMap();
 let _dadosSaudeOmie = null, _erroSaudeOmie = '', _sessaoSaudeOmie = '', _consultaSaudeOmie = null;
-let _timerSaudeOmie = null;
+let _timerSaudeOmie = null, _vigiaGlobalOmie = false, _servidorForaOmie = false;
 
 function pendenciasOmieHtml(pendencias, resumo) {
   const linhas = Array.isArray(pendencias) ? pendencias : [];
@@ -73,32 +73,80 @@ function pendenciasOmieHtml(pendencias, resumo) {
     '<p><a href="#/financeiro">Abrir Financeiro para conferir</a></p></details>';
 }
 
-function textoSaudeOmie(dados, erro) {
-  const sync = dados?.sync, quando = sync?.quando;
-  const data = quando && Number.isFinite(Date.parse(quando)) ? new Date(quando).toLocaleString('pt-BR') : '';
+// Vermelho quando a atualização PAROU (não só "atrasou"): falhas seguidas há
+// 30 min ou mais, rodada sem avançar há 45 min, ou nenhuma conclusão há 3 h com
+// o automático ligado. De 17/09 a 30/09 ela ficou parada e a tela só mostrava
+// laranja no fim do Início.
+const OMIE_PARADA_HORAS = 3, OMIE_SEM_AVANCO_MIN = 45;
+function textoSaudeOmie(dados, erro, servidorFora) {
+  const sync = dados?.sync, quando = sync?.quando, ex = dados?.execucao || null;
+  const dataBR = (iso) => { const t = Date.parse(iso || ''); return Number.isFinite(t) ? new Date(t).toLocaleString('pt-BR') : ''; };
+  // Idades pelo relógio do servidor (o do aparelho pode estar errado), mais o
+  // tempo passado desde que a resposta chegou.
+  const agoraServidor = Date.parse(dados?.agora || '');
+  const agoraMs = Number.isFinite(agoraServidor) ? agoraServidor + Math.max(0, Date.now() - (dados._recebidoEm || Date.now())) : Date.now();
+  const data = dataBR(quando);
   const ultima = data ? ' Última conclusão conhecida: ' + esc(data) + '.' : '';
-  if (erro) return '🟠 Não foi possível consultar a situação da integração agora. ' + esc(erro) + ultima +
-    ' A consulta será tentada novamente; os dados salvos continuam disponíveis.';
+  const automatico = dados?.automacao?.ativa === true;
+  const horas = Number.isFinite(Date.parse(quando || '')) ? (agoraMs - Date.parse(quando)) / 3600e3 : Infinity;
+  const parada = automatico && Number.isFinite(horas) && horas >= OMIE_PARADA_HORAS;
+  const semConcluir = parada ? ' Sem concluir há ' + Math.floor(horas) + ' h.' : '';
+  const avise = ' Avise quem cuida do sistema.';
+  if (erro) {
+    // Servidor fora (erro 5xx) e a última conclusão já antiga: vermelho. Sem
+    // internet no aparelho fica laranja: o problema pode ser só a conexão.
+    if (servidorFora && parada) return '🔴 Não foi possível consultar a situação da integração: ' + esc(erro) + '.' + ultima + semConcluir + avise;
+    return '🟠 Não foi possível consultar a situação da integração agora. ' + esc(erro) + ultima +
+      ' A consulta será tentada novamente; os dados salvos continuam disponíveis.';
+  }
   if (!dados) return '🟠 Consultando a situação da integração Omie…';
-  if (sync?.status === 'em_andamento') return '🟠 Omie: atualização em andamento no servidor.' + ultima;
-  if (sync?.status === 'falhou') return '🔴 Omie: a última tentativa de atualização falhou. ' +
-    esc(sync.erro || 'Confira a integração.') + ultima;
+  if (Number(ex?.tentativas) > 0 && Number.isFinite(Date.parse(ex.falhando_desde || ''))) {
+    const minutos = (agoraMs - Date.parse(ex.falhando_desde)) / 60e3, proxima = dataBR(ex.proxima);
+    const vermelho = minutos >= 30 || parada;
+    return (vermelho ? '🔴' : '🟠') + ' Omie: a atualização está falhando desde ' + esc(dataBR(ex.falhando_desde)) +
+      ' (' + Number(ex.tentativas) + ' tentativa(s) seguidas). ' + esc(ex.ultimo_erro || sync?.erro || 'Confira a integração.') +
+      (proxima ? ' Próxima tentativa: ' + esc(proxima) + '.' : '') + ultima + semConcluir + (vermelho ? avise : '');
+  }
+  if (sync?.status === 'falhou') {
+    // Servidor sem o estado da rodada (versão anterior): uma falha isolada fica
+    // laranja nos primeiros 30 min, até a próxima tentativa.
+    const recente = !ex && !parada && Number.isFinite(Date.parse(sync.termino || '')) && agoraMs - Date.parse(sync.termino) < 30 * 60e3;
+    return (recente ? '🟠' : '🔴') + ' Omie: a última tentativa de atualização falhou. ' +
+      esc(sync.erro || 'Confira a integração.') + ultima + semConcluir;
+  }
+  if (sync?.status === 'em_andamento' || (data && sync?.status && sync.status !== 'completa')) {
+    // Rodada em andamento: vale o último AVANÇO (a próxima é marcada a cada lote
+    // concluído), não a última conclusão. Uma releitura longa que continua
+    // andando não está parada; uma que parou de andar, sim.
+    let travada = parada, desde = '';
+    if (ex) {
+      const rodando = Date.parse(ex.reservado_ate || '') > agoraMs, avanco = Date.parse(ex.proxima || '');
+      travada = !rodando && (Number.isFinite(avanco) ? (agoraMs - avanco) / 60e3 >= OMIE_SEM_AVANCO_MIN : parada);
+      desde = travada && Number.isFinite(avanco) ? ' Sem avançar desde ' + esc(dataBR(ex.proxima)) + '.' : '';
+    }
+    return (travada ? '🔴' : '🟠') + ' Omie: ' + (ex?.completa ? 'releitura completa' : 'atualização') + ' em andamento no servidor' +
+      (Number(ex?.pagina) > 1 ? ' (página ' + Number(ex.pagina) + ')' : '') + '.' +
+      (travada ? (desde || semConcluir) + avise : '') + ultima;
+  }
   if (!data) return '🟠 Omie: nenhuma sincronização concluída foi registrada. Confira a integração antes de atualizar os dados.';
-  if (sync.status && sync.status !== 'completa') return '🟠 Omie: aguardando conclusão da atualização.' + ultima;
-  const automatico = dados.automacao?.ativa === true;
-  const horas = (Date.now() - Date.parse(quando)) / 3600e3, emDia = horas < (automatico ? 0.75 : 26);
+  const emDia = horas < (automatico ? 0.75 : 26);
+  const paradaConcluida = horas >= (automatico ? OMIE_PARADA_HORAS : 48);
   const desativado = dados.automacao?.ativa === false;
-  return (emDia && !desativado ? '🟢' : '🟠') + ' Omie: última conclusão ' + esc(data) +
-    (emDia ? ' ✓' : ' — atualização atrasada') +
+  return (emDia && !desativado ? '🟢' : paradaConcluida ? '🔴' : '🟠') + ' Omie: última conclusão ' + esc(data) +
+    (emDia ? ' ✓' : paradaConcluida ? ', atualização PARADA há ' + Math.floor(horas) + ' h' : ' — atualização atrasada') +
     (automatico ? ' · automático a cada ' + esc(dados.automacao.intervaloMinutos || 15) + ' min, mesmo com o Portal fechado' :
       desativado ? ' · atualização automática desativada' : '') +
     ' — ' + esc(resumoOmie(sync.contagens));
 }
 
 function pintarSaudeOmie() {
+  const texto = textoSaudeOmie(_dadosSaudeOmie, _erroSaudeOmie, _servidorForaOmie);
+  // O selo do topo (app.js) mostra o vermelho em qualquer tela.
+  const alerta = texto.startsWith('🔴') ? 'Omie parado' : '';
+  if (S.omieAlerta !== alerta) { S.omieAlerta = alerta; if (typeof atualizarBadge === 'function') atualizarBadge(); }
   for (const [el, detalhar] of _alvosSaudeOmie) {
     if (!document.body.contains(el)) { _alvosSaudeOmie.delete(el); continue; }
-    const html = textoSaudeOmie(_dadosSaudeOmie, _erroSaudeOmie) +
+    const html = texto +
       (detalhar && _dadosSaudeOmie ? pendenciasOmieHtml(_dadosSaudeOmie.sync?.pendencias, _dadosSaudeOmie.sync?.pendenciasResumo) : '');
     if (_htmlSaudeOmie.get(el) === html) continue;
     const aberto = el.querySelector('details')?.open;
@@ -109,7 +157,9 @@ function pintarSaudeOmie() {
 
 async function atualizarSaudeOmie() {
   for (const el of _alvosSaudeOmie.keys()) if (!document.body.contains(el)) _alvosSaudeOmie.delete(el);
-  if (document.hidden || !_alvosSaudeOmie.size || !S.senhaHash || S.perfil === 'corretor') return;
+  // Sem sessão ou com perfil de corretor (pode mudar sem recarregar), nada de selo.
+  if ((!S.senhaHash || S.perfil === 'corretor') && S.omieAlerta) { S.omieAlerta = ''; if (typeof atualizarBadge === 'function') atualizarBadge(); }
+  if (document.hidden || (!_alvosSaudeOmie.size && !_vigiaGlobalOmie) || !S.senhaHash || S.perfil === 'corretor') return;
   const sessao = S.senhaHash;
   if (_sessaoSaudeOmie !== sessao) {
     _sessaoSaudeOmie = sessao; _dadosSaudeOmie = null; _erroSaudeOmie = '';
@@ -123,13 +173,15 @@ async function atualizarSaudeOmie() {
       const r = await apiOmie('saude', { resumida: true }, { prazoMs: 20000 });
       if (!r || r.ok !== true) throw new Error('O servidor não confirmou a consulta.');
       if (S.senhaHash !== sessao) return;
-      _dadosSaudeOmie = r; _erroSaudeOmie = '';
+      r._recebidoEm = Date.now();
+      _dadosSaudeOmie = r; _erroSaudeOmie = ''; _servidorForaOmie = false;
       return r;
     } catch (e) {
       if (S.senhaHash !== sessao) return;
+      _servidorForaOmie = Number(e.status) >= 500;
       _erroSaudeOmie = e.semSenha ? 'Sua sessão no painel precisa ser renovada.' :
         !navigator.onLine ? 'Este aparelho está sem conexão.' :
-        /fetch|network|load failed|abort/i.test(e.message || '') ? 'A conexão deste aparelho com o servidor não respondeu.' :
+        e.rede || /fetch|network|load failed|abort/i.test(e.message || '') ? 'A conexão deste aparelho com o servidor não respondeu.' :
         String(e.message || 'Falha temporária de conexão.');
     } finally {
       if (_consultaSaudeOmie === consulta) _consultaSaudeOmie = null;
@@ -139,17 +191,27 @@ async function atualizarSaudeOmie() {
   return consulta.promessa;
 }
 
+function ligarRelogioSaudeOmie() {
+  if (_timerSaudeOmie !== null) return;
+  _timerSaudeOmie = setInterval(atualizarSaudeOmie, 60000);
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) atualizarSaudeOmie(); });
+  window.addEventListener('online', atualizarSaudeOmie);
+}
 function acompanharSaudeOmie(el, detalhar) {
   if (!el) return Promise.resolve();
   el.setAttribute('role', 'status'); el.setAttribute('aria-live', 'polite');
   _alvosSaudeOmie.set(el, detalhar);
   if (_sessaoSaudeOmie === S.senhaHash) pintarSaudeOmie();
-  if (_timerSaudeOmie === null) {
-    _timerSaudeOmie = setInterval(atualizarSaudeOmie, 60000);
-    document.addEventListener('visibilitychange', () => { if (!document.hidden) atualizarSaudeOmie(); });
-    window.addEventListener('online', atualizarSaudeOmie);
-  }
+  ligarRelogioSaudeOmie();
   return atualizarSaudeOmie();
+}
+// Direção e escritório acompanham a saúde em qualquer tela (selo do topo),
+// não só quando o Início ou as Configurações estão abertos.
+function vigiarSaudeOmie() {
+  if (_vigiaGlobalOmie || !S.senhaHash || S.perfil === 'corretor') return;
+  _vigiaGlobalOmie = true;
+  ligarRelogioSaudeOmie();
+  atualizarSaudeOmie();
 }
 function statusOmieHome(el) { return acompanharSaudeOmie(el, false); }
 function statusOmieConfig(el) { return acompanharSaudeOmie(el, true); }

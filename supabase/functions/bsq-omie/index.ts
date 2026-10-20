@@ -57,7 +57,11 @@ function paginaOmie(r: any, call: string, pagina: number, campo: string,
       (paginas > 0 && paginas < pagina) ||
       (r[campoPagina] != null && Number(r[campoPagina]) !== pagina) ||
       (!itens.length && (pagina < paginas || Number(r[campoTotal]) > 0)) || (vazio && itens.length)) {
-    throw new Error("Omie " + call + ": página " + pagina + " incompleta ou inválida; sincronização não concluída.");
+    // O formato recebido vai junto (só números e nomes de campo): em 13/10 o
+    // Omie respondeu assim por 12 horas e não havia como saber o quê.
+    const forma = [campoPagina, campoPaginas, campoTotal].map((k) => k + "=" + r[k]).join(" ") +
+      " " + campo + "=" + (Array.isArray(r[campo]) ? r[campo].length + " itens" : typeof r[campo]);
+    throw new Error("Omie " + call + ": página " + pagina + " incompleta ou inválida (" + forma + "); sincronização não concluída.");
   }
   return { itens, paginas };
 }
@@ -261,13 +265,27 @@ Deno.serve(async (req) => {
 
       /* ── saúde: a última sincronização, para o indicador da tela ─────────── */
       case "referencias": {
-        const refs=await referenciasFinanceiras(body.forcar===true);
-        return json({ok:true,quando:refs.quando});
+        // Omie fora não pode travar a tela: devolve a cópia anterior, avisando.
+        try {
+          const refs=await referenciasFinanceiras(body.forcar===true);
+          return json({ok:true,quando:refs.quando});
+        } catch (e) {
+          const anterior=await lerMeta("omie_referencias");
+          if(!anterior?.quando) throw e;
+          return json({ok:true,quando:anterior.quando,desatualizado:true,erro:String((e as Error).message||e)});
+        }
       }
       case "saude": {
         const meta = await lerMeta("omie_sync");
+        // O estado da rodada diz o que a meta não diz: falhas seguidas, desde
+        // quando, a próxima tentativa e se a rodada em curso foi interrompida.
+        const {data: execucaoAtual, error: erroExecucao} = await db.from("bsq_omie_execucao")
+          .select("inicio,pagina,completa,reservado_ate,proxima,ultimo_erro,tentativas,falhando_desde")
+          .eq("id", true).maybeSingle();
+        if (erroExecucao) console.error("saude: estado da rodada indisponível (migração 202610200001 aplicada?)", erroExecucao.message);
         return json({ ok: true, sync: body.resumida === true ? resumirSaudeOmie(meta) : meta || null,
-          corte: cfg.omie?.corteEntradas || null, automacao: await lerMeta("omie_automacao") });
+          corte: cfg.omie?.corteEntradas || null, automacao: await lerMeta("omie_automacao"),
+          execucao: execucaoAtual || null, execucaoErro: erroExecucao ? erroExecucao.message : undefined, agora: agora() });
       }
 
       /* ── sincronizar: puxa do Omie o que mudou e espelha aqui ────────────── */
@@ -284,8 +302,18 @@ Deno.serve(async (req) => {
         let corte = cfg.omie?.corteEntradas || "";
         if (!corte) throw new Error("Defina a data inicial da integração antes de sincronizar.");
         if (!/^\d{4}-\d{2}-\d{2}$/.test(corte)) throw new Error("Data inicial inválida");
+        // Releitura completa automática uma vez por semana: conserta qualquer
+        // buraco que a janela incremental tenha deixado, como o de 17/09 a 30/09.
+        // Começa de madrugada (0h às 6h em Montes Claros), porque durante a
+        // releitura, cerca de 1 hora, não roda leitura incremental. Sem registro
+        // (logo depois de publicar isto) ou com mais de 8 dias, começa na hora.
+        const idadeCompleta = Date.now() - Date.parse(meta?.ultimaCompleta || "");
+        const madrugadaBR = (new Date().getUTCHours() + 21) % 24 < 6;
+        const releituraVencida = !(idadeCompleta < 8 * 86400e3) ||
+          (idadeCompleta >= 6.5 * 86400e3 && madrugadaBR);
         const {data: reserva,error: erroReserva} = await db.rpc("bsq_omie_reservar", {
-          p_auto:automatico,p_inicio:automatico?null:(body.inicio||null),p_completa:!!body.completa,
+          p_auto:automatico,p_inicio:automatico?null:(body.inicio||null),
+          p_completa:!!body.completa || (automatico && releituraVencida),
         });
         if (erroReserva) throw new Error("Controle da sincronização: " + erroReserva.message);
         if (!reserva?.adquirido) return json({ok:automatico,aguardando:true,error:reserva?.motivo},automatico?200:409);
@@ -296,12 +324,16 @@ Deno.serve(async (req) => {
         await gravarMeta("omie_sync", { ...(meta || {}), status:"em_andamento", inicio, erro:null });
 
 
-        // Janela incremental: só o que o Omie alterou desde a última rodada
-        // completa (3 dias de carência). Sem meta — ou a pedido — vem tudo.
+        // Janela incremental: só o que o Omie alterou desde o INÍCIO da última
+        // rodada concluída (3 dias de carência). Sem meta — ou a pedido — vem tudo.
+        // A âncora é o início, não o fim: uma rodada retomada depois de dias
+        // parada (17/09 a 30/09) lê as primeiras páginas muito antes de acabar,
+        // e o que mudou nesse meio tempo ficava para trás de vez.
         const completa = !!body.completa || !meta?.quando || (!!meta?.corte && corte < meta.corte);
         const janela: Record<string, unknown> = {};
         if (!completa) {
-          const de = new Date(new Date(meta.quando).getTime() - 3 * 86400e3);
+          const ancora = Date.parse(meta.ancora) || Date.parse(meta.quando);
+          const de = new Date(ancora - 3 * 86400e3);
           janela.dDtAltDe = isoParaBR(de.toISOString());
         }
 
@@ -439,7 +471,9 @@ Deno.serve(async (req) => {
           }
           return m;
         };
-        const POR_CHAMADA = automatico ? 3 : 15;
+        // Releitura completa lê páginas cheias (sem janela): 3 por chamada também
+        // quando alguém clica em Sincronizar no meio dela, para caber nos 150 s.
+        const POR_CHAMADA = automatico || completa ? 3 : 15;
         let pagina = Number(body.pagina) || 1;
         let totPaginas = pagina;
         const fim = pagina + POR_CHAMADA;
@@ -452,6 +486,14 @@ Deno.serve(async (req) => {
         while (pagina < fim) {
           const r = await omie("financas/mf", "ListarMovimentos",
             { nPagina: pagina, nRegPorPagina: 100, ...janela });
+          // Rodada retomada numa página que deixou de existir (a lista do Omie
+          // encolheu entre uma chamada e outra): recomeça da página 1, mantendo
+          // a rodada e a marca de completa, em vez de falhar para sempre ali.
+          const totResposta = Number(r.nTotPaginas);
+          if (pagina > 1 && Number.isInteger(totResposta) && totResposta >= 0 && totResposta < pagina) {
+            console.warn("bsq-omie: página " + pagina + " sumiu (total " + totResposta + "); recomeçando a rodada da página 1");
+            pagina = 1; break;
+          }
           const p = paginaOmie(r, "ListarMovimentos", pagina, "movimentos", "nTotPaginas", "nTotRegistros", "nPagina");
           totPaginas = p.paginas;
           const movs: any[] = p.itens;
@@ -553,6 +595,19 @@ Deno.serve(async (req) => {
                   }
                   soma("recNaLixeira"); continue;
                 }
+                // Recebimento lançado à mão e amarrado nesta mesma parcela (botão
+                // Dar baixa → Amarrar numa parcela): lançar o do Omie também
+                // contaria o dinheiro duas vezes. Vira conferência, não lançamento.
+                if (!existente) {
+                  const manual = recs.find((r: any) => !r.apagadoEm && !String(r.id).startsWith("rbomie-") &&
+                    (r.alocacoes || []).some((a: any) => a && String(a.tid) === String(d.nCodTitulo)));
+                  if (manual) {
+                    pendNovas.push({ titulo: d.nCodTitulo, valor, data: dataPagto, tipo: "recebimento_manual",
+                      categoria: "parcela já recebida à mão (" + (manual.codigo || manual.id) + "); confira antes de lançar o recebimento do Omie",
+                      candidatos: [manual.id] });
+                    soma("recJaLancadoAMao"); continue;
+                  }
+                }
                 const cpf = soDigitos(d.cCPFCNPJCliente);
                 const minhas = vendasPorCpf.get(cpf) || [];
                 const vendaId = existente?.vendaId || tidDono(cpf).get(String(d.nCodTitulo)) || "";
@@ -562,8 +617,10 @@ Deno.serve(async (req) => {
                   ...(existente || {}), id, apagadoEm:null, apagadoPor:null, origem: "omie", numero, codigo: "RB-" + String(numero).padStart(4, "0"),
                   vendaId, tipo: "parcela", parcelaN: null, valor, data: dataPagto,
                   contaOmie:d.nCodCC || null, forma: existente?.ajustes?.forma || "Não informada",
-                  tipoDocumento: FORMA[d.cTipo] || d.cTipo || "", obs: "baixa automática do Omie" +
-                    (d.cNumBoleto ? " · boleto " + d.cNumBoleto : ""),
+                  // Observação escrita por uma pessoa fica; só a automática é refeita.
+                  tipoDocumento: FORMA[d.cTipo] || d.cTipo || "",
+                  obs: existente?.obs && !String(existente.obs).startsWith("baixa automática do Omie") ? existente.obs :
+                    "baixa automática do Omie" + (d.cNumBoleto ? " · boleto " + d.cNumBoleto : ""),
                   conferir: !vendaId || undefined,
                   omie: { original: {detalhes:d,resumo:res}, titulo: d.nCodTitulo, venc: brParaISO(d.dDtVenc), cpf, parcela: d.cNumParcela || "" },
                   criadoEm: existente?.criadoEm || agora(), criadoPor: existente?.criadoPor || "omie", atualizadoEm:agora(),
@@ -626,8 +683,11 @@ Deno.serve(async (req) => {
                 soma("cxAguardandoConciliacao"); continue; // original está preservado em titulo; ainda não lançar duas vezes
               }
               const registro: any = {
-                ...(jaCx || {}), id, apagadoEm:null, apagadoPor:null, origem: "omie", tipo: "saida", valor, data: jaCx?.ajustes?.data || dataPagto,
-                contaOmie:d.nCodCC || null, forma: jaCx?.ajustes?.forma || "Não informada", tipoDocumento:FORMA[d.cTipo] || d.cTipo || "",
+                // Lançamento manual conciliado como o mesmo pagamento mantém
+                // origem, data e forma de quem lançou.
+                ...(jaCx || {}), id, apagadoEm:null, apagadoPor:null, origem: conciliado?.origem || "omie", tipo: "saida", valor,
+                data: jaCx?.ajustes?.data || (conciliado?.data) || dataPagto,
+                contaOmie:d.nCodCC || null, forma: jaCx?.ajustes?.forma || conciliado?.forma || "Não informada", tipoDocumento:FORMA[d.cTipo] || d.cTipo || "",
                 categoria, descricao: jaCx?.descricao || "Título Omie " + d.nCodTitulo,
                 omie: { original:{detalhes:d,resumo:res}, titulo: d.nCodTitulo, categoria: d.cCodCateg || "" },
                 criadoEm:jaCx?.criadoEm || agora(), criadoPor:jaCx?.criadoPor || "omie", atualizadoEm:agora(),
@@ -795,8 +855,11 @@ Deno.serve(async (req) => {
             const cx = cxPorId.get("cxomie-" + pnd.titulo);
             return !cx || cx.apagadoEm;
           });
+          // ancora = início desta rodada (a próxima janela parte dela);
+          // ultimaCompleta só anda quando a rodada leu tudo.
           await gravarMeta("omie_sync", {
-            quando: agora(), status:"completa", inicio, termino:agora(), por, completa, corte, contagens: cont,
+            quando: agora(), ancora: inicio || agora(), ultimaCompleta: completa ? (inicio || agora()) : (meta?.ultimaCompleta || null),
+            status:"completa", inicio, termino:agora(), por, completa, corte, contagens: cont,
             pendencias: pendFinal, pendenciasVendas: importacao?.pendenciasVendas || [],
           });
           await registrarLog({ acao: "sincronizou com o Omie", por, ...cont });

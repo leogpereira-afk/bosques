@@ -24,6 +24,7 @@ import {
   filtrarLeitura, hashGuardado, perfilDe, sha256, type Quem,
 } from "../_shared/acesso.ts";
 import { arquivosDoRegistro } from "../_shared/arquivos.ts";
+import { lapideDe, precisaLapide } from "../_shared/lixeira.ts";
 import {
   db, agora, idNovo, tokenCurto, lerUm, gravarUm, lerTudo, apagarDeVez,
   lerCfgBruta, gravarCfg, proximoNumero, guardarIndiceNumero, lerNumeracao,
@@ -564,6 +565,8 @@ Deno.serve(async (req) => {
         const { colecao, id } = body;
         const r = await lerUm(colecao, id);
         if (!r) return json({ ok: false, error: "Não encontrado" }, 404);
+        // Lápide não tem mais o conteúdo: o lançamento volta pela sincronização do Omie.
+        if (r.lapide) return json({ ok: false, error: "Este lançamento do Omie já foi apagado de vez; ele não pode ser restaurado por aqui." }, 409);
         delete r.apagadoEm; delete r.apagadoPor;
         r.atualizadoEm = agora(); r.atualizadoPor = por;
         await gravarUm(colecao, id, r);
@@ -574,9 +577,10 @@ Deno.serve(async (req) => {
 
       case "esvaziarLixeira": {
         const { data } = await db.from("bsq_registros").select("colecao, id, registro").eq("apagado", true);
-        let apagados = 0, arquivos = 0;
+        let apagados = 0, arquivos = 0, lapides = 0;
         for (const linha of (data || [])) {
           const o = linha.registro as any;
+          if (o?.lapide) continue;
           for (const idArq of arquivosDoRegistro(o)) {
             const meta = await lerUm("_arqmeta", idArq);
             const partes = (meta && meta.partes) || 1;
@@ -586,11 +590,13 @@ Deno.serve(async (req) => {
             await apagarDeVez("_arqmeta", idArq);
             arquivos++;
           }
+          // Espelho do Omie apagado por uma pessoa fica como lápide (ver lixeira.ts).
+          if (precisaLapide(linha.id, o)) { await gravarUm(linha.colecao, linha.id, lapideDe(o)); lapides++; continue; }
           await apagarDeVez(linha.colecao, linha.id);
           apagados++;
         }
-        await registrarLog({ acao: "esvaziou a lixeira", por, qtd: apagados, arquivos });
-        return json({ ok: true, apagados, arquivos });
+        await registrarLog({ acao: "esvaziou a lixeira", por, qtd: apagados, arquivos, lapides });
+        return json({ ok: true, apagados, arquivos, lapides });
       }
 
       case "reiniciarNumeracao": {

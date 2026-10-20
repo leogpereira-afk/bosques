@@ -1,6 +1,6 @@
 /* Service worker — casca offline. SUBA O NÚMERO a cada publicação, senão o
    navegador continua servindo o arquivo velho (lição paga mais de uma vez). */
-const CACHE = 'bsq-shell-v75';
+const CACHE = 'bsq-shell-v76';
 const ARQUIVOS = [
   './', 'index.html', 'styles.css', 'design.css', 'mapa-espelho.css', 'mapa-espelho.js', 'config.js', 'ui.js', 'store.js', 'carne.js', 'financeiro-core.js', 'financeiro.js', 'financeiro-gestao.js', 'financeiro-painel.js', 'financeiro-painel.css',
   'pdf.js', 'espelho.js', 'vendas.js', 'caixa.js', 'cadastros.js', 'cronograma.js', 'apresentacao.js', 'contratos.js', 'omie.js', 'app.js',
@@ -25,7 +25,9 @@ self.addEventListener('install', (e) => {
 
 self.addEventListener('activate', (e) => {
   e.waitUntil(
-    caches.keys().then((ks) => Promise.all(ks.filter((k) => k !== CACHE).map((k) => caches.delete(k))))
+    // Só as cascas antigas DESTE sistema: o github.io é um endereço só para
+    // todos os sistemas publicados, e apagar tudo derrubava o cache dos outros.
+    caches.keys().then((ks) => Promise.all(ks.filter((k) => k.startsWith('bsq-shell-') && k !== CACHE).map((k) => caches.delete(k))))
       .then(() => self.clients.claim())
   );
 });

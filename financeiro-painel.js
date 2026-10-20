@@ -4,7 +4,9 @@ const GESTAO_UI = (() => {
   const abas={visao:'Resumo',lancamentos:'Lançamentos',retiradas:'Retiradas',receber:'A receber',pagar:'A pagar',contas:'Contas',conferencias:'Conferências'};
   let acoes=[],ultimaFin=null,atualizando=false;
   const base=()=>FIN_GESTAO.montar(S.reg,hojeISO());
-  const estado=()=>TELAS._gestao||(TELAS._gestao={ano:hojeISO().slice(0,4),mes:'',conta:'',q:'',secao:'visao'});
+  // O ano é sempre de 4 dígitos: um atalho antigo (mes 'todos') gravava 'todo'
+  // e zerava Financeiro, Relatórios e Centro de custos até recarregar a página.
+  const estado=()=>{const f=TELAS._gestao||(TELAS._gestao={ano:hojeISO().slice(0,4),mes:'',conta:'',q:'',secao:'visao'});if(!/^\d{4}$/.test(f.ano||''))f.ano=hojeISO().slice(0,4);return f;};
   const periodo=f=>f.mes?nomesMes[Number(f.mes)-1]+' de '+f.ano:f.ano?'Ano '+f.ano:'Todo o histórico';
   const moeda=(v,tipo)=>'<span class="'+(tipo==='entrada'?'fin-entrada':tipo==='saida'?'fin-saida':v<0?'fin-saida':'fin-entrada')+'">'+fmt.brl(v)+'</span>';
   const data=d=>FIN_GESTAO.valida(d)?fmt.data(d):'Não informada';
@@ -28,11 +30,14 @@ const GESTAO_UI = (() => {
   async function atualizar(renderizar){
     if(atualizando)return;atualizando=true;const bot=document.querySelector('.gf-atualizar');if(bot){bot.disabled=true;bot.textContent='Atualizando…';}
     try{if(!navigator.onLine)throw new Error('Sem conexão. Os dados salvos continuam disponíveis.');
-      await apiOmie('referencias');
+      // Nomes de contas e categorias: se o Omie não responder, a releitura dos
+      // dados do servidor segue mesmo assim (antes o botão falhava inteiro).
+      const refs=await apiOmie('referencias',{},{prazoMs:20000}).catch(e=>({erro:e.message||'o Omie não respondeu'}));
       const limite=Date.now()+60000;
       while(typeof _puxando!=='undefined'&&_puxando){if(Date.now()>limite)throw new Error('A leitura em andamento ainda não terminou. Aguarde o indicador de atualização.');await new Promise(r=>setTimeout(r,250));}
       await puxar();if(S.erroSync)throw new Error(S.erroSync);
       renderizar();toast('Dados do servidor atualizados. A busca no Omie continua automática.');
+      if(refs.erro||refs.desatualizado)setTimeout(()=>toast('Nomes de contas e categorias do Omie: mantida a cópia anterior, porque o Omie não respondeu agora.','ruim'),3200);
     }catch(e){toast(e.message||'Não foi possível atualizar agora.','ruim');}
     finally{atualizando=false;const b=document.querySelector('.gf-atualizar');if(b){b.disabled=false;b.textContent='Atualizar dados';}}
   }
@@ -89,4 +94,4 @@ TELAS.relatorios=GESTAO_UI.relatorios;
 TELAS.centros=GESTAO_UI.centros;
 TELAS.cronograma=GESTAO_UI.centros;
 TELAS.caixa=()=>{TELAS._fin={aba:'visao',ano:TELAS._mesCaixa?.slice(0,4)||hojeISO().slice(0,4),mes:TELAS._mesCaixa?.slice(5)||''};GESTAO_UI.financeiro();};
-TELAS.lancamentos=()=>{const f=TELAS._fLanc||{};TELAS._fin={aba:f.tipo==='entrada'?'recebimentos':f.tipo==='saida'?'despesas':'lancamentos',ano:f.ano||f.mes?.slice(0,4)||hojeISO().slice(0,4),mes:/^\d{4}-\d{2}$/.test(f.mes||'')?f.mes.slice(5):'',q:f.q||''};GESTAO_UI.financeiro();};
+TELAS.lancamentos=()=>{const f=TELAS._fLanc||{};TELAS._fin={aba:f.tipo==='entrada'?'recebimentos':f.tipo==='saida'?'despesas':'lancamentos',ano:/^\d{4}$/.test(f.ano||'')?f.ano:/^\d{4}-\d{2}$/.test(f.mes||'')?f.mes.slice(0,4):hojeISO().slice(0,4),mes:/^\d{4}-\d{2}$/.test(f.mes||'')?f.mes.slice(5):'',q:f.q||''};GESTAO_UI.financeiro();};

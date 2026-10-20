@@ -117,3 +117,4 @@ body:is([data-tela=financeiro],[data-tela=relatorios],[data-tela=caixa],[data-te
 #rodape-lateral button:hover{background:var(--fundo)}
 }
 @media(min-width:861px) and (pointer:coarse){#menu a,#rodape-lateral button{min-height:44px}}
+#versao-nova{position:fixed;left:50%;transform:translateX(-50%);bottom:20px;z-index:80;display:flex;align-items:center;gap:12px;max-width:calc(100% - 32px);background:#1c4a2e;color:#fff;border-radius:30px;padding:8px 8px 8px 18px;font-size:13px;box-shadow:0 6px 20px #0003}#versao-nova .btn{background:#fff;color:#1c4a2e;border:0;min-height:36px;white-space:nowrap}@media(max-width:860px){#versao-nova{bottom:calc(84px + env(safe-area-inset-bottom))}}

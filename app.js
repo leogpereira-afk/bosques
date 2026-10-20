@@ -89,13 +89,17 @@ function renderTopo() {
 function atualizarBadge() {
   const el = document.getElementById('sync-badge');
   if (!el) return;
+  const quando = S.ultimoPull ? new Date(S.ultimoPull).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}) : '';
   if (S.erroCache) { el.className = 'erro'; el.textContent = '⚠ ' + S.erroCache; return; }
-  if (S.erroSync) { el.className = 'erro'; el.textContent = '⚠ ' + S.erroSync; return; }
-  el.className = '';
-  el.textContent = S.sincronizando ? 'sincronizando…'
+  // O erro não esconde de quando são os dados que continuam na tela.
+  if (S.erroSync) { el.className = 'erro'; el.textContent = '⚠ ' + S.erroSync + (quando ? ' · dados de ' + quando : ''); return; }
+  // Omie parado aparece em toda tela, não só no fim do Início (omie.js).
+  const omie = S.perfil !== 'corretor' && typeof S.omieAlerta === 'string' && S.omieAlerta ? ' · 🔴 ' + S.omieAlerta : '';
+  el.className = omie ? 'erro' : '';
+  el.textContent = (S.sincronizando ? 'sincronizando…'
     : S.fila.length ? S.fila.length + ' a enviar'
     : !S.online ? 'offline — salvando no aparelho'
-    : S.ultimoPull ? 'Dados neste aparelho: ' + new Date(S.ultimoPull).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}) : '';
+    : quando ? 'Dados neste aparelho: ' + quando : '') + omie;
 }
 
 let _renderPendente = false;
@@ -109,6 +113,9 @@ function render() {
   document.body.dataset.tela=nome;
   renderLateral();
   renderTopo();
+  // Versão visível no rodapé: dá para saber quem já está com a publicação nova.
+  const versao = document.getElementById('versao-app');
+  if (versao && window.VERSAO && !versao.textContent) versao.textContent = ' · v' + window.VERSAO;
   const rotas = rotasDoPerfil().concat(S.perfil==='corretor'?['lote']:['lote', 'venda', 'comissoes', 'simulacao', 'caixa', 'lancamentos', 'relatorios']);
   const tela = rotas.includes(nome) && TELAS[nome] ? TELAS[nome] : null;
   if (S.cacheCompleto === false) {
@@ -117,6 +124,7 @@ function render() {
   }
   if (tela) tela(id);
   else location.hash = '#/' + rotasDoPerfil()[0];
+  if (S.perfil !== 'corretor') vigiarSaudeOmie();
 }
 
 /* ── Login ─────────────────────────────────────────────────────────────────── */
@@ -474,6 +482,29 @@ function abrirAcesso(id) {
   });
 }
 
+/* ── Versão nova do app ────────────────────────────────────────────────────── */
+let _swRegistro = null, _swConferido = 0;
+function conferirVersaoNova() {
+  if (!_swRegistro || document.hidden || Date.now() - _swConferido < 15 * 60e3) return;
+  _swConferido = Date.now();
+  _swRegistro.update().catch(() => {});
+}
+function avisarVersaoNova() {
+  if (document.getElementById('versao-nova')) return;
+  const aviso = document.createElement('div');
+  aviso.id = 'versao-nova'; aviso.setAttribute('role', 'status');
+  aviso.innerHTML = '<span>Há uma versão nova do sistema.</span><button type="button" class="btn">Atualizar agora</button>';
+  aviso.querySelector('button').onclick = () => location.reload();
+  document.body.appendChild(aviso);
+}
+document.addEventListener('visibilitychange', conferirVersaoNova);
+// Versão nova publicada: a casca nova assume em segundo plano, mas esta tela
+// continuaria rodando a antiga até fechar o app (no iPhone instalado, por dias).
+// O ouvinte entra já ao carregar o arquivo, antes de qualquer espera: a troca
+// pode acontecer enquanto o app ainda lê a base do aparelho.
+const _tinhaControleSW = !!(navigator.serviceWorker && navigator.serviceWorker.controller);
+if (navigator.serviceWorker) navigator.serviceWorker.addEventListener('controllerchange', () => { if (_tinhaControleSW) avisarVersaoNova(); });
+
 /* ── Eventos e partida ─────────────────────────────────────────────────────── */
 document.addEventListener('bsq:status', () => { atualizarBadge(); if(S.senhaHash && S.cacheCompleto===false && !S.sincronizando) render(); });
 document.addEventListener('bsq:dados', () => {
@@ -509,7 +540,9 @@ window.addEventListener('hashchange', e=>{
 (async function iniciar() {
   lerCache();
   await carregarCacheCompleto();
-  if ('serviceWorker' in navigator) { navigator.serviceWorker.register('sw.js').catch(() => {}); }
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('sw.js').then((reg) => { _swRegistro = reg; }).catch(() => {});
+  }
   render();
   if (S.senhaHash) { puxarSeNecessario(); talvezSincronizarOmie(); }
 })();
