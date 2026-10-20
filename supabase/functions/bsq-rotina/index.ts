@@ -15,6 +15,7 @@ import { json } from "../_shared/cors.ts";
 import { NOMES_COLECOES } from "../_shared/colecoes.ts";
 import { cfgSemSegredo } from "../_shared/acesso.ts";
 import { arquivosDoRegistro } from "../_shared/arquivos.ts";
+import { lapideDe, precisaLapide } from "../_shared/lixeira.ts";
 import {
   db,
   agora,
@@ -25,6 +26,7 @@ import {
   gravarBackup,
   apagarArquivo,
   apagarDeVez,
+  gravarUm,
   registrarLog,
   lerColecaoBruta,
   lerApagados,
@@ -94,10 +96,10 @@ Deno.serve(async (req) => {
     // Coleta TUDO antes de apagar: paginar por offset enquanto se apaga da
     // mesma tabela pularia linhas (o conjunto encolhe sob o cursor).
     const data = await lerApagados();
-    let apagados = 0;
+    let apagados = 0, lapides = 0;
     for (const linha of data) {
       const o = linha.registro as any;
-      if (!o.apagadoEm || o.apagadoEm >= limite) continue;
+      if (!o.apagadoEm || o.apagadoEm >= limite || o.lapide) continue;
       for (const idArq of arquivosDoRegistro(o)) {
         const meta = await lerUm(META, idArq);
         const chaves: string[] = [];
@@ -105,10 +107,13 @@ Deno.serve(async (req) => {
         await apagarArquivo(chaves);
         await apagarDeVez(META, idArq);
       }
+      // Espelho do Omie apagado por uma pessoa fica como lápide (ver lixeira.ts).
+      if (precisaLapide(linha.id, o)) { await gravarUm(linha.colecao, linha.id, lapideDe(o)); lapides++; continue; }
       await apagarDeVez(linha.colecao, linha.id);
       apagados++;
     }
     resultado.lixeiraApagada = apagados;
+    if (lapides) resultado.lapides = lapides;
   } catch (e) { resultado.erroLixeira = (e as Error)?.message || String(e); }
 
   // 5. Arquivos órfãos: metadados que nenhum registro usa mais (upload

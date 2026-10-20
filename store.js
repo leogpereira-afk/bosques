@@ -60,11 +60,15 @@ async function api(action, dados = {}, opts = {}) {
   const headers = { 'Content-Type': 'application/json', 'x-token': TOKEN };
   if (S.senhaHash && !opts.publico) headers['x-senha'] = S.senhaHash;
   if (S.quem) headers['x-quem'] = encodeURIComponent(S.quem);
-  // Prazo máximo: no 4G do canteiro a conexão "pendura" (fica aberta sem
-  // resposta) e sem isso a promessa nunca voltava — travando a tela atrás dela.
+  // Prazo máximo, valendo também para BAIXAR a resposta: no 4G do canteiro a
+  // conexão "pendura" (fica aberta sem resposta, às vezes no meio do download)
+  // e sem isso a promessa nunca voltava — travando a tela atrás dela.
+  // Download lento que continua chegando não é cortado: durante a leitura da
+  // resposta o prazo vira de silêncio (30 s sem receber nada).
   const ctrl = new AbortController();
-  const prazo = setTimeout(() => ctrl.abort(), opts.prazoMs || 60000);
-  let r;
+  let prazo = setTimeout(() => ctrl.abort(), opts.prazoMs || 60000);
+  const vigiar = () => { clearTimeout(prazo); prazo = setTimeout(() => ctrl.abort(), opts.silencioMs || PRAZO_SILENCIO_MS); };
+  let r, j = null, corpoInvalido = false;
   try {
     r = await fetch(opts.url || API, {
       method: 'POST',
@@ -72,21 +76,46 @@ async function api(action, dados = {}, opts = {}) {
       body: JSON.stringify(Object.assign({ action }, dados)),
       signal: ctrl.signal
     });
+    vigiar();
+    try { j = await lerJson(r, vigiar); } catch (e) { if (ctrl.signal.aborted) throw e; corpoInvalido = true; }
   } catch (e) {
+    throw erroDeRede(e);
+  } finally {
     clearTimeout(prazo);
-    throw (e && e.name === 'AbortError') ? new Error('A internet demorou demais para responder') : e;
   }
-  clearTimeout(prazo);
-  let j = null;
-  try { j = await r.json(); } catch { j = null; }
   if (!r.ok) {
-    const e = new Error((j && (j.error || j.message)) || ('Erro ' + r.status));
+    const e = new Error((j && (j.error || j.message)) ||
+      (r.status >= 500 ? 'O servidor não conseguiu responder (erro ' + r.status + ')' : 'Erro ' + r.status));
     e.status = r.status;
     e.semSenha = !!(j && j.semSenha);
     e.semPermissao = !!(j && j.semPermissao);
     throw e;
   }
+  if (corpoInvalido) throw new Error('A resposta do servidor chegou incompleta. Tente de novo.');
   return j;
+}
+
+const PRAZO_SILENCIO_MS = 30000;
+// Lê o JSON aos pedaços, avisando a cada pedaço que chegou (renova o prazo).
+async function lerJson(r, aoReceber) {
+  if (!r.body || typeof r.body.getReader !== 'function' || typeof TextDecoder === 'undefined') return r.json();
+  const leitor = r.body.getReader(), dec = new TextDecoder();
+  let texto = '';
+  for (;;) {
+    const { done, value } = await leitor.read();
+    if (done) break;
+    aoReceber();
+    texto += dec.decode(value, { stream: true });
+  }
+  return JSON.parse(texto + dec.decode());
+}
+
+// O navegador fala inglês ("Failed to fetch"; no iPhone, "Load failed").
+function erroDeRede(e) {
+  const marcar = (msg) => Object.assign(new Error(msg), { rede: true });
+  if (e && e.name === 'AbortError') return marcar('O servidor demorou demais para responder');
+  if (/failed to fetch|load failed|networkerror|network request failed|network connection|internet connection/i.test((e && e.message) || '')) return marcar('Sem conexão com o servidor');
+  return e;
 }
 
 const apiArq = (action, dados = {}, opts = {}) => api(action, dados, Object.assign({ url: API_ARQ }, opts));
@@ -334,7 +363,8 @@ async function puxar() {
   try {
     await subirFila();
     const sessao=S.senhaHash;
-    const r = await api('snapshot');
+    // A base inteira vem numa resposta só: prazo maior que o das ações comuns.
+    const r = await api('snapshot', {}, { prazoMs: 120000 });
     if (!sessao || sessao!==S.senhaHash) return;
     const novo = regVazio();
     for (const reg of (r.registros || [])) {
