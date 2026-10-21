@@ -165,14 +165,22 @@ function compactoExtrato(cc:any,ex:any,de:string,ate:string) {
   if(String(ex.nCodCC)!==String(cc.nCodCC))throw new Error("Extrato pertence a outra conta; leitura recusada.");
   if(dataSaldo(ex.dPeriodoInicial)!==de||dataSaldo(ex.dPeriodoFinal)!==ate)throw new Error("Período do extrato não corresponde ao solicitado.");
   const valores:Record<string,number|null>={};for(const k of ["nSaldoAnterior","nSaldoAnteriorPrevisto","nSaldoAtual","nSaldoAtualPrevisto","nSaldoConciliado","nSaldoProvisorio","nLimiteCreditoTotal","nSaldoDisponivel"])valores[k]=numeroSaldo(ex[k]);
-  const linhas=Array.isArray(ex.listaMovimentos)?ex.listaMovimentos:null;
+  const recebidas=Array.isArray(ex.listaMovimentos)?ex.listaMovimentos:null;
+  // O Omie inclui a abertura como primeira linha sintética no dia anterior.
+  // Só descartá-la dos movimentos quando valor, situação e saldo a identificam.
+  const primeira=recebidas?.[0],diaAnterior=new Date(Date.parse(de+"T12:00Z")-86400000).toISOString().slice(0,10);
+  const aberturaNoExtrato=!!primeira&&numeroSaldo(primeira.nCodLancamento)===1&&dataSaldo(primeira.dDataLancamento)===diaAnterior&&
+    numeroSaldo(primeira.nValorDocumento)===0&&!String(primeira.cSituacao||"").trim()&&!String(primeira.cNatureza||"").trim()&&
+    valores.nSaldoAnterior!==null&&numeroSaldo(primeira.nSaldo)!==null&&centavos(primeira.nSaldo)===centavos(valores.nSaldoAnterior);
+  const linhas=aberturaNoExtrato?recebidas.slice(1):recebidas;
   const datasValidas=linhas!==null&&linhas.every((m:any)=>dataSaldoValida(dataSaldo(m.dDataLancamento))&&dataSaldo(m.dDataLancamento)>=de&&dataSaldo(m.dDataLancamento)<=ate);
   const ordenadas=datasValidas?[...linhas!].sort((a,b)=>dataSaldo(a.dDataLancamento).localeCompare(dataSaldo(b.dDataLancamento))):[];
   const saldoFinal=datasValidas?(ordenadas.length?numeroSaldo(ordenadas.at(-1).nSaldo):valores.nSaldoAnterior):null;
   return {schema:2,conta:String(cc.nCodCC),nome:cc.descricao||ex.cDescricao||"Conta Omie "+cc.nCodCC,tipo:cc.tipo_conta_corrente||cc.tipo||ex.cCodTipo||"",de,ate,quando:agora(),
     saldoInicial:valores.nSaldoAnterior,saldoFinalExtrato:saldoFinal,completo:datasValidas&&saldoFinal!==null&&valores.nSaldoAnterior!==null,
     criterio:"nSaldoAnterior e último nSaldo do extrato do período; comparar com movimentos importados",valores,
-    movimentos:linhas?.length??null,fluxo:ex.cFluxoCaixa!=="N"&&cc.nao_fluxo!=="S",inativa:cc.inativo==="S",
+    diagnostico:{listaPresente:linhas!==null,datasValidas,aberturaInformada:valores.nSaldoAnterior!==null,fechamentoInformado:saldoFinal!==null},
+    movimentos:linhas?.length??null,aberturaNoExtrato,fluxo:ex.cFluxoCaixa!=="N"&&cc.nao_fluxo!=="S",inativa:cc.inativo==="S",
     // Evidência mínima para conferir o fechamento; sem CPF, banco/agência ou texto livre.
     trilha:datasValidas?ordenadas.map(m=>({id:String(m.nCodLancamento||""),data:dataSaldo(m.dDataLancamento),saldo:numeroSaldo(m.nSaldo),bloqueado:m.cBloqueado==="S",conciliacao:dataSaldo(m.dDataConciliacao)})):[]};
 }
@@ -933,10 +941,11 @@ Deno.serve(async (req) => {
           for(const cc of cadastros){
             const c:any={id:String(cc.nCodCC),nome:cc.descricao||"Conta Omie "+cc.nCodCC,tipo:cc.tipo_conta_corrente||cc.tipo||"",inativa:cc.inativo==="S",fluxo:cc.nao_fluxo!=="S",saldo:null,saldoRealizado:null};
             if(!c.inativa)try {
-              const ex=await omie("financas/extrato","ListarExtrato",{nCodCC:cc.nCodCC,dPeriodoInicial:br,dPeriodoFinal:br},signal);
+              const ex=await omie("financas/extrato","ListarExtrato",{nCodCC:cc.nCodCC,dPeriodoInicial:br,dPeriodoFinal:br,cExibirApenasSaldo:"S"},signal);
               const e=compactoExtrato(cc,ex,dataBase,dataBase);
-              Object.assign(c,{fluxo:e.fluxo,saldo:e.saldoFinalExtrato,saldoRealizado:e.completo?e.saldoFinalExtrato:null,valores:e.valores,criterio:e.criterio,quando:e.quando});
-              if(!e.completo)c.erro="Extrato sem base completa para confirmar o saldo realizado.";
+              const saldoHoje=e.valores.nSaldoAtual;
+              Object.assign(c,{fluxo:e.fluxo,saldo:saldoHoje,saldoRealizado:saldoHoje,valores:e.valores,criterio:"nSaldoAtual · posição realizada de hoje informada pelo Omie; não é fechamento histórico",quando:e.quando});
+              if(saldoHoje===null)c.erro="O Omie não retornou o saldo atual realizado desta conta.";
             }catch(e){c.erro=String((e as Error).message||e);}
             contas.push(c);
           }
@@ -953,11 +962,15 @@ Deno.serve(async (req) => {
         const chave="omie_extrato_atual:"+conta+":"+de+":"+ate,anterior=await lerMeta(chave);
         if(!body.forcar&&anterior?.quando&&Date.now()-Date.parse(anterior.quando)<86400e3)return json({ok:true,...anterior,cache:true});
         try{
-          const cc=await omie("geral/contacorrente","ConsultarContaCorrente",{nCodCC:Number(conta)});
+          // Os meses consultados compartilham o mesmo cadastro. Reutilizar por até
+          // 30 minutos a consulta completa evita o bloqueio REDUNDANT do Omie.
+          const cadastro=await lerMeta("omie_saldos");
+          const conhecida=cadastro?.schema===2&&!cadastro.parcial&&Date.now()-Date.parse(cadastro.quando)<30*60e3?cadastro.contas?.find((c:any)=>String(c.id)===conta):null;
+          const cc=conhecida?{nCodCC:Number(conta),descricao:conhecida.nome,tipo_conta_corrente:conhecida.tipo,inativo:conhecida.inativa?"S":"N",nao_fluxo:conhecida.fluxo?"N":"S"}:await omie("geral/contacorrente","ConsultarContaCorrente",{nCodCC:Number(conta)});
           if(String(cc.nCodCC)!==conta)throw new Error("Conta não confirmada no Omie.");
-          const ex=await omie("financas/extrato","ListarExtrato",{nCodCC:Number(conta),dPeriodoInicial:isoParaBR(de),dPeriodoFinal:isoParaBR(ate)});
+          const ex=await omie("financas/extrato","ListarExtrato",{nCodCC:Number(conta),dPeriodoInicial:isoParaBR(de),dPeriodoFinal:isoParaBR(ate),cExibirApenasSaldo:"N"});
           const r=compactoExtrato(cc,ex,de,ate);
-          if(!r.completo)throw new Error("O extrato não retornou saldo anterior, fechamento e datas consistentes. Última leitura preservada.");
+          if(!r.completo)throw new Error("Extrato incompleto: "+(!r.diagnostico.listaPresente?"lista de movimentos ausente":!r.diagnostico.datasValidas?"datas dos movimentos inconsistentes":!r.diagnostico.aberturaInformada?"saldo anterior ausente":"saldo final dos movimentos ausente")+". Última leitura preservada.");
           await gravarMeta("omie_extrato_evidencia:"+conta+":"+de+":"+ate+":"+r.quando,r);
           await gravarMeta(chave,r);
           return json({ok:true,...r});

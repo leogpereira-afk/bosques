@@ -1,7 +1,8 @@
 # Financeiro: caixa, fluxo e carteira
 
-Implementação local para revisão. Não publicada. A demonstração usa somente
-dados fictícios e não consulta nem altera registros de produção.
+Interface v81 publicada e conferida em 21/10/2026. A função bsq-omie foi
+publicada antes da tela e ajustada após confronto autenticado com o Omie.
+A demonstração local continua isolada, somente com dados fictícios.
 
 ## Organização
 
@@ -21,13 +22,18 @@ dados fictícios e não consulta nem altera registros de produção.
 3. Carteira usa o saldo aberto atual dos títulos no Omie, pela data de vencimento.
    A opção Todos os anos inclui todos os vencimentos importados e identifica itens
    sem data. Não recompõe a carteira histórica de um encerramento passado.
-4. Caixa atual exige o contrato de saldos v2 completo e recente. No consolidado,
+4. Caixa atual exige o contrato de saldos v2 completo e recente e usa o campo
+   nSaldoAtual, posição realizada disponível hoje informada pelo Omie. Ausência
+   desse campo não é substituída silenciosamente pelo saldo de outro período. No consolidado,
    entram contas ativas participantes do fluxo dos tipos CC, CX, CP, CV e PG.
    Aplicações e limites não são adicionados automaticamente ao dinheiro de caixa.
    O filtro de uma conta permite consultar sua posição individual explicitamente.
 5. Extrato por conta/período preserva os campos da origem. O fechamento do período
    usa o último nSaldo por data do extrato; sem movimentos, usa nSaldoAnterior.
-   nSaldoAtual não é utilizado como fechamento de um mês passado.
+   nSaldoAtual não é utilizado como fechamento de um mês passado. A primeira
+   linha sintética de abertura, datada no dia anterior, só é reconhecida quando
+   seu identificador, valor zero, situação, natureza e saldo correspondem à abertura.
+   Outras datas fora do período continuam impedindo a confirmação.
 6. Histórico só recebe "Conferido com extrato" quando abertura mais movimentos e
    transferências corresponde ao fechamento de cada conta incluída. Sem base,
    mostra os movimentos conhecidos e o saldo não comprovado. O resumo anual também
@@ -63,7 +69,7 @@ sincronização, consulta do saldo e cobertura dos movimentos.
 ## Verificação local em 21/10/2026
 
 - 23 testes de cálculo, horizonte, carteira, transferências e comparativos.
-- 13 testes de contratos do servidor, paginação, permissões e cache histórico.
+- 19 testes de contratos do servidor, paginação, permissões e cache histórico.
 - 6 testes do cache de saldos, incluindo falha e armazenamento cheio.
 - Navegação das oito áreas em 1440, 1024, 390 e 320 px, sem transbordamento da página.
 - Detalhes, filtros, carteira até o último vencimento, lacunas de extrato, atualização,
@@ -74,17 +80,33 @@ sincronização, consulta do saldo e cobertura dos movimentos.
 - Nenhum erro JavaScript ou requisição externa no teste de navegação da prévia.
 - Revisão visual dos gráficos, cards, versão móvel e PDFs.
 
-## Pendências para uma publicação autorizada
+## Conferência da publicação em 21/10/2026
 
-1. Publicar primeiro a função bsq-omie com o contrato v2, preservando o controle
-   existente de autenticação, antes da interface que o utiliza.
-2. Fazer consulta somente leitura e confrontar conta/data/abertura/fechamento com
-   o extrato real no Omie. Conferir contas incluídas/excluídas e os campos de saldo.
-   As respostas simuladas usadas nos testes não substituem essa conferência.
-3. Confirmar cobertura das saídas futuras, comissões e planejamento. Não incluir
-   obrigações locais na projeção sem classificação e vínculo que evite duplicidade.
-4. Após os contratos e valores reais conferidos, preparar versão dos assets/cache,
-   publicar a interface e conferir produção autenticada, celular e exportações.
+- Deploy da interface v81 concluído; arquivos servidos conferidos com o código local.
+- Consulta real dos saldos atuais e dos extratos mensais por conta realizada pelo
+  acesso autorizado, sem alteração dos lançamentos, títulos ou contratos no Omie.
+- Abertura, movimentos e fechamento comparados por conta e mês, também com uma
+  apuração independente no banco. Diferenças reais permanecem sinalizadas; o
+  sistema não cria ajustes artificiais nem elimina registros históricos para fechar.
+- Fluxo futuro e carteira confrontados com os títulos abertos e datas correspondentes.
+- A posição realizada e a posição conciliada do ERP são exibidas separadamente.
+  Conferência com o ERP não comprova conciliação com o extrato bancário externo.
+- Nome da conta não determina atividade: inclusão segue os campos do cadastro e
+  do fluxo do Omie, inclusive quando o nome contém a palavra “Inativa”.
+- O cadastro completo de contas é reutilizado por até 30 minutos na leitura mensal,
+  evitando consultas redundantes bloqueadas pela origem. Cada extrato mantém sua
+  própria referência de conta, período e evidência de consulta.
+
+## Limitações que permanecem visíveis
+
+- Existem diferenças históricas entre extrato e importação. Os detalhes por mês
+  mostram a conta, abertura, fechamento e diferença a conferir. A apuração real e
+  seus valores estão em relatório privado, fora do repositório público.
+- Ausência de contas a pagar abertas não comprova ausência de custos futuros.
+  A projeção mantém aviso de cobertura parcial; custos, comissões e planejamento
+  local não são somados sem classificação e vínculo que impeça duplicidade.
+- Conta com rótulo de inatividade e cadastro ativo deve ser revisada no ERP pelo
+  responsável; a integração não muda o cadastro nem exclui saldo pelo nome.
 
 Referências da integração:
 
