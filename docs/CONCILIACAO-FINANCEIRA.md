@@ -16,7 +16,8 @@ bancários usados nos relatórios.
    - Pendente: confirma o contrato, mantendo a conferência financeira aberta.
 4. Informar motivo/documento e confirmar. “Salvar e próximo” mantém o filtro.
 
-Uma parcela pode aparecer em duas filas. Quantidades não devem ser somadas como
+O filtro “Valor / vencimento” inclui também diferenças em títulos cujo vínculo
+ainda está incerto. Uma parcela pode aparecer em duas filas. Quantidades não devem ser somadas como
 dívida. Recebimentos manuais sem distribuição continuam pendentes mesmo após
 identificar o contrato. A distribuição usa o editor existente; contratos sem
 espelho de parcelas precisam ter o plano conferido na venda.
@@ -51,8 +52,10 @@ Os testes de servidor usam PostgreSQL isolado (PGlite), sem dados reais.
 Antes de publicar: aplicar as duas migrações da conciliação, publicar
 `bsq-omie`, aguardar o encerramento das invocações da versão anterior, publicar
 `bsq-nucleo`, verificar as respostas autenticadas e só então disponibilizar a
-interface v79. Confirmar a execução de um ciclo Omie. Não
+interface v80. Confirmar a execução de um ciclo Omie. Não
 executar uma associação real como teste de implantação.
 
-As migrações e a interface foram preparadas para revisão. A implantação e as
-decisões sobre cada registro real são etapas distintas.
+Publicação autorizada em 21/10/2026: migrações aplicadas e serviços `bsq-omie` e
+`bsq-nucleo` na versão 91. A sincronização automática foi conferida após a
+implantação. Nenhuma associação real foi executada na validação; as decisões
+sobre cada registro permanecem a cargo da gestão.

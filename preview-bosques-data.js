@@ -1,7 +1,7 @@
 /* Prévia local com dados fictícios. Não contém credenciais nem chama o servidor. */
 if(!['127.0.0.1','localhost'].includes(location.hostname))throw new Error('Prévia disponível somente em servidor local.');
 window.BOSQUES_PREVIA=true;window.FINANCEIRO_EM_VALIDACAO=true;
-window.VERSAO='79 · prévia';
+window.VERSAO='80 · prévia';
 const dataDemo=(meses,dia=10)=>{const d=new Date();d.setDate(1);d.setMonth(d.getMonth()+meses);d.setDate(dia);return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(dia).padStart(2,'0');};
 const criadoDemo=new Date().toISOString();
 const configDemo={empresa:{nome:'Associação Campestre Portal dos Bosques',cidade:'Montes Claros',uf:'MG'},formasPg:['PIX','Boleto','Transferência','Dinheiro'],categoriasDespesa:['Obra','Administrativo','Comissão','Marketing'],categoriasReceita:['Venda de lotes','Outras receitas'],centrosCusto:['Infraestrutura','Comercial','Administração'],reajuste:{pct:6,aCada:12},tabela:{m2:40},omie:{ativo:true},usuarios:[],espelho:{exibirReservados:true}};
