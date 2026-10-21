@@ -6,7 +6,7 @@ const mem=new Map([['outro_sistema','preservar']]);
 const localStorage={getItem:k=>mem.get(k)||null,setItem:(k,v)=>mem.set(k,String(v)),removeItem:k=>mem.delete(k),clear:()=>mem.clear(),get length(){return mem.size},key:i=>[...mem.keys()][i]};
 let recarregou=0;const window={addEventListener(){},scrollTo(){},matchMedia:()=>({matches:false})};
 const ctx=vm.createContext({window,document,localStorage,navigator:{onLine:false},location:{hash:'#/home',reload(){recarregou++}},console,URL,Blob,TextEncoder,TextDecoder,CustomEvent:document.defaultView.CustomEvent,Event:document.defaultView.Event,setTimeout:()=>0,clearTimeout(){},setInterval:()=>0,clearInterval(){},fetch:async()=>{throw Error('Teste não deve acessar rede')},crypto:require('node:crypto').webcrypto,Intl});
-for(const f of ['config.js','ui.js','mapa-espelho.js','store.js','carne.js','financeiro-core.js','pdf.js','espelho.js','vendas.js','caixa.js','cadastros.js','cronograma.js','omie.js','financeiro.js','financeiro-gestao.js','financeiro-painel.js','contratos.js','apresentacao.js','app.js']){let s=fs.readFileSync(f,'utf8');if(f==='app.js')s=s.slice(0,s.indexOf('(async function iniciar()'));vm.runInContext(s,ctx,{filename:f});}
+for(const f of ['config.js','ui.js','mapa-espelho.js','store.js','carne.js','financeiro-core.js','pdf.js','espelho.js','vendas.js','caixa.js','cadastros.js','cronograma.js','omie.js','financeiro.js','financeiro-gestao.js','conciliacao.js','financeiro-painel.js','contratos.js','apresentacao.js','app.js']){let s=fs.readFileSync(f,'utf8');if(f==='app.js')s=s.slice(0,s.indexOf('(async function iniciar()'));vm.runInContext(s,ctx,{filename:f});}
 const run=s=>vm.runInContext(s,ctx);
 const arquivos=vm.runInNewContext(fs.readFileSync('sw.js','utf8')+';ARQUIVOS',{self:{addEventListener(){}}});assert.ok(arquivos.includes('modernizacao.css'));for(const nome of fs.readdirSync('icons/3d'))assert.ok(arquivos.includes('icons/3d/'+nome),'Ícone deve estar disponível no cache offline');for(const arquivo of arquivos)assert.ok(fs.existsSync(arquivo),'Asset do cache ausente: '+arquivo);
 run("S.cfg={formasPg:['PIX'],categoriasDespesa:[],categoriasReceita:[]};S.senhaHash='teste';S.perfil='direcao';S.quem='Equipe teste';S.cacheCompleto=true;S.reg=regVazio();S.reg.lote=[{id:'l1',quadra:1,lote:1,status:'Disponível',areaM2:250}];statusOmieHome=()=>{};vigiarSaudeOmie=()=>{};");
@@ -15,6 +15,14 @@ assert.ok(document.querySelector('.home-hero'),'Entrada deve orientar o próximo
 assert.equal(document.querySelectorAll('.home-atalho').length,4,'Atalhos principais disponíveis');
 assert.ok(document.querySelector('#menu img.icone-3d'),'Ícones 3D no menu');
 assert.ok([...document.querySelectorAll('.home-atalho')].every(e=>e.tagName==='A'&&e.getAttribute('href')),'Atalhos navegam semanticamente');
+// A navegação financeira ativa usa a conciliação nova, sem ocultar histórico
+// com o filtro anual do resumo, e preserva as consultas anteriores recolhidas.
+run("api=async()=>({ok:true,sync:{pendencias:[]}});TELAS._gestao={ano:'2026',mes:'',conta:'',q:'',secao:'conferencias'};TELAS.financeiro()");
+await new Promise(setImmediate);
+assert.ok(document.querySelector('#bsq-conciliacao .cq-filas'),'Conciliação deve estar na navegação ativa, não apenas na tela legada');
+assert.equal(document.querySelector('#gf-ano'),null,'Filas históricas usam período próprio');
+assert.equal(document.querySelectorAll('[data-cq-grupo]').length,3);
+assert.ok([...document.querySelectorAll('summary')].some(x=>x.textContent.includes('outras verificações')),'Consultas existentes permanecem acessíveis');
 // Um registro clicável deve abrir também por teclado.
 document.querySelector('#app').innerHTML='<div class="lin" data-id="registro-exemplo">Abrir registro</div>';
 let abriu=0;const linha=document.querySelector('[data-id]');linha.onclick=()=>abriu++;

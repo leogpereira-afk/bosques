@@ -463,6 +463,26 @@ Deno.serve(async (req) => {
         const novo={...t,centroCusto:txt(body.centroCusto,100),ajustes:ajuste,editadoAMao:true,atualizadoEm:agora(),historico:[...(t.historico||[]),{id:idNovo(),em:agora(),por,acao:"corrigiu título localmente",antes:{ajustes:t.ajustes,centroCusto:t.centroCusto},depois:{ajustes:ajuste,centroCusto:body.centroCusto},motivo:body.motivo}]};
         await gravarUm("titulo",t.id,novo);await marcarMudanca("titulo");return json({ok:true});
       }
+      case "conciliarFinanceiro": {
+        if (!["direcao", "escritorio"].includes(perfilDe(quem))) return json({ error: "Sem permissão" }, 403);
+        const { data, error } = await db.rpc("bsq_conciliar_financeiro", {
+          p_tipo: txt(body.tipo, 30), p_id: txt(body.id, 100),
+          p_destino: txt(body.destino, 100), p_politica: txt(body.politica, 20),
+          p_decisao: txt(body.decisao, 20), p_manual: txt(body.manual, 100),
+          p_motivo: txt(body.motivo, 300), p_por: por,
+          p_operacao: txt(body.operacao, 100), p_esperado: body.esperado ?? null,
+        });
+        if (error) return json({ error: error.message, conflito: error.code === "40001" }, error.code === "40001" ? 409 : 400);
+        if (data?.ok !== true) return json({ error: "O banco não confirmou a conciliação. Tente novamente com os mesmos dados." }, 502);
+        const colecoes = (data?.colecoes || []).filter((c: string) => ["venda", "rec", "titulo", "cx"].includes(c));
+        await marcarMudanca(colecoes);
+        if (!data?.repetida) await registrarLog({ acao: "conciliou financeiro", por, tipo: body.tipo, id: body.id, operacao: body.operacao });
+        const mensagem = data?.repetida ? "Esta conferência já estava registrada. Dados atualizados." :
+          body.tipo === "titulo" && body.politica === "pendente" ? "Contrato vinculado. Valor e vencimento continuam em conferência." :
+          body.tipo === "recebimento" ? "Contrato vinculado. Confira a distribuição do recebimento nas parcelas." :
+          body.tipo === "duplicidade" ? "Decisão da duplicidade registrada com histórico." : "Conferência registrada com histórico.";
+        return json({ ...data, mensagem });
+      }
       case "vincularRecebimento": {
         if(!["direcao","escritorio"].includes(perfilDe(quem)))return json({error:"Sem permissão"},403);
         const r=await lerUm("rec",txt(body.id,100)),v=await lerUm("venda",txt(body.vendaId,100));

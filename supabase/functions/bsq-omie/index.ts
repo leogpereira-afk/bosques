@@ -11,7 +11,7 @@
 
 import { json, preflight } from "../_shared/cors.ts";
 import {
-  agora, db, lerUm, gravarUm, gravarCfg, gravarVarios, guardarIndiceNumero, lerCfgBruta,
+  agora, db, lerUm, gravarCfg, guardarIndiceNumero, lerCfgBruta,
   lerCampos, lerColecaoBruta, lerPorIds, marcarMudanca, proximoNumero, registrarLog,
 } from "../_shared/dados.ts";
 import { identificar, perfilDe, type Quem } from "../_shared/acesso.ts";
@@ -337,6 +337,13 @@ Deno.serve(async (req) => {
           janela.dDtAltDe = isoParaBR(de.toISOString());
         }
 
+        // Captura ANTES de ler os registros. A aplicação inteira da página
+        // será recusada se uma conciliação mudar esta revisão durante a rede.
+        const { data: revisaoFinanceira, error: erroRevisao } = await db.rpc("bsq_financeiro_revisao");
+        if (erroRevisao || !((typeof revisaoFinanceira === "number" && Number.isSafeInteger(revisaoFinanceira) && revisaoFinanceira >= 0) ||
+            (typeof revisaoFinanceira === "string" && /^\d+$/.test(revisaoFinanceira)))) {
+          throw new Error("Revisão financeira indisponível. A sincronização não gravou esta página");
+        }
         // Estado local, uma leitura por chamada.
         // lerColecaoBruta devolve linhas { id, registro } — aqui só o registro importa.
         const [vendas, clientesLocais, corretores, recs, cxs] = (await Promise.all([
@@ -792,7 +799,7 @@ Deno.serve(async (req) => {
             .sort((x, y) => String(x.venc || "").localeCompare(String(y.venc || "")));
           venda.parcelas = novas;
           venda.atualizadoEm = agora();
-          await gravarUm("venda", vId, venda);
+          gravar.push({ colecao: "venda", id: vId, registro: venda });
           soma("vendasEspelhadas");
         }
         // Entrega o pagamento (ou o cancelamento) à parcela travada que mora
@@ -810,15 +817,19 @@ Deno.serve(async (req) => {
           }
           if (!mudou) continue;
           venda.atualizadoEm = agora();
-          await gravarUm("venda", vendaId, venda);
+          gravar.push({ colecao: "venda", id: vendaId, registro: venda });
           soma("pagamentosEmParcelaMovida");
         }
-        if (titulosPorVenda.size) await marcarMudanca("venda");
-
-        if (gravar.length) {
-          await gravarVarios(gravar);
-          await marcarMudanca([...new Set(gravar.map((g) => g.colecao))]);
+        // CAS e upserts no servidor são uma única transação, inclusive as
+        // vendas acima. Checar a revisão e depois fazer upserts REST separados
+        // ainda permitiria ao snapshot antigo desfazer uma decisão humana.
+        const { data: aplicacao, error: erroAplicacao } = await db.rpc("bsq_omie_aplicar_pagina", {
+          p_revisao: revisaoFinanceira, p_itens: gravar,
+        });
+        if (erroAplicacao || aplicacao?.ok !== true) {
+          throw new Error(erroAplicacao?.message || "Não foi possível confirmar a página financeira. Uma nova leitura é necessária");
         }
+        if (gravar.length) await marcarMudanca([...new Set(gravar.map((g) => g.colecao))]);
 
         const terminou = pagina === 0;
         const pendAntes: any[] = (body.pagina && body.pagina > 1 && meta?.pendenciasParciais) || [];

@@ -11,7 +11,7 @@ function ambiente(responder, anteriores=[]) {
   const dados={agora:()=>new Date().toISOString(),lerCfgBruta:async()=>({omie:{corteEntradas:'2025-01-01'}}),lerColecaoBruta:async()=>[],lerCampos:async()=>[],lerPorIds:async()=>new Map(),
     lerUm:async()=>null,gravarUm:async(c,id,r)=>registros.set(c+'|'+id,clone(r)),gravarVarios:async xs=>{for(const x of xs)registros.set(x.colecao+'|'+x.id,clone(x.registro));},
     marcarMudanca:async()=>{},registrarLog:async()=>{},guardarIndiceNumero:async()=>{},proximoNumero:async()=>1,
-    db:{rpc:async(n,p)=>{if(n==='bsq_omie_reservar')return{data:{adquirido:true,inicio:new Date().toISOString(),pagina:1,parcial:{},completa:false,lease:'teste'}};
+    db:{rpc:async(n,p)=>{if(n==='bsq_financeiro_revisao')return{data:0};if(n==='bsq_omie_aplicar_pagina'){assert.equal(p.p_revisao,0);assert.ok(Array.isArray(p.p_itens));for(const x of p.p_itens)registros.set(x.colecao+'|'+x.id,clone(x.registro));return{data:{ok:true}};}if(n==='bsq_omie_reservar')return{data:{adquirido:true,inicio:new Date().toISOString(),pagina:1,parcial:{},completa:false,lease:'teste'}};
       if(n==='bsq_omie_finalizar'){finalizacoes.push(p);return{data:true}}return{data:{}}},
       from:()=>({select(){return this},eq(_k,v){this.k=v;return this},maybeSingle:async function(){return{data:metas.has(this.k)?{valor:clone(metas.get(this.k))}:null}},upsert:async x=>{metas.set(x.chave,clone(x.valor));return{}},delete(){return this}})}};
   const ctx={console:{error(){},warn(){}},Request,Response,AbortSignal,Date,Map,Set,JSON,Number,String,Object,Math,Promise,

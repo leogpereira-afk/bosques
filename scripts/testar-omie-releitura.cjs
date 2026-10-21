@@ -13,7 +13,7 @@ const dados={agora:()=>new Date().toISOString(),lerCfgBruta:async()=>clone(cfg),
  lerCampos:async()=>[],lerPorIds:async(c,ids)=>new Map(ids.filter(id=>registros.has(key(c,id))).map(id=>[id,clone(registros.get(key(c,id)))])),lerUm:async()=>null,
  gravarUm:async(c,id,r)=>registros.set(key(c,id),clone(r)),gravarVarios:async xs=>{for(const x of xs)registros.set(key(x.colecao,x.id),clone(x.registro));},
  marcarMudanca:async()=>{},registrarLog:async()=>{},guardarIndiceNumero:async()=>{},proximoNumero:async()=>++numero,
- db:{rpc:async(nome,p)=>{if(nome==='bsq_omie_reservar'){reservas.push(p);return{data:{adquirido:true,inicio:'2026-10-20T12:00:00.000Z',pagina:1,parcial:{},completa:p.p_completa,lease:'teste'}};}
+ db:{rpc:async(nome,p)=>{if(nome==='bsq_financeiro_revisao')return{data:0};if(nome==='bsq_omie_aplicar_pagina'){assert.equal(p.p_revisao,0);assert.ok(Array.isArray(p.p_itens));for(const x of p.p_itens)registros.set(x.colecao+'|'+x.id,clone(x.registro));return{data:{ok:true}};}if(nome==='bsq_omie_reservar'){reservas.push(p);return{data:{adquirido:true,inicio:'2026-10-20T12:00:00.000Z',pagina:1,parcial:{},completa:p.p_completa,lease:'teste'}};}
   if(nome==='bsq_omie_finalizar')return{data:true};return{data:{vendasNovas:0,pagamentosVinculados:0,titulos:0,pagamentos:0}};},from:tabela}};
 const resposta=b=>b.call==='ListarContasCorrentes'?{ListarContasCorrentes:[{nCodCC:1,descricao:'Conta'}],total_de_paginas:1}:b.call==='ListarCategorias'?{categoria_cadastro:[{codigo:'1',descricao:'C'}],total_de_paginas:1}:
  b.call==='ListarDepartamentos'?{departamentos:[{codigo:'1',descricao:'D'}],total_de_paginas:1}:b.call==='ListarClientes'?{clientes_cadastro:[],total_de_registros:0,total_de_paginas:0}:{nPagina:1,nTotPaginas:1,nTotRegistros:0,movimentos:[]};
