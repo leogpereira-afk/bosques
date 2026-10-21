@@ -11,10 +11,13 @@ const FIN_GESTAO = (() => {
     if(!partes.length)return [{nome:campo==='centros'?(x.centroCusto||nomeVazio):(x.categoria||nomeVazio),valor:rs(v),percentual:100}];
     const somaP=partes.reduce((s,p)=>s+(Number(p.percentual)||0),0),somaV=partes.reduce((s,p)=>s+cent(p.valor),0);
     if(partes.some(p=>Number(p.percentual)<0||Number(p.valor)<0)||somaP>100.01||(!somaP&&somaV>v))return [{nome:nomeVazio,valor:rs(v),percentual:100}];
-    let usado=0;
+    let usado=0,percentualAcumulado=0;
     const out=partes.map((p,i)=>{
-      let valor=somaP?Math.round(v*Number(p.percentual||0)/100):somaV?cent(p.valor):partes.length===1?v:0;
-      if(i===partes.length-1&&Math.abs(somaP-100)<0.01)valor=v-usado;
+      percentualAcumulado+=Number(p.percentual)||0;
+      // Arredonda o acumulado, não cada fatia isolada: o rateio nunca cria
+      // centavos nem produz uma última fatia negativa para compensá-los.
+      let valor=somaP?Math.max(0,Math.min(v,Math.round(v*percentualAcumulado/100))-usado):somaV?cent(p.valor):partes.length===1?v:0;
+      if(i===partes.length-1&&Math.abs(somaP-100)<0.01)valor=Math.max(0,v-usado);
       usado+=valor;return {nome:p.nome||(p.codigo?'Código '+p.codigo:nomeVazio),valor:rs(valor),percentual:v?valor/v*100:0};
     }).filter(p=>p.valor>0);
     if(usado<v)out.push({nome:nomeVazio,valor:rs(v-usado),percentual:(v-usado)/v*100});return out;

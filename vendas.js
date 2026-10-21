@@ -152,6 +152,44 @@ function ligarBotoesCobranca(raiz) {
   });
 }
 
+// Os cartões da carteira medem recebimentos registrados, uma população
+// diferente dos movimentos bancários. Seu detalhe preserva a mesma origem.
+function abrirRecebimentosVendas(mes = '', pagina = 0) {
+  const registros = lista('rec').filter(r => !mes || String(r.data || '').startsWith(mes))
+    .sort((a, b) => String(b.data || '').localeCompare(String(a.data || '')) || String(a.id).localeCompare(String(b.id)));
+  const total = registros.reduce((s, r) => s + FINANCEIRO.cent(r.valor), 0) / 100;
+  const paginas = Math.max(1, Math.ceil(registros.length / 40));
+  const pg = Math.max(0, Math.min(pagina, paginas - 1));
+  const voltarPagina = proxima => { fecharModal(); abrirRecebimentosVendas(mes, proxima); };
+  const modal = abrirModal({
+    titulo: 'Recebimentos de vendas', largo: true,
+    corpo: '<p>' + esc(mes ? nomeMes(mes) : 'Todo o histórico') + ' · ' + registros.length + ' recebimento(s)</p>' +
+      '<p><b>Total: <span class="fin-entrada">' + fmt.brl(total) + '</span></b></p>' +
+      '<div class="recebimentos-vendas">' + (registros.slice(pg * 40, pg * 40 + 40).map(rc => {
+        const venda = achar('venda', rc.vendaId);
+        const cliente = venda ? 'Q' + venda.quadra + '-L' + venda.lote + ' · ' + (venda.clienteNome || 'Cliente não informado') : 'Sem contrato vinculado';
+        return '<button type="button" class="lin home-rec" data-recebimento-venda="' + esc(rc.id) + '">' +
+          '<span class="cresce"><b>' + esc(cliente) + '</b><span class="sub">' + esc(fmt.data(rc.data)) +
+          (rc.codigo ? ' · ' + esc(rc.codigo) : '') + '</span></span><b class="fin-entrada">' + fmt.brl(rc.valor) + '</b></button>';
+      }).join('') || '<p class="nota">Nenhum recebimento registrado neste período.</p>') + '</div>' +
+      '<p class="nota">Página ' + (pg + 1) + ' de ' + paginas + '. O total considera todos os registros do período.</p>',
+    acoes: [{ texto: 'Fechar', aoClicar: fecharModal },
+      ...(pg ? [{ texto: 'Anterior', aoClicar: () => voltarPagina(pg - 1) }] : []),
+      ...(pg + 1 < paginas ? [{ texto: 'Próxima', aoClicar: () => voltarPagina(pg + 1) }] : [])]
+  });
+  modal.querySelectorAll('[data-recebimento-venda]').forEach(botao => { botao.onclick = () => {
+    const registro = achar('rec', botao.dataset.recebimentoVenda);
+    if (registro) {
+      const venda = achar('venda', registro.vendaId);
+      const voltar = () => abrirRecebimentosVendas(mes, pg);
+      fecharModal();
+      // O carnê derivado usa parcelaN; o espelho usa tid/alocações.
+      if (venda && !(Array.isArray(venda.parcelas) && venda.parcelas.some(Boolean))) abrirEditarRec(venda, registro.id, voltar);
+      else finEditarRecebimento(registro, voltar);
+    }
+  }; });
+}
+
 /* ── Tela: lista de vendas ─────────────────────────────────────────────────── */
 TELAS.vendas = function () {
   const app = document.getElementById('app');
@@ -168,7 +206,7 @@ TELAS.vendas = function () {
   const totalAtraso = emAtraso.reduce((s, x) => s + x.r.emAtraso, 0);
   const mesStr = hojeISO().slice(0, 7);
   const recebidoMes = lista('rec').filter((r) => String(r.data || '').startsWith(mesStr))
-    .reduce((s, r) => s + (Number(r.valor) || 0), 0);
+    .reduce((s, r) => s + FINANCEIRO.cent(r.valor), 0) / 100;
 
   /* O TOTAL RECEBIDO — todo o dinheiro que já entrou por venda, não só o do mês.
      O cartão do mês responde "como estamos indo agora"; este responde "quanto do
@@ -187,11 +225,11 @@ TELAS.vendas = function () {
      distratada — são perguntas diferentes, e misturar as réguas faria os dois
      números não conversarem. */
   const recs = lista('rec');
-  const recebidoTotal = recs.reduce((s, r) => s + (Number(r.valor) || 0), 0);
+  const recebidoTotal = recs.reduce((s, r) => s + FINANCEIRO.cent(r.valor), 0) / 100;
   const semContrato = recs.filter((r) => !String(r.vendaId || '').trim());
-  const semContratoTotal = semContrato.reduce((s, r) => s + (Number(r.valor) || 0), 0);
+  const semContratoTotal = semContrato.reduce((s, r) => s + FINANCEIRO.cent(r.valor), 0) / 100;
   const semContratoMes = recs.filter((r) => String(r.data || '').startsWith(mesStr) && !String(r.vendaId || '').trim())
-    .reduce((s, r) => s + (Number(r.valor) || 0), 0);
+    .reduce((s, r) => s + FINANCEIRO.cent(r.valor), 0) / 100;
 
   const filtradas = linhas.filter(({ v, r }) => {
     if (filtro.sit && (v.situacao || 'ativa') !== filtro.sit) return false;
@@ -289,7 +327,7 @@ TELAS.vendas = function () {
   app.innerHTML = painelInadimplenciaOmie()+
     '<div class="paineis">' +
       '<div class="painel clicavel" data-pv="todas"><div class="rot">VGV vendido</div><div class="num pos">' + fmt.brl(vgv) + '</div>' +
-        '<div class="sub">' + naoDistratadas.length + ' contrato(s), incluindo quitados</div></div>' +
+        '<div class="sub">' + naoDistratadas.length + ' contrato(s), incluindo quitados · plano com pagamento em dia</div></div>' +
       '<div class="painel' + (lotesDuplicados().length ? ' clicavel" id="vd-duplicados' : '') + '"><div class="rot">Lotes vendidos</div><div class="num">' + comercial.vendidos + '</div><div class="sub">'+comercial.contratos.length+' contratos: '+comercial.ativos+' ativos · '+comercial.quitados+' quitados</div>' +
         (lotesDuplicados().length ? '<div class="sub">⚠ ' + lotesDuplicados().length + ' lote(s) com 2 vendas — clique e veja quais</div>' : '') + '</div>' +
       '<div class="painel clicavel" id="pn-atraso"><div class="rot">Atraso nas fichas confirmadas</div><div class="num' + (emAtraso.length ? ' neg' : ' pos') + '">' + emAtraso.length + '</div>' +
@@ -327,11 +365,9 @@ TELAS.vendas = function () {
       const pv = el.dataset.pv;
       if (pv === 'todas') { TELAS._fVendas = { q: '', sit: '', so: '' }; TELAS.vendas(); }
       else if (pv === 'quitada') { TELAS._fVendas = { q: '', sit: 'quitada', so: '' }; TELAS.vendas(); }
-      else if (pv === 'recebido') { TELAS._fLanc = { q: '', tipo: 'entrada', cat: '', mes: mesDe(hojeISO()) }; location.hash = '#/lancamentos'; }
-      // O total abre a MESMA tela sem recorte de mês — senão o clique levaria a
-      // um número diferente do que estava no cartão, que é como se desconfia de
-      // um sistema inteiro.
-      else if (pv === 'recebido-total') { TELAS._fLanc = { q: '', tipo: 'entrada', cat: '', mes: '' }; location.hash = '#/lancamentos'; }
+      else if (pv === 'recebido') abrirRecebimentosVendas(mesDe(hojeISO()));
+      // Todo o histórico de recebimentos, sem trocar a origem nem cortar o ano.
+      else if (pv === 'recebido-total') abrirRecebimentosVendas();
     };
   });
   document.getElementById('vd-pdf').onclick = () => {
@@ -497,7 +533,7 @@ TELAS.venda = function (id) {
         (viva ? ' <button class="btn mini" id="bt-add-parc" style="float:right">+ parcela</button>' : '')
       : '<span class="nota">— derivado do plano (sem boletos no Omie ainda)</span>') + '</h2>' +
     (r.semEspelho ? '<p class="nota">⚠ Este contrato não tem boletos no Omie — o ATRASO não é medido por aqui. Gere o carnê no Omie para a cobrança valer.</p>' : '') +
-    (!espelhado && r.sobra > 0.004 ? '<p class="nota">⚠ Há ' + fmt.brl(r.sobra) + ' recebidos ALÉM do carnê — confira o plano ou os lançamentos.</p>' : '') +
+    (!espelhado && r.sobra > 0.004 ? '<p class="nota">⚠ Há ' + fmt.brl(r.sobra) + ' de crédito ainda não destinado às parcelas — confira o plano e os recebimentos.</p>' : '') +
     '<div class="rolagem"><table class="tabela"><thead><tr><th>Parcela</th><th>Vence</th><th class="num">Boleto</th>' +
     (espelhado ? '<th class="num">Em dia (−20%)</th>' : '') +
     '<th class="num">Pago</th><th>Situação</th><th></th></tr></thead>' +
@@ -1183,7 +1219,7 @@ function abrirEditarVenda(v) {
 /* ── Editar um RECEBIMENTO ───────────────────────────────────────────────────
    Data, forma e observação. VALOR e VENDA o servidor tranca de propósito
    (corrigir valor = estornar e lançar de novo — assim fica no log). */
-function abrirEditarRec(v, recId) {
+function abrirEditarRec(v, recId, aoTerminar) {
   const rc = achar('rec', recId);
   if (!rc) return;
   const corpo =
@@ -1203,12 +1239,12 @@ function abrirEditarRec(v, recId) {
         const c = lerCampos(fundo);
         const obs2 = String(c.obs || '').slice(0, 300);
         if (c.data === (rc.data || '') && c.forma === (rc.forma || 'PIX') && obs2 === (rc.obs || '')) {
-          fecharSilencioso(fundo); return;
+          fecharSilencioso(fundo); if (aoTerminar) aoTerminar(); return;
         }
         salvar('rec', { id: rc.id, data: c.data, forma: c.forma, obs: obs2, editadoAMao: true });
         fecharSilencioso(fundo);
         toast('Recebimento salvo');
-        TELAS.venda(v.id);
+        if (aoTerminar) aoTerminar(); else TELAS.venda(v.id);
       } },
     ],
   });
@@ -1219,7 +1255,9 @@ function abrirEditarRec(v, recId) {
    É a diferença entre "99 lotes" e "102 contratos" — o dono clica e vê. */
 function lotesDuplicados() {
   const porLote = {};
-  for (const v of vendasVivas()) (porLote[v.loteId] = porLote[v.loteId] || []).push(v);
+  // Quitada encerra a cobrança, mas continua ocupando o lote.
+  for (const v of lista('venda').filter(v => ['ativa', 'conferir', 'quitada'].includes(v.situacao || 'ativa')))
+    (porLote[v.loteId] = porLote[v.loteId] || []).push(v);
   return Object.entries(porLote).filter(([, vs]) => vs.length > 1);
 }
 function abrirLotesDuplicados() {

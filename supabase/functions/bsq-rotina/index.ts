@@ -39,6 +39,22 @@ const META = "_arqmeta";
 
 const diasAtras = (n: number) => new Date(Date.now() - n * 86400000).toISOString();
 
+// Cloudflare pode devolver uma página HTML em uma indisponibilidade da API.
+// Preserve a causa no status sem gravar a página inteira e truncar os logs.
+function mensagemErro(erro: unknown): string {
+  const texto = (erro as Error)?.message || String(erro);
+  const titulo = texto.match(/<title>([^<]+)<\/title>/i);
+  return (titulo ? (texto.split("<!DOCTYPE")[0].split("<html")[0].slice(0, 80) + titulo[1]) : texto).slice(0, 500);
+}
+
+function falhaTransitoria(erro: unknown): boolean {
+  const e = erro as { status?: number; statusCode?: number; message?: string };
+  const status = Number(e?.status || e?.statusCode);
+  if (status >= 500 && status <= 599) return true;
+  const mensagem = e?.message || String(erro);
+  return /\b(?:http|status(?: code)?|error code)\s*:?\s*5\d{2}\b|\|\s*5\d{2}\s*:|fetch failed|failed to fetch|network(?: error| request failed)|connection (?:reset|refused|error|closed)|econnreset|econnrefused|etimedout|socket hang up|\b(?:request |connection )?timed?\s*out\b|service unavailable|bad gateway|gateway timeout/i.test(mensagem);
+}
+
 // arquivosDoRegistro vem de _shared/arquivos.ts (cópia única). Antes esta cópia
 // não conhecia anexos/asos, então o passo 5 (varredor de órfãos) apagava o PDF
 // do ASO de um colaborador ATIVO ~1 dia depois do upload.
@@ -50,11 +66,43 @@ Deno.serve(async (req) => {
   const veio = req.headers.get("x-rotina-token") || new URL(req.url).searchParams.get("t");
   if (!segredo || veio !== segredo) return json({ error: "Não autorizado" }, 401);
 
-  const hoje = agora().slice(0, 10);
-  const resultado: Record<string, unknown> = { dia: hoje };
-
-  // 1. Cópia do dia
+  let corpo: { somenteBackup?: boolean } = {};
   try {
+    const texto = await req.text();
+    if (texto.trim()) {
+      corpo = JSON.parse(texto);
+      if (!corpo || typeof corpo !== "object" || Array.isArray(corpo)) return json({ error: "Corpo inválido" }, 400);
+    }
+  } catch { return json({ error: "JSON inválido" }, 400); }
+  if (Object.prototype.hasOwnProperty.call(corpo, "somenteBackup") && typeof corpo.somenteBackup !== "boolean") {
+    return json({ error: "somenteBackup deve ser verdadeiro ou falso" }, 400);
+  }
+  const somenteBackup = corpo.somenteBackup === true;
+  const hoje = agora().slice(0, 10);
+  const resultado: Record<string, unknown> = { dia: hoje, ...(somenteBackup ? { somenteBackup: true } : {}) };
+
+  async function concluir() {
+    resultado.ok = !Object.keys(resultado).some((chave) => chave.startsWith("erro"));
+    // Recuperar uma cópia não afirma que a manutenção completa foi executada.
+    try {
+      const { error } = await db.from("bsq_meta").upsert({
+        chave: somenteBackup ? "backup_status" : "manutencao_status",
+        valor: { em: agora(), ...resultado }, atualizado_em: agora(),
+      });
+      if (error) throw error;
+    } catch (e) { resultado.erroStatus = mensagemErro(e); resultado.ok = false; }
+    try {
+      await registrarLog({ acao: somenteBackup ? "backup diário" : "rotina diária", por: "sistema", ...resultado });
+    } catch (e) { resultado.erroLog = mensagemErro(e); resultado.ok = false; }
+    console.log("[rotina]", JSON.stringify(resultado));
+    return json(resultado, resultado.ok ? 200 : 503);
+  }
+
+  // 1. Cópia do dia. Só leituras e o upsert diário são repetíveis; nunca as
+  // exclusões. Falha permanente ou três falhas transitórias impedem a limpeza.
+  for (let tentativa = 1; tentativa <= 3; tentativa++) {
+    resultado.backupTentativas = tentativa;
+    try {
     // Cadastros de acesso são privados: entram no backup, não no snapshot do painel.
     const registros = await lerTudo(null, [...NOMES_COLECOES, "espelho_acesso"]);
     const cfg = await lerCfgBruta();
@@ -72,20 +120,35 @@ Deno.serve(async (req) => {
     await gravarBackup(hoje, { em: agora(), cfg: copia, registros, seq, arquivos });
     resultado.registros = registros.length;
     resultado.arquivos = arquivos.length;
-  } catch (e) {
-    resultado.erroBackup = (e as Error)?.message || String(e);
+    resultado.backupSalvo = true;
+    break;
+    } catch (e) {
+      if (tentativa < 3 && falhaTransitoria(e)) {
+        await new Promise((resolver) => setTimeout(resolver, 250 * tentativa));
+        continue;
+      }
+      resultado.erroBackup = mensagemErro(e);
+      break;
+    }
   }
+  if (!resultado.backupSalvo) {
+    resultado.limpezasIgnoradas = true;
+    return await concluir();
+  }
+  if (somenteBackup) return await concluir();
 
   // 2. Backups com mais de 60 dias
   try {
     const limite = diasAtras(DIAS_BACKUP).slice(0, 10);
-    const { data } = await db.from("bsq_backup").delete().lt("dia", limite).select("dia");
+    const { data, error } = await db.from("bsq_backup").delete().lt("dia", limite).select("dia");
+    if (error) throw error;
     resultado.backupsApagados = (data || []).length;
   } catch (e) { resultado.erroLimpezaBackup = (e as Error)?.message || String(e); }
 
   // 3. Log antigo
   try {
-    const { data } = await db.from("bsq_log").delete().lt("em", diasAtras(DIAS_LOG)).select("id");
+    const { data, error } = await db.from("bsq_log").delete().lt("em", diasAtras(DIAS_LOG)).select("id");
+    if (error) throw error;
     resultado.logApagado = (data || []).length;
   } catch (e) { resultado.erroLimpezaLog = (e as Error)?.message || String(e); }
 
@@ -143,14 +206,6 @@ Deno.serve(async (req) => {
     resultado.arquivosOrfaos = orfaos;
   } catch (e) { resultado.erroOrfaos = (e as Error)?.message || String(e); }
 
-  // 6. Marca o batimento pra aparecer em Configurações
-  try {
-    await db.from("bsq_meta").upsert({
-      chave: "manutencao_status", valor: { em: agora(), ...resultado }, atualizado_em: agora(),
-    });
-  } catch { /* não é crítico */ }
-
-  await registrarLog({ acao: "rotina diária", por: "sistema", ...resultado });
-  console.log("[rotina]", JSON.stringify(resultado));
-  return json(resultado);
+  // 6. Só anuncia sucesso após confirmar a gravação do batimento.
+  return await concluir();
 });

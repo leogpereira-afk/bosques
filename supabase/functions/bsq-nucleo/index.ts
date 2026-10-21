@@ -134,6 +134,14 @@ const diaBrasil = () => new Date(Date.now() - 3 * 3600 * 1000).toISOString().sli
 /* ── O status do lote é conta do servidor ──────────────────────────────────── */
 // Chamado depois de gravar/apagar/restaurar uma venda. A venda viva manda:
 // ativa/conferir/quitada → Vendido; distratada ou apagada → Disponível.
+async function vendasVivasDoLote(loteId: string): Promise<any[]> {
+  // Só os campos do vínculo: não baixe todos os carnês para conferir um lote.
+  const vendas = await lerColecaoBruta("venda",
+    "id, loteId:registro->>loteId, situacao:registro->>situacao, apagadoEm:registro->>apagadoEm, codigo:registro->>codigo, clienteNome:registro->>clienteNome", false);
+  return vendas.filter((v: any) => !v.apagadoEm && v.loteId === loteId &&
+    ["ativa", "conferir", "quitada"].includes(v.situacao || "ativa"));
+}
+
 async function recalcularLote(loteId: string) {
   if (!loteId) return;
   const lote = await lerUm("lote", loteId);
@@ -142,7 +150,15 @@ async function recalcularLote(loteId: string) {
   let vendaViva: any = null;
   if (lote.vendaId) {
     const v = await lerUm("venda", lote.vendaId);
-    if (v && !v.apagadoEm && ["ativa", "conferir", "quitada"].includes(v.situacao || "ativa")) vendaViva = v;
+    if (v && v.loteId === loteId && !v.apagadoEm &&
+        ["ativa", "conferir", "quitada"].includes(v.situacao || "ativa")) vendaViva = v;
+  }
+  // Trocar de lote invalida o ponteiro antigo; restaurar uma venda pode
+  // encontrar o ponteiro vazio. A venda precisa pertencer ao lote conferido.
+  if (!vendaViva) {
+    const candidatas = await vendasVivasDoLote(loteId);
+    if (candidatas.length > 1) throw new Error("O lote tem mais de uma venda viva. Confira os vínculos antes de recalcular.");
+    vendaViva = candidatas[0] || null;
   }
   const statusNovo = vendaViva ? "Vendido" : (lote.reservadoPor ? "Reservado" : "Disponível");
   const vendaIdNovo = vendaViva ? vendaViva.id : null;
@@ -246,15 +262,15 @@ async function prepararItem(quem: Quem, col: string, registro: any, atual: any):
     const situacao = registro.situacao || (atual && atual.situacao) || "ativa";
     const loteId = txt(registro.loteId || (atual && atual.loteId), 40);
     if (!loteId) return { erro: "venda sem lote" };
-    if (["ativa", "conferir"].includes(situacao)) {
+    if (["ativa", "conferir", "quitada"].includes(situacao)) {
       const lote = await lerUm("lote", loteId);
       if (!lote || lote.apagadoEm) return { erro: "lote " + loteId + " não existe" };
-      if (lote.vendaId && lote.vendaId !== (registro.id || "")) {
-        const outra = await lerUm("venda", lote.vendaId);
-        if (outra && !outra.apagadoEm && ["ativa", "conferir", "quitada"].includes(outra.situacao || "ativa")) {
-          return { erro: "o lote " + (lote.quadra ? "Q" + lote.quadra + "-L" + lote.lote : loteId) +
-            " já tem venda viva (" + (outra.codigo || "") + " — " + (outra.clienteNome || "?") + ")" };
-        }
+      // Confere a venda, não só o atalho lote.vendaId: o atalho pode estar
+      // ausente depois de uma exclusão ou vindo de um cadastro antigo.
+      const outra = (await vendasVivasDoLote(loteId)).find((v: any) => v.id !== (registro.id || ""));
+      if (outra) {
+        return { erro: "o lote " + (lote.quadra ? "Q" + lote.quadra + "-L" + lote.lote : loteId) +
+          " já tem venda viva (" + (outra.codigo || "") + " — " + (outra.clienteNome || "?") + ")" };
       }
     }
     return { registro };
@@ -567,6 +583,10 @@ Deno.serve(async (req) => {
         if (!r) return json({ ok: false, error: "Não encontrado" }, 404);
         // Lápide não tem mais o conteúdo: o lançamento volta pela sincronização do Omie.
         if (r.lapide) return json({ ok: false, error: "Este lançamento do Omie já foi apagado de vez; ele não pode ser restaurado por aqui." }, 409);
+        if (colecao === "venda") {
+          const pronto = await prepararItem(quem!, colecao, r, r);
+          if (pronto.erro) return json({ ok: false, error: pronto.erro }, 409);
+        }
         delete r.apagadoEm; delete r.apagadoPor;
         r.atualizadoEm = agora(); r.atualizadoPor = por;
         await gravarUm(colecao, id, r);

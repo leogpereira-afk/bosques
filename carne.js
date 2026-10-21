@@ -80,6 +80,14 @@ const CARNE = (() => {
 
     let sobra = 0;
     const sobraRecs = [];
+    // Destino explícito não autoriza quitar outra parcela. O excedente fica
+    // como crédito identificado, inclusive quando a entrada já está paga.
+    const aplicarEspecifico = (l, r, valor) => {
+      const usado = Math.min(valor, Math.max(0, cent(l.valor - l.pago)));
+      l.pago = cent(l.pago + usado); l.recs.push(r.id);
+      const excedente = cent(valor - usado);
+      if (excedente > 0.004) { sobra = cent(sobra + excedente); sobraRecs.push(r.id); }
+    };
 
     // 1º passe: o que tem endereço certo (entrada e parcela cravada).
     const soltos = [];
@@ -87,11 +95,11 @@ const CARNE = (() => {
       const v = cent(r.valor);
       if (r.tipo === 'entrada') {
         const l = out.find((x) => x.n === 0);
-        if (l) { l.pago = cent(l.pago + v); l.recs.push(r.id); continue; }
+        if (l) { aplicarEspecifico(l, r, v); continue; }
       }
       if (r.tipo === 'parcela' && r.parcelaN != null && r.parcelaN !== '') {
         const l = out.find((x) => x.n === Number(r.parcelaN));
-        if (l) { l.pago = cent(l.pago + v); l.recs.push(r.id); continue; }
+        if (l) { aplicarEspecifico(l, r, v); continue; }
       }
       if (r.tipo === 'acerto') continue; // acerto de distrato não quita parcela
       soltos.push(r);
