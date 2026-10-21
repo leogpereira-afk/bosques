@@ -630,6 +630,7 @@ window.addEventListener('hashchange', e=>{
     navigator.serviceWorker.register('sw.js').then((reg) => { _swRegistro = reg; }).catch(() => {});
   }
   render();
-  if(typeof MutationObserver!=='undefined'){const a11y=new MutationObserver(ligarAcessibilidadeTela);a11y.observe(document.getElementById('app'),{childList:true,subtree:true});}
+  const appVisivel=document.getElementById('app');
+  if(typeof MutationObserver!=='undefined'&&appVisivel){const a11y=new MutationObserver(ligarAcessibilidadeTela);a11y.observe(appVisivel,{childList:true,subtree:true});}
   if (S.senhaHash) { puxarSeNecessario(); talvezSincronizarOmie(); }
 })();

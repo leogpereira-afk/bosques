@@ -42,5 +42,10 @@ assert.equal(run('S.fila.length'),1);
 run("S.fila=[];limparCacheCompleto=async()=>{};localStorage.setItem(K.senha,'teste');localStorage.setItem(K.cache,'cache');");
 await document.querySelector('#bt-sair').onclick();
 assert.equal(recarregou,1);assert.equal(mem.get('outro_sistema'),'preservar');assert.equal(mem.get('bsq_senha'),undefined);assert.equal(mem.get('bsq_cache_v1'),undefined);
+// O primeiro acesso monta o login sem tentar observar um #app que já saiu do DOM.
+ctx.MutationObserver=class{observe(node){assert.ok(node,'MutationObserver precisa de um elemento existente');}};
+const partida=fs.readFileSync('app.js','utf8');
+await vm.runInContext(partida.slice(partida.indexOf('(async function iniciar()')),ctx);
+assert.ok(document.querySelector('#lg-entrar'),'Primeiro acesso deve exibir login sem erro');
 console.log('PASSOU modernização: atalhos semânticos, ícones, proteção do rascunho, bloqueio de saída com pendências e isolamento do armazenamento.');
 })().catch(e=>{console.error(e);process.exit(1)});
