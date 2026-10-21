@@ -11,6 +11,15 @@ const recsDaVenda = (vid) => lista('rec').filter((r) => r.vendaId === vid);
 const cfgReajuste = () => (S.cfg && S.cfg.reajuste) || { pct: 6, aCada: 12 };
 const ehCorretorPerfil = () => S.perfil === 'corretor';
 
+// Validação antes de criar qualquer registro relacionado (inclusive cliente).
+function valoresComerciaisValidos(valores) {
+  if (valores.some(v => !Number.isFinite(v) || v < 0)) {
+    toast('Confira os valores: não podem ser negativos.', 'ruim');
+    return false;
+  }
+  return true;
+}
+
 /* ── O MOTOR DO CARNÊ (ordem do dono, 26/08): a verdade das parcelas é o
    ESPELHO DO OMIE, armazenado em v.parcelas pela sincronização e EDITÁVEL na
    ficha. O carnê derivado do plano (carne.js) só vale para simulação de
@@ -668,6 +677,7 @@ function abrirCadastroLote(id) {
         const preco = numeroBR(v.preco);
         if (!(quadra > 0) || !(nLote > 0)) { toast('Diga quadra e número do lote', 'ruim'); return; }
         if (!(preco > 0)) { toast('Diga o preço', 'ruim'); return; }
+        if (!valoresComerciaisValidos([v.areaM2, v.parcFixa, v.parcFixaDesc, v.parcReaj, v.parcReajDesc].map(numeroBR))) return;
         const idNovoLote = 'q' + quadra + '-l' + nLote;
         if (!id && achar('lote', idNovoLote)) { toast('O lote Q' + quadra + '-L' + nLote + ' já existe', 'ruim'); return; }
         if (id && idNovoLote !== id && achar('lote', idNovoLote)) { toast('Já existe outro lote Q' + quadra + '-L' + nLote, 'ruim'); return; }
@@ -757,8 +767,9 @@ function abrirReservaLote(l) {
    registra abertura e interesse. As DUAS ficam no CRM do lote: proposta que
    só vive no papel não responde "quantas saíram e o que deu". */
 
-function montarPropDoSim(l, sim) {
+function prepararPropDoSim(l, sim) {
   if (!sim.nome || !sim.nome.trim()) { toast('Diga o nome do cliente', 'ruim'); return null; }
+  if (!valoresComerciaisValidos([sim.entrada, sim.qtde, sim.valorParcela, sim.comissao, sim.comissao2, sim.entradaJurosPct].map(v => Number(v || 0)))) return null;
   const reaj = cfgReajuste();
   const souCorretor = ehCorretorPerfil();
   const cor = souCorretor ? null : lista('corretor').find((c) => c.id === sim.corretorId);
@@ -767,20 +778,20 @@ function montarPropDoSim(l, sim) {
   // um cliente-fantasma que só vive dentro dela. (Corretor não grava cliente:
   // o dele segue embutido na proposta, e vira cadastro na venda.)
   let clienteId = '';
+  let clientePendente = null, novoCliente = false;
   if (!souCorretor) {
     const nomeNorm = sim.nome.trim().toUpperCase();
     let cli = (sim.clienteId && achar('cliente', sim.clienteId)) ||
       lista('cliente').find((c2) => (c2.nome || '').trim().toUpperCase() === nomeNorm);
     if (!cli) {
-      cli = salvar('cliente', { nome: sim.nome.trim().slice(0, 90), whatsapp: String(sim.telefone || '').slice(0, 30) });
-      toast('Cliente "' + cli.nome + '" cadastrado — complete a ficha depois');
+      cli = { id: novoIdRegistro(), nome: sim.nome.trim().slice(0, 90), whatsapp: String(sim.telefone || '').slice(0, 30) };
+      clientePendente = cli; novoCliente = true;
     } else if (sim.telefone && !cli.whatsapp && !cli.celular) {
-      salvar('cliente', { id: cli.id, whatsapp: String(sim.telefone || '').slice(0, 30) });
+      clientePendente = { id: cli.id, whatsapp: String(sim.telefone || '').slice(0, 30) };
     }
     clienteId = cli.id;
-    sim.clienteId = cli.id;
   }
-  return {
+  return { clientePendente, novoCliente, prop: {
     clienteId,
     loteId: l.id, quadra: l.quadra, lote: l.lote, areaM2: l.areaM2,
     valor: totalDoPlano(sim, reaj),
@@ -802,13 +813,29 @@ function montarPropDoSim(l, sim) {
     validadeDias: (S.cfg && S.cfg.validadeProposta) || 7,
     enviadaEm: new Date().toISOString(),
     situacao: 'enviada',
-  };
+  } };
+}
+
+function montarPropDoSim(l, sim) {
+  return prepararPropDoSim(l, sim)?.prop || null;
+}
+
+function guardarPropDoSim(l, sim, canal) {
+  const preparo = prepararPropDoSim(l, sim);
+  if (!preparo) return null;
+  const itens = [];
+  if (preparo.clientePendente) itens.push({ colecao: 'cliente', registro: preparo.clientePendente });
+  itens.push({ colecao: 'prop', registro: { ...preparo.prop, canal } });
+  const salvos = salvarGrupo(itens);
+  const salva = salvos[salvos.length - 1];
+  if (salva.clienteId) sim.clienteId = salva.clienteId;
+  if (preparo.novoCliente) toast('Cliente "' + preparo.clientePendente.nome + '" cadastrado — complete a ficha depois');
+  return salva;
 }
 
 async function baixarPdfProposta(l, sim) {
-  const prop = montarPropDoSim(l, sim);
-  if (!prop) return;
-  const salva = salvar('prop', { ...prop, canal: 'pdf' });   // entra no CRM
+  const salva = guardarPropDoSim(l, sim, 'pdf');
+  if (!salva) return;
   // A proposta sai NUMERADA: espera o servidor carimbar o PR-XXXX. Só sem
   // internet ela sai sem número (e ganha o dela ao sincronizar).
   try { await subirFila(); } catch (e) { /* offline: segue */ }
@@ -819,28 +846,29 @@ async function baixarPdfProposta(l, sim) {
   const cadastro = (atual.clienteId && achar('cliente', atual.clienteId)) || {};
   const blob = PDF.proposta({ ...atual, cliente: { ...cadastro, ...atual.cliente } }, l, S.cfg || {});
   salvarNoAparelho(blob, 'Proposta-Bosques-' + (atual.codigo || 'Q' + l.quadra + 'L' + l.lote) + '-' +
-    prop.cliente.nome.split(' ')[0] + '.pdf');
+    salva.cliente.nome.split(' ')[0] + '.pdf');
   toast('PDF ' + (atual.codigo || '') + ' baixado e no CRM do lote');
   TELAS.lote(l.id);
 }
 
 async function enviarLinkProposta(l, sim, btn) {
-  const prop = montarPropDoSim(l, sim);
-  if (!prop) return;
   if (btn) { btn.disabled = true; btn.textContent = 'gerando…'; }
   try {
     // 1. grava (o servidor numera e sorteia o token do link)
-    const salva = salvar('prop', { ...prop, canal: 'link' });
+    const salva = guardarPropDoSim(l, sim, 'link');
+    if (!salva) return;
     await subirFila();
     const doServidor = achar('prop', salva.id);
-    if (!doServidor || !doServidor.tokenPublico) throw new Error('sem internet agora — o link precisa do servidor (o PDF avulso funciona offline)');
+    if (!doServidor || doServidor._pendente || !doServidor.tokenPublico) throw new Error('Proposta pendente de confirmação do servidor — o PDF avulso funciona offline.');
     // 2. PDF com o número carimbado, anexado ao link
     const cadastro2 = (doServidor.clienteId && achar('cliente', doServidor.clienteId)) || {};
     const pdfBlob = PDF.proposta({ ...doServidor, cliente: { ...cadastro2, ...doServidor.cliente } }, l, S.cfg || {});
     const arq = await enviarArquivo(new File([pdfBlob], 'proposta.pdf', { type: 'application/pdf' }));
     salvar('prop', { id: salva.id, arquivoId: arq.id });
     await subirFila();
-    mostrarLinkProposta(achar('prop', salva.id));
+    const confirmada = achar('prop', salva.id);
+    if (!confirmada || confirmada._pendente || confirmada.arquivoId !== arq.id) throw new Error('O vínculo do PDF ainda está pendente de confirmação. Tente novamente quando sincronizar.');
+    mostrarLinkProposta(confirmada);
     TELAS.lote(l.id);
   } catch (e) {
     toast(e.message || 'Não consegui gerar o link', 'ruim');
@@ -860,7 +888,13 @@ function mostrarLinkProposta(p) {
       '<p>O link abre uma página com o resumo e o PDF. Cada abertura fica registrada aqui no sistema.</p>' +
       '<div class="campo" style="margin-top:10px"><label>Link</label><input type="text" readonly value="' + esc(link) + '" onclick="this.select()"></div>',
     acoes: [
-      { texto: 'Copiar link', aoClicar: () => { navigator.clipboard && navigator.clipboard.writeText(link); toast('Link copiado'); } },
+      { texto: 'Copiar link', aoClicar: async () => {
+        try {
+          if (!navigator.clipboard || !navigator.clipboard.writeText) throw new Error('Área de transferência indisponível');
+          await navigator.clipboard.writeText(link);
+          toast('Link copiado');
+        } catch (e) { toast('Selecione o link acima e copie manualmente.', 'ruim'); }
+      } },
       { texto: 'Mandar no WhatsApp', classe: 'primario', aoClicar: () => {
         window.open(linkWhats((p.cliente && p.cliente.telefone) || '', msg), '_blank');
       } },
@@ -876,11 +910,11 @@ function abrirNovaVenda(l, sim) {
   const corpo =
     campo('Cliente já cadastrado', seletor('clienteId', sim.clienteId || '', clientes.map((c) => ({ v: c.id, t: c.nome + (c.cpf ? ' · ' + fmt.doc(c.cpf) : '') })), '— cadastrar novo abaixo —')) +
     '<div class="colunas">' +
-      campo('ou nome do cliente novo', entrada('nomeNovo', '')) +
+      campo('ou nome do cliente novo', entrada('nomeNovo', sim.clienteId ? '' : (sim.nome || ''))) +
       campo('CPF dele', entrada('cpfNovo', '', { inputmode: 'numeric' })) +
     '</div>' +
     '<div class="colunas">' +
-      campo('WhatsApp', entrada('telNovo', '', { inputmode: 'tel' })) +
+      campo('WhatsApp', entrada('telNovo', sim.clienteId ? '' : (sim.telefone || ''), { inputmode: 'tel' })) +
       campo('Data da venda', entrada('dataVenda', hoje, { tipo: 'date' })) +
     '</div><hr style="border:0;border-top:1px solid var(--borda);margin:6px 0 12px">' +
     '<div class="colunas">' +
@@ -896,6 +930,7 @@ function abrirNovaVenda(l, sim) {
       campo('Forma da entrada', seletor('formaEntrada', sim.formaPg || 'PIX', (S.cfg && S.cfg.formasPg) || ['PIX', 'Dinheiro'])) +
       campo('Recebida em', entrada('dataEntrada', hoje, { tipo: 'date' }), 'deixe vazio se ainda não recebeu') +
     '</div>' +
+    campo('Condição combinada da entrada', entrada('entradaDetalhe', sim.entradaDetalhe || detalheEntrada(sim))) +
     '<div class="colunas-3">' +
       campo('Nº de parcelas', entrada('qtde', sim.tipo === 'Avista' ? 0 : sim.qtde, { inputmode: 'numeric' }), 'à vista = 0') +
       campo('Valor da parcela', entrada('valorParcela', sim.tipo === 'Avista' ? 0 : sim.valorParcela, { inputmode: 'decimal' })) +
@@ -910,6 +945,8 @@ function abrirNovaVenda(l, sim) {
       { texto: 'Voltar', aoClicar: () => fecharModal() },
       { texto: 'Registrar', classe: 'primario', aoClicar: (fundo) => {
         const v = lerCampos(fundo);
+        if (!valoresComerciaisValidos([v.entrada, v.qtde, v.valorParcela, v.comissao, v.comissao2].map(numeroBR))) return;
+        const itens = [];
         let clienteId = v.clienteId, clienteNome = '';
         if (clienteId) {
           const c = achar('cliente', clienteId);
@@ -917,16 +954,18 @@ function abrirNovaVenda(l, sim) {
         } else {
           if (!v.nomeNovo || !v.nomeNovo.trim()) { toast('Escolha um cliente ou cadastre o novo', 'ruim'); return; }
           const cpf = String(v.cpfNovo || '').replace(/\D/g, '');
-          const novo = salvar('cliente', {
-            id: cpf || undefined, cpf, nome: v.nomeNovo.trim().slice(0, 90),
+          const novo = {
+            id: cpf || novoIdRegistro(), cpf, nome: v.nomeNovo.trim().slice(0, 90),
             whatsapp: String(v.telNovo || '').slice(0, 30),
-          });
+          };
+          itens.push({ colecao: 'cliente', registro: novo });
           clienteId = novo.id; clienteNome = novo.nome;
         }
         const cor = corretores.find((c) => c.id === v.corretorId);
         const entradaRS = numeroBR(v.entrada);
         const dataEntrada = v.dataEntrada || '';
-        const venda = salvar('venda', {
+        const venda = {
+          id: novoIdRegistro(),
           loteId: l.id, quadra: l.quadra, lote: l.lote,
           clienteId, clienteNome,
           corretorId: cor ? cor.id : '', corretorNome: cor ? cor.nome : '',
@@ -936,17 +975,20 @@ function abrirNovaVenda(l, sim) {
           comissao2: numeroBR(v.comissao2),
           dataVenda: v.dataVenda || hoje,
           entrada: entradaRS, formaEntrada: v.formaEntrada, dataEntrada,
-          entradaDetalhe: detalheEntrada(sim),
+          entradaModo: sim.entradaModo || 'avista',
+          entradaDetalhe: String(v.entradaDetalhe || '').slice(0, 300),
           qtdeParcelas: Math.round(numeroBR(v.qtde)), valorParcela: numeroBR(v.valorParcela),
           tipoParcela: v.tipoParcela === 'Reajustada' ? 'Reajustada' : 'Fixa',
           situacao: 'ativa', obs: String(v.obs || '').slice(0, 800),
           historico: [{ id: Date.now().toString(36), em: new Date().toISOString(), por: S.quem || '—', o_que: 'Venda registrada' }],
-        });
-        if(sim.propostaId)salvar('prop',{id:sim.propostaId,situacao:'aceita',vendaId:venda.id});
+        };
+        itens.push({ colecao: 'venda', registro: venda });
+        if(sim.propostaId)itens.push({colecao:'prop',registro:{id:sim.propostaId,situacao:'aceita',vendaId:venda.id}});
         // Entrada já recebida vira RECEBIMENTO na hora — o caixa nasce certo.
         if (entradaRS > 0 && dataEntrada) {
-          salvar('rec', { vendaId: venda.id, tipo: 'entrada', valor: entradaRS, data: dataEntrada, forma: v.formaEntrada });
+          itens.push({ colecao: 'rec', registro: { vendaId: venda.id, tipo: 'entrada', valor: entradaRS, data: dataEntrada, forma: v.formaEntrada } });
         }
+        salvarGrupo(itens);
         fecharSilencioso(fundo);
         toast('Venda registrada');
         location.hash = '#/venda/' + venda.id;

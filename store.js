@@ -147,6 +147,7 @@ function lerCache() {
     const rec = Object.assign({}, f.registro, { _pendente: true });
     if (i >= 0) arr[i] = rec; else arr.unshift(rec);
   }
+  S.erroSync = erroFilaRecusada();
 }
 
 // IndexedDB comporta a base completa; localStorage permanece reservado à fila pequena.
@@ -187,7 +188,9 @@ async function carregarCacheCompleto() {
 }
 function gravarCache() {
   const sessao=S.senhaHash;
-  const dados={reg:S.reg,cfg:S.cfg,em:S.ultimoPull,dono:donoCache(),completo:S.cacheCompleto};
+  // A escrita é assíncrona. Congela este retrato antes de entrar na fila:
+  // guardar referências a S.reg misturava gravações feitas em momentos distintos.
+  const dados=JSON.parse(JSON.stringify({reg:S.reg,cfg:S.cfg,em:S.ultimoPull,dono:donoCache(),completo:S.cacheCompleto}));
   _gravacaoCache=_gravacaoCache.then(async()=>{
     if (!sessao || sessao!==S.senhaHash) return;
     await cacheLocal('gravar',dados);
@@ -213,20 +216,20 @@ function puxarSeNecessario() {
 
 // A fila é o que segura o trabalho feito sem internet: se ela não couber no
 // aparelho, o usuário PRECISA saber (o cache pode falhar calado, a fila não).
-function gravarFila() {
+function gravarFila(fila = S.fila) {
   try {
-    localStorage.setItem(K.fila, JSON.stringify(S.fila));
+    localStorage.setItem(K.fila, JSON.stringify(fila));
     return true;
   } catch (e) {
     // Tenta abrir espaço jogando fora o cache (ele se refaz no próximo snapshot).
     try {
       localStorage.removeItem(K.cache);
-      localStorage.setItem(K.fila, JSON.stringify(S.fila));
+      localStorage.setItem(K.fila, JSON.stringify(fila));
       return true;
     } catch (e2) {
       S.erroSync = 'memória do aparelho cheia — não consigo guardar offline';
       document.dispatchEvent(new CustomEvent('bsq:status'));
-      toast('Memória do aparelho cheia. Conecte à internet antes de continuar.', 'ruim');
+      toast('Não foi possível guardar a alteração. Libere espaço no aparelho e tente salvar novamente.', 'ruim');
       return false;
     }
   }
@@ -243,30 +246,52 @@ function lista(col, incluirApagados = false) {
 const achar = (col, id) => (S.reg[col] || []).find((r) => r.id === id) || null;
 
 /* ── Gravação ──────────────────────────────────────────────────────────────── */
-// Salva no aparelho na hora e empurra pra fila. Devolve o registro local.
-function salvar(col, registro, opts = {}) {
-  const id = registro.id || (Date.now().toString(36) + Math.random().toString(36).slice(2, 8));
-  const local = Object.assign({}, achar(col, id) || {}, registro, {
-    id,
-    atualizadoEm: new Date().toISOString(),
-    atualizadoPor: S.quem || '—',
-    _pendente: true
-  });
-  if (!local.criadoEm) { local.criadoEm = local.atualizadoEm; local.criadoPor = S.quem || '—'; }
+const novoIdRegistro = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
 
-  const arr = S.reg[col] || (S.reg[col] = []);
-  const i = arr.findIndex((r) => r.id === id);
-  if (i >= 0) arr[i] = local; else arr.unshift(local);
+// Um formulário pode criar registros relacionados (cliente, venda, entrada).
+// O conjunto inteiro precisa caber na fila ANTES de alterar a tela ou iniciar
+// envio. É atomicidade no aparelho; o servidor continua confirmando item a item.
+function salvarGrupo(itens, opts = {}) {
+  if (!itens.length) return [];
+  let seq = S.seqFila;
+  let proxima = S.fila.slice();
+  const preparados = [];
+  const anteriores = new Map();
+  for (const { colecao: col, registro } of itens) {
+    const id = registro.id || novoIdRegistro();
+    const chave = col + '|' + id;
+    const anterior = anteriores.get(chave) || achar(col, id) || {};
+    const local = Object.assign({}, anterior, registro, {
+      id, atualizadoEm: new Date().toISOString(), atualizadoPor: S.quem || '—', _pendente: true
+    });
+    if (!local.criadoEm) { local.criadoEm = local.atualizadoEm; local.criadoPor = S.quem || '—'; }
+    // A identidade própria de cada entrada protege edições durante um envio.
+    proxima = proxima.filter(f => !(f.colecao === col && f.registro.id === id));
+    proxima.push({ colecao: col, registro: local, seq: ++seq });
+    preparados.push({ colecao: col, registro: local });
+    anteriores.set(chave, local);
+  }
+  if (!gravarFila(proxima)) {
+    throw Object.assign(new Error('Não foi possível guardar a alteração na memória do aparelho.'), { jaAvisado: true });
+  }
+  S.fila = proxima;
+  S.seqFila = seq;
+  for (const { colecao: col, registro: local } of preparados) {
+    const arr = S.reg[col] || (S.reg[col] = []);
+    const i = arr.findIndex(r => r.id === local.id);
+    if (i >= 0) arr[i] = local; else arr.unshift(local);
+  }
+  S.erroSync = erroFilaRecusada();
   gravarCache();
-
-  // Cada entrada leva um número próprio. Sem isso, uma alteração feita enquanto
-  // o envio anterior estava no ar era apagada da fila junto com a antiga.
-  S.fila = S.fila.filter((f) => !(f.colecao === col && f.registro.id === id));
-  S.fila.push({ colecao: col, registro: local, seq: ++S.seqFila });
-  gravarFila();
+  document.dispatchEvent(new CustomEvent('bsq:status'));
 
   if (!opts.semSubir) subirFila();
-  return local;
+  return preparados.map(f => f.registro);
+}
+
+// Mantém o contrato de gravação individual usando a mesma regra de persistência.
+function salvar(col, registro, opts = {}) {
+  return salvarGrupo([{ colecao: col, registro }], opts)[0];
 }
 
 // Acrescenta uma linha no histórico do registro (quem fez, quando, o quê).
@@ -281,64 +306,91 @@ function historiar(registro, o_que) {
   return h;
 }
 
-let _subindo = false;
-async function subirFila() {
-  if (_subindo || !S.fila.length || !navigator.onLine) return;
+let _subindo = false, _promessaFila = null;
+const chaveFila = (colecao, id) => colecao + '|' + id;
+function erroFilaRecusada() {
+  const recusados = S.fila.filter(f => f.recusado);
+  return recusados.length ? recusados.length + ' alteração(ões) aguardam revisão: ' + (recusados[0].erro || 'gravação recusada') : '';
+}
+
+// Todos os chamadores aguardam a MESMA operação, inclusive os lotes seguintes.
+// Itens recusados permanecem guardados; só correção ou retentativa explícita
+// os libera novamente, evitando insistência automática numa permissão negada.
+function subirFila() {
+  if (_promessaFila) return _promessaFila;
+  if (!S.fila.some(f => !f.recusado) || !navigator.onLine) return Promise.resolve();
   _subindo = true;
-  const enviando = S.fila.slice(0, 25);
-  try {
-    const r = await api('salvarLote', {
-      itens: enviando.map((f) => ({ colecao: f.colecao, registro: limparParaEnvio(f.registro) }))
-    });
-    // Tira da fila SÓ o que foi enviado (pelo número da entrada). Se o usuário
-    // mexeu de novo no mesmo registro durante o envio, a alteração nova fica.
-    // Remove pelas PRÓPRIAS entradas enviadas (identidade), não pelo número —
-    // assim nem um seq repetido leva junto o que não foi enviado.
-    const enviadas = new Set(enviando);
-    S.fila = S.fila.filter((f) => !enviadas.has(f));
-    gravarFila();
-    // O servidor agora recusa ITEM A ITEM (nunca o pacote). Avisa o que ficou
-    // de fora, com nome e motivo — antes o trabalho sumia calado.
-    if ((r.recusados || []).length) {
-      document.dispatchEvent(new CustomEvent('bsq:sempermissao', {
-        detail: { qtd: r.recusados.length, msg: r.recusados[0].motivo, itens: r.recusados }
-      }));
-    }
-    const aindaNaFila = new Set(S.fila.map((f) => f.colecao + '|' + f.registro.id));
-    for (const salvo of (r.salvos || [])) {
-      const col = salvo._col;
-      // Registro com alteração mais nova esperando: não sobrescreve a tela.
-      if (aindaNaFila.has(col + '|' + salvo.id)) continue;
-      const arr = S.reg[col] || (S.reg[col] = []);
-      const i = arr.findIndex((x) => x.id === salvo.id);
-      if (i >= 0) arr[i] = salvo; else arr.unshift(salvo);
-    }
-    gravarCache();
-    S.erroSync = '';
-    document.dispatchEvent(new CustomEvent('bsq:dados'));
-    if (S.fila.length) setTimeout(subirFila, 300);
-  } catch (e) {
-    S.erroSync = e.message || 'falha ao enviar';
-    if (e.semSenha) document.dispatchEvent(new CustomEvent('bsq:semsenha'));
-    // Ação inteira negada (não é mais o caso do salvarLote, que recusa item a
-    // item): a fila nunca passaria, então sai — mas o usuário fica sabendo
-    // exatamente o que não foi salvo, com o código de cada documento.
-    if (e.semPermissao) {
-      const enviadas = new Set(enviando);
-      S.fila = S.fila.filter((f) => !enviadas.has(f));
-      gravarFila();
-      document.dispatchEvent(new CustomEvent('bsq:sempermissao', {
-        detail: {
-          qtd: enviando.length, msg: e.message,
-          itens: enviando.map((f) => ({ colecao: f.colecao, id: f.registro.id, codigo: f.registro.codigo || '' }))
-        }
-      }));
-    }
-    console.warn('fila:', e.message);
-  } finally {
+  _promessaFila = enviarFila().finally(() => {
     _subindo = false;
+    _promessaFila = null;
     document.dispatchEvent(new CustomEvent('bsq:status'));
+  });
+  return _promessaFila;
+}
+
+async function enviarFila() {
+  while (navigator.onLine) {
+    const enviando = S.fila.filter(f => !f.recusado).slice(0, 25);
+    if (!enviando.length) break;
+    try {
+      const r = await api('salvarLote', {
+        itens: enviando.map(f => ({ colecao: f.colecao, registro: limparParaEnvio(f.registro) }))
+      });
+      const salvos = new Map((r.salvos || []).map(s => [chaveFila(s._col, s.id), s]));
+      const recusados = new Map((r.recusados || []).map(f => [chaveFila(f.colecao, f.id), f]));
+      const enviadas = new Set(enviando);
+      const proxima = S.fila.flatMap(f => {
+        // Identidade da entrada protege uma edição feita durante a requisição.
+        if (!enviadas.has(f)) return [f];
+        const chave = chaveFila(f.colecao, f.registro.id);
+        if (salvos.has(chave) && !recusados.has(chave)) return [];
+        return [{ ...f, recusado: true, erro: recusados.get(chave)?.motivo || 'O servidor não confirmou esta gravação. Confira antes de tentar novamente.' }];
+      });
+      if (!gravarFila(proxima)) return;
+      S.fila = proxima;
+      if (recusados.size) document.dispatchEvent(new CustomEvent('bsq:sempermissao', {
+        detail: { qtd: recusados.size, msg: [...recusados.values()][0].motivo, itens: [...recusados.values()] }
+      }));
+      const aindaNaFila = new Set(S.fila.map(f => chaveFila(f.colecao, f.registro.id)));
+      for (const salvo of salvos.values()) {
+        const col = salvo._col;
+        if (aindaNaFila.has(chaveFila(col, salvo.id))) continue;
+        const arr = S.reg[col] || (S.reg[col] = []);
+        const i = arr.findIndex(x => x.id === salvo.id);
+        if (i >= 0) arr[i] = salvo; else arr.unshift(salvo);
+      }
+      S.erroSync = erroFilaRecusada();
+      gravarCache();
+      document.dispatchEvent(new CustomEvent('bsq:dados'));
+    } catch (e) {
+      S.erroSync = e.message || 'falha ao enviar';
+      if (e.semSenha) document.dispatchEvent(new CustomEvent('bsq:semsenha'));
+      if (e.semPermissao) {
+        const enviadas = new Set(enviando);
+        const proxima = S.fila.map(f => enviadas.has(f) ? { ...f, recusado: true, erro: e.message || 'gravação recusada' } : f);
+        if (gravarFila(proxima)) { S.fila = proxima; S.erroSync = erroFilaRecusada(); }
+        document.dispatchEvent(new CustomEvent('bsq:sempermissao', {
+          detail: { qtd: enviando.length, msg: e.message, itens: enviando.map(f => ({ colecao: f.colecao, id: f.registro.id, codigo: f.registro.codigo || '', motivo: e.message })) }
+        }));
+      }
+      console.warn('fila:', e.message);
+      return;
+    }
   }
+}
+
+async function tentarNovamenteFila() {
+  if (_promessaFila) await _promessaFila;
+  const proxima = S.fila.map(f => {
+    if (!f.recusado) return f;
+    const novo = { ...f }; delete novo.recusado; delete novo.erro;
+    return novo;
+  });
+  if (!gravarFila(proxima)) return;
+  S.fila = proxima;
+  S.erroSync = '';
+  document.dispatchEvent(new CustomEvent('bsq:status'));
+  return subirFila();
 }
 
 const limparParaEnvio = (r) => { const c = Object.assign({}, r); delete c._pendente; delete c._col; return c; };
@@ -415,7 +467,7 @@ async function puxar() {
     }
     S.cacheCompleto = true;
     S.ultimoPull = Date.now();
-    S.erroSync = '';
+    S.erroSync = erroFilaRecusada();
     gravarCache();
     // Só avisa a tela quando algo REALMENTE mudou. Antes, o sync de 90s
     // redesenhava a página do nada e jogava a rolagem pro topo no meio da leitura.

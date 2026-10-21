@@ -1,11 +1,25 @@
 /* Service worker — casca offline. SUBA O NÚMERO a cada publicação, senão o
    navegador continua servindo o arquivo velho (lição paga mais de uma vez). */
-const CACHE = 'bsq-shell-v76';
+const CACHE = 'bsq-shell-v77';
 const ARQUIVOS = [
   './', 'index.html', 'styles.css', 'design.css', 'mapa-espelho.css', 'mapa-espelho.js', 'config.js', 'ui.js', 'store.js', 'carne.js', 'financeiro-core.js', 'financeiro.js', 'financeiro-gestao.js', 'financeiro-painel.js', 'financeiro-painel.css',
   'pdf.js', 'espelho.js', 'vendas.js', 'caixa.js', 'cadastros.js', 'cronograma.js', 'apresentacao.js', 'contratos.js', 'omie.js', 'app.js',
   'libs/jspdf.umd.min.js', 'manifest.webmanifest', 'icons/icon-192.png', 'icons/icon-512.png',
-  'icons/logo-full.png', 'icons/logo-pdf.png'
+  'icons/logo-full.png', 'icons/logo-pdf.png', 'modernizacao.css',
+  'icons/3d/home.svg',
+  'icons/3d/espelho.svg',
+  'icons/3d/simulador.svg',
+  'icons/3d/vendas.svg',
+  'icons/3d/contratos.svg',
+  'icons/3d/propostas.svg',
+  'icons/3d/financeiro.svg',
+  'icons/3d/relatorios.svg',
+  'icons/3d/centros.svg',
+  'icons/3d/clientes.svg',
+  'icons/3d/corretores.svg',
+  'icons/3d/acessos.svg',
+  'icons/3d/apresentacao.svg',
+  'icons/3d/config.svg'
 ];
 
 self.addEventListener('install', (e) => {

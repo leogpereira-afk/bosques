@@ -60,11 +60,11 @@ const CARNE = (() => {
     const qtde = Math.max(0, Math.round(Number(venda.qtdeParcelas) || 0));
     // A 1ª parcela é 1 mês após a entrada (fórmula da planilha), a não ser que
     // a venda diga outra data de início.
-    const base = venda.inicioParcelas
-      ? venc(venda.inicioParcelas, -1)   // inicioParcelas JÁ é o venc da 1ª
-      : String(dataEntrada).slice(0, 10);
+    // Mantém a data explícita como âncora. Retroceder um mês primeiro perde
+    // os dias 29–31 quando o mês anterior é mais curto.
+    const base = venda.inicioParcelas || String(dataEntrada).slice(0, 10);
     for (let n = 1; n <= qtde; n++) {
-      linhas.push({ n, rotulo: 'Parcela ' + n + '/' + qtde, venc: venc(base, n), valor: valorParcelaN(venda, n, cfgReajuste) });
+      linhas.push({ n, rotulo: 'Parcela ' + n + '/' + qtde, venc: venc(base, venda.inicioParcelas ? n - 1 : n), valor: valorParcelaN(venda, n, cfgReajuste) });
     }
     return linhas;
   }

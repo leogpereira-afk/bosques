@@ -148,19 +148,46 @@ function toast(msg, tipo = '') {
 // apagava o recebimento inteiro (fotos já enviadas inclusive).
 let _modalAberto = null;
 const _pilhaModais = [];
+let _seqUI = 0;
+
+function controlesModal(fundo) {
+  return [...fundo.querySelectorAll('button:not([disabled]),input:not([disabled]):not([type="hidden"]),select:not([disabled]),textarea:not([disabled]),a[href],[tabindex]:not([tabindex="-1"])')]
+    .filter(el => {
+      if (el.getAttribute('tabindex') === '-1') return false;
+      for (let p = el; p && p !== fundo; p = p.parentElement) {
+        if (p.hidden || p.hasAttribute('inert') || p.style.display === 'none' || p.style.visibility === 'hidden') return false;
+        if (window.getComputedStyle) {
+          const estilo = window.getComputedStyle(p);
+          if (estilo.display === 'none' || estilo.visibility === 'hidden') return false;
+        }
+      }
+      return true;
+    });
+}
+
+function focarModal(fundo) {
+  const controles = controlesModal(fundo);
+  // No celular, entrar no diálogo sem abrir o teclado antes da escolha do campo.
+  const alvo = window.innerWidth > 900
+    ? controles.find(el => /^(INPUT|SELECT|TEXTAREA)$/.test(el.tagName)) || controles[0]
+    : null;
+  (alvo || fundo.querySelector('[role="dialog"]')).focus();
+}
 
 function abrirModal({ titulo, corpo, acoes = [], largo = false, aoFechar = null, semFechar = false }) {
+  const origemFoco = document.activeElement;
   if (_modalAberto) {
     _modalAberto.foco = document.activeElement;
     _modalAberto.fundo.style.display = 'none';
     _pilhaModais.push(_modalAberto);
   }
   const fundo = document.createElement('div');
+  const tituloId = 'bsq-modal-' + (++_seqUI);
   fundo.className = 'fundo-modal';
   fundo.innerHTML =
-    '<div class="modal' + (largo ? ' largo' : '') + '" role="dialog" aria-modal="true">' +
-      '<header><h2>' + esc(titulo) + '</h2>' +
-      (semFechar ? '' : '<button class="fechar" data-fechar aria-label="Fechar">&times;</button>') + '</header>' +
+    '<div class="modal' + (largo ? ' largo' : '') + '" role="dialog" aria-modal="true" aria-labelledby="' + tituloId + '" tabindex="-1">' +
+      '<header><h2 id="' + tituloId + '">' + esc(titulo) + '</h2>' +
+      (semFechar ? '' : '<button type="button" class="fechar" data-fechar aria-label="Fechar">&times;</button>') + '</header>' +
       '<div class="corpo"></div>' +
       (acoes.length ? '<footer></footer>' : '') +
     '</div>';
@@ -168,19 +195,26 @@ function abrirModal({ titulo, corpo, acoes = [], largo = false, aoFechar = null,
   const rodape = fundo.querySelector('footer');
   acoes.forEach((a, i) => {
     const b = document.createElement('button');
+    b.type = 'button';
     b.className = 'btn ' + (a.classe || '');
     b.textContent = a.texto;
     b.dataset.i = i;
-    b.addEventListener('click', () => a.aoClicar && a.aoClicar(fundo));
+    b.addEventListener('click', async () => {
+      try { if (a.aoClicar) await a.aoClicar(fundo); }
+      catch (e) {
+        // Falha de persistência interrompe o handler antes de fechar o formulário.
+        // Captura também handlers assíncronos para não perder o erro na promessa.
+        if (!e?.jaAvisado) toast(e?.message || 'Não foi possível concluir a ação. Tente novamente.', 'ruim');
+      }
+    });
     rodape.appendChild(b);
   });
   fundo.addEventListener('click', (e) => {
     if (e.target.hasAttribute('data-fechar')) fecharModal();
   });
   document.body.appendChild(fundo);
-  _modalAberto = { fundo, aoFechar, semFechar };
-  const primeiro = fundo.querySelector('input,select,textarea');
-  if (primeiro && window.innerWidth > 900) setTimeout(() => primeiro.focus(), 60);
+  _modalAberto = { fundo, aoFechar, semFechar, origemFoco };
+  focarModal(fundo);
   return fundo;
 }
 
@@ -193,7 +227,25 @@ function fecharModal() {
 }
 
 document.addEventListener('keydown', (e) => {
-  if (e.key === 'Escape' && _modalAberto && !_modalAberto.semFechar) fecharModal();
+  if (!_modalAberto) return;
+  if (e.key === 'Escape' && !_modalAberto.semFechar) { e.preventDefault(); fecharModal(); return; }
+  if (e.key !== 'Tab') return;
+  const { fundo } = _modalAberto;
+  const controles = controlesModal(fundo);
+  const primeiro = controles[0], ultimo = controles[controles.length - 1];
+  if (!primeiro) { e.preventDefault(); fundo.querySelector('[role="dialog"]').focus(); return; }
+  const ativo = document.activeElement;
+  if (!fundo.contains(ativo) || !controles.includes(ativo)) {
+    e.preventDefault(); (e.shiftKey ? ultimo : primeiro).focus();
+  } else if (e.shiftKey && ativo === primeiro) {
+    e.preventDefault(); ultimo.focus();
+  } else if (!e.shiftKey && ativo === ultimo) {
+    e.preventDefault(); primeiro.focus();
+  }
+});
+
+document.addEventListener('focusin', (e) => {
+  if (_modalAberto && !_modalAberto.fundo.contains(e.target)) focarModal(_modalAberto.fundo);
 });
 
 // Fecha sem disparar o aoFechar (usado quando a própria ação já resolveu a
@@ -217,16 +269,26 @@ function fecharEste(fundo) {
 
 function tirarDaPilha(fundo) {
   if (_modalAberto && _modalAberto.fundo === fundo) {
+    const fechado = _modalAberto;
     _modalAberto = _pilhaModais.pop() || null;
     if (_modalAberto) {
       _modalAberto.fundo.style.display = '';
-      if (_modalAberto.foco && _modalAberto.foco.focus) _modalAberto.foco.focus();
+      const alvo = fechado.origemFoco || _modalAberto.foco;
+      if (alvo?.isConnected && _modalAberto.fundo.contains(alvo)) alvo.focus();
+      else focarModal(_modalAberto.fundo);
+    } else if (fechado.origemFoco?.isConnected && !fundo.contains(fechado.origemFoco)) {
+      fechado.origemFoco.focus();
     }
     if (!_modalAberto) document.dispatchEvent(new CustomEvent('ui:modais-fechados'));
     return;
   }
   const i = _pilhaModais.findIndex((m) => m.fundo === fundo);
-  if (i >= 0) _pilhaModais.splice(i, 1);
+  if (i >= 0) {
+    const retirado = _pilhaModais[i];
+    const seguinte = _pilhaModais[i + 1] || _modalAberto;
+    if (seguinte && fundo.contains(seguinte.origemFoco)) seguinte.origemFoco = retirado.origemFoco;
+    _pilhaModais.splice(i, 1);
+  }
   // Pilha vazia = nenhum modal na tela: o app pode aplicar o redesenho que
   // ficou segurado enquanto a pessoa digitava.
   if (!_modalAberto) document.dispatchEvent(new CustomEvent('ui:modais-fechados'));
@@ -301,8 +363,17 @@ function perguntarData(rotulo, opts = {}) {
 
 /* ── Peças de formulário ───────────────────────────────────────────────────── */
 function campo(rot, html, dica) {
-  return '<div class="campo"><label>' + esc(rot) + '</label>' + html +
-    (dica ? '<div class="dica">' + esc(dica) + '</div>' : '') + '</div>';
+  const caixa = document.createElement('div');
+  caixa.innerHTML = html;
+  const controle = caixa.querySelector('input:not([type="hidden"]),select,textarea');
+  const id = controle ? (controle.id || 'bsq-campo-' + (++_seqUI)) : '';
+  const dicaId = dica ? 'bsq-dica-' + (++_seqUI) : '';
+  if (controle) {
+    controle.id = id;
+    if (dicaId) controle.setAttribute('aria-describedby', [controle.getAttribute('aria-describedby'), dicaId].filter(Boolean).join(' '));
+  }
+  return '<div class="campo"><label' + (id ? ' for="' + esc(id) + '"' : '') + '>' + esc(rot) + '</label>' + caixa.innerHTML +
+    (dica ? '<div class="dica" id="' + dicaId + '">' + esc(dica) + '</div>' : '') + '</div>';
 }
 
 function entrada(nome, valor, opts = {}) {

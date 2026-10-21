@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128" fill="none" stroke-linejoin="round" stroke-linecap="round">
+<title>Simulador de condições</title>
+<defs>
+  <linearGradient id="forest" x1="0" y1="0" x2=".85" y2="1"><stop stop-color="#6e965b"/><stop offset=".5" stop-color="#3d704b"/><stop offset="1" stop-color="#1c4936"/></linearGradient>
+  <linearGradient id="olive" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#b7c78b"/><stop offset="1" stop-color="#758d50"/></linearGradient>
+  <linearGradient id="ivory" x1="0" y1="0" x2=".8" y2="1"><stop stop-color="#fffffb"/><stop offset="1" stop-color="#e1e8d6"/></linearGradient>
+  <linearGradient id="gold" x1="0" y1="0" x2=".8" y2="1"><stop stop-color="#eddba1"/><stop offset=".45" stop-color="#d1b66d"/><stop offset="1" stop-color="#a27d37"/></linearGradient>
+  <linearGradient id="mint" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#f0f4df"/><stop offset="1" stop-color="#b8cc9d"/></linearGradient>
+  <linearGradient id="side" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#c0d0ae"/><stop offset="1" stop-color="#8ca775"/></linearGradient>
+  <linearGradient id="dark" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#3e6748"/><stop offset="1" stop-color="#153b2d"/></linearGradient>
+  <filter id="lift" x="-30%" y="-30%" width="170%" height="180%"><feDropShadow dx="0" dy="5" stdDeviation="3" flood-color="#243b2b" flood-opacity=".15"/></filter>
+  <filter id="blur" x="-30%" y="-150%" width="160%" height="400%"><feGaussianBlur stdDeviation="3"/></filter>
+</defs>
+<ellipse cx="65" cy="108" rx="39" ry="6" fill="#25452e" opacity=".13" filter="url(#blur)"/>
+<g filter="url(#lift)"><path d="M34 16 91 27l9 75-14 10-60-17Z" fill="#204b37"/><path d="M34 16 91 27l-5 75-60-17Z" fill="url(#forest)"/><path d="m86 102 14-10v10l-14 10Z" fill="#183f30"/><path d="m26 85 60 17v10L26 95Z" fill="#72925d"/>
+<path d="m41 28 38 8-2 21-38-9Z" fill="url(#mint)"/><path d="m45 33 29 6" stroke="#f8fbe8" stroke-width="2"/><path d="m48 42 4 1m4 1 4 1m4 1 5 1" stroke="#53774a" stroke-width="4"/>
+<path d="m38 57 10 2-1 8-10-2Zm17 4 10 2-1 8-10-2Zm16 4 10 2-1 8-10-2ZM36 72l10 2-1 8-10-2Zm17 4 10 2-1 8-10-2Z" fill="url(#ivory)"/>
+<path d="m69 80 10 2-1 14-10-2Z" fill="url(#gold)"/><path d="m72 86 4 1m-2-3v6" stroke="#765e2c" stroke-width="1.5"/>
+<path d="m35 21 50 10" stroke="#8dab72" stroke-width="1.4" opacity=".6"/></g>
+</svg>

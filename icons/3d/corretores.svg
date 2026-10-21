@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128" fill="none" stroke-linejoin="round" stroke-linecap="round">
+<title>Equipe de corretores</title>
+<defs>
+  <linearGradient id="forest" x1="0" y1="0" x2=".85" y2="1"><stop stop-color="#6e965b"/><stop offset=".5" stop-color="#3d704b"/><stop offset="1" stop-color="#1c4936"/></linearGradient>
+  <linearGradient id="olive" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#b7c78b"/><stop offset="1" stop-color="#758d50"/></linearGradient>
+  <linearGradient id="ivory" x1="0" y1="0" x2=".8" y2="1"><stop stop-color="#fffffb"/><stop offset="1" stop-color="#e1e8d6"/></linearGradient>
+  <linearGradient id="gold" x1="0" y1="0" x2=".8" y2="1"><stop stop-color="#eddba1"/><stop offset=".45" stop-color="#d1b66d"/><stop offset="1" stop-color="#a27d37"/></linearGradient>
+  <linearGradient id="mint" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#f0f4df"/><stop offset="1" stop-color="#b8cc9d"/></linearGradient>
+  <linearGradient id="side" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#c0d0ae"/><stop offset="1" stop-color="#8ca775"/></linearGradient>
+  <linearGradient id="dark" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#3e6748"/><stop offset="1" stop-color="#153b2d"/></linearGradient>
+  <filter id="lift" x="-30%" y="-30%" width="170%" height="180%"><feDropShadow dx="0" dy="5" stdDeviation="3" flood-color="#243b2b" flood-opacity=".15"/></filter>
+  <filter id="blur" x="-30%" y="-150%" width="160%" height="400%"><feGaussianBlur stdDeviation="3"/></filter>
+</defs>
+<ellipse cx="65" cy="108" rx="39" ry="6" fill="#25452e" opacity=".13" filter="url(#blur)"/>
+<g filter="url(#lift)"><path d="m34 27 46-15 22 15v69l-49 21-22-14Z" fill="#829d68"/><path d="m26 26 48-15 22 15v69l-50 21-20-13Z" fill="url(#ivory)"/><path d="m26 26 20 14 50-14-22-15Z" fill="#c6d6ae"/><path d="m46 40 50-14v18L46 60Z" fill="url(#forest)"/><path d="m46 40-20-14v18l20 16Z" fill="#6d8b56"/>
+<path d="m52 19 15-5 7 4-15 5Z" fill="#577346"/><path d="M55 19V9c0-6 13-9 13-2v10" fill="none" stroke="url(#gold)" stroke-width="6"/>
+<ellipse cx="64" cy="65" rx="10" ry="12" fill="url(#olive)"/><path d="M48 91c0-11 8-19 18-19 8 0 13 4 15 9l-1 8-31 11Z" fill="#76915b"/>
+<path d="m82 52 7-2m-5 47 7-2" stroke="#c5a45a" stroke-width="3"/>
+<path d="m53 103 23-8" stroke="#9fb58b" stroke-width="2"/></g>
+</svg>

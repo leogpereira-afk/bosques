@@ -54,6 +54,19 @@ function telDaVenda(v) {
   const c = v.clienteId ? achar('cliente', v.clienteId) : null;
   return c ? (c.whatsapp || c.celular || '') : '';
 }
+function saldoDaParcela(l) {
+  return l.saldo != null ? Math.max(0, Number(l.saldo) || 0)
+    : Math.max(0, Math.round((l.valor - l.pago) * 100) / 100);
+}
+// A entrada é separada dos boletos no motor financeiro, mas precisa continuar
+// visível e selecionável na ficha e no formulário de recebimento.
+function linhasRecebimentoVenda(v, r) {
+  if (!r.espelhoOmie || !(Number(v.entrada) > 0)) return r.carne;
+  const saldo = Number(r.entradaSaldo) || 0;
+  return [{ n: 0, rotulo: 'Entrada', venc: v.dataEntrada || v.dataVenda || '',
+    valor: Number(v.entrada), pago: Math.max(0, Number(v.entrada) - saldo), saldo,
+    situacao: saldo > 0 ? 'aberta' : 'paga' }, ...r.carne];
+}
 function msgCobranca(v, r) {
   const nome = (v.clienteNome || '').trim().split(' ')[0] || 'tudo bem';
   const loteTxt = 'Q' + v.quadra + '-L' + v.lote;
@@ -61,14 +74,14 @@ function msgCobranca(v, r) {
   const conta = ((S.cfg && S.cfg.empresa && S.cfg.empresa.contaBancaria) || '').trim();
   let corpo;
   if (atrasadas.length) {
-    const soma = atrasadas.reduce((s, l) => s + (l.valor - Math.min(l.pago, l.valor)), 0);
+    const soma = atrasadas.reduce((s, l) => s + saldoDaParcela(l), 0);
     const detalhe = atrasadas.slice(0, 3).map((l) => l.rotulo + ' (venceu ' + fmt.data(l.venc) + ')').join(', ') +
       (atrasadas.length > 3 ? ' e mais ' + (atrasadas.length - 3) : '');
     corpo = 'passando para lembrar que constam em aberto no seu lote ' + loteTxt + ': ' + detalhe +
       ', somando ' + fmt.brl(soma) + '.';
   } else if (r.proxima) {
     corpo = 'lembrando que a próxima parcela do seu lote ' + loteTxt + ' (' + r.proxima.rotulo +
-      ', ' + fmt.brl(r.proxima.valor - r.proxima.pago) + ') vence em ' + fmt.data(r.proxima.venc) + '.';
+      ', ' + fmt.brl(saldoDaParcela(r.proxima)) + ') vence em ' + fmt.data(r.proxima.venc) + '.';
   } else {
     corpo = 'sobre o seu lote ' + loteTxt + '.';
   }
@@ -460,8 +473,8 @@ TELAS.venda = function (id) {
     '</div></div>';
 
   const espelhado = !!r.espelhoOmie;
-  const linhasCarne = r.carne.map((l) => {
-    const falta = Math.max(0, Math.round((l.valor - l.pago) * 100) / 100);
+  const linhasCarne = linhasRecebimentoVenda(v, r).map((l) => {
+    const falta = saldoDaParcela(l);
     return '<tr class="' + l.situacao + '">' +
       '<td>' + esc(l.rotulo) + (l.trava ? ' 🔒' : '') +
         (l.conferir ? ' <span class="etiqueta et-hoje" title="título de cliente com mais de uma venda — confirme se é desta">conferir</span>' : '') + '</td>' +
@@ -471,7 +484,7 @@ TELAS.venda = function (id) {
       '<td class="num">' + (l.pago ? fmt.brl(l.pago) : '—') + '</td>' +
       '<td>' + etiqueta(l.situacao) + '</td>' +
       '<td class="num" style="white-space:nowrap">' +
-        (espelhado && viva ? '<button class="btn mini bt-edit-p" data-i="' + (l.n - 1) + '">✏</button> ' : '') +
+        (espelhado && viva && l.n > 0 ? '<button class="btn mini bt-edit-p" data-i="' + (l.n - 1) + '">✏</button> ' : '') +
         (viva && falta > 0
         ? '<button class="btn mini bt-baixa-n" data-n="' + l.n + '" data-falta="' + falta + '">baixar</button>' : '') + '</td>' +
       '</tr>';
@@ -541,7 +554,7 @@ TELAS.venda = function (id) {
   const bAddP = document.getElementById('bt-add-parc');
   if (bAddP) bAddP.onclick = () => abrirEditarParcela(v, -1);
   app.querySelectorAll('.bt-baixa-n').forEach((b) => {
-    b.onclick = () => (r.espelhoOmie
+    b.onclick = () => (r.espelhoOmie && Number(b.dataset.n) > 0
       ? abrirEditarParcela(v, Number(b.dataset.n) - 1, { baixa: true })
       : abrirBaixa(v, r, Number(b.dataset.n), Number(b.dataset.falta)));
   });
@@ -610,11 +623,12 @@ TELAS.venda = function (id) {
 
 /* ── Baixa de parcela ──────────────────────────────────────────────────────── */
 function abrirBaixa(v, r, parcelaN, faltaSugerida) {
+  const linhas = linhasRecebimentoVenda(v, r);
   // Sem parcela cravada, sugere a mais antiga em aberto (FIFO — igual ao motor).
-  const alvo = parcelaN != null ? r.carne.find((l) => l.n === parcelaN)
-    : r.carne.find((l) => ['atrasada', 'hoje', 'parcial', 'aberta'].includes(l.situacao));
+  const alvo = parcelaN != null ? linhas.find((l) => l.n === parcelaN)
+    : linhas.find((l) => ['atrasada', 'hoje', 'parcial', 'aberta'].includes(l.situacao));
   const falta = faltaSugerida != null ? faltaSugerida
-    : alvo ? (alvo.saldo != null ? alvo.saldo : Math.max(0, Math.round((alvo.valor - alvo.pago) * 100) / 100)) : 0;
+    : alvo ? saldoDaParcela(alvo) : 0;
   const corpo =
     '<p class="nota">' + (alvo ? 'Sugerido: <b>' + esc(alvo.rotulo) + '</b> (' + fmt.data(alvo.venc) + '), faltam ' + fmt.brl(falta) + '.' : '') +
       ' Informe o valor real. O pagamento abate o saldo das parcelas identificadas; o excedente fica como crédito a vincular.</p>' +
@@ -623,8 +637,8 @@ function abrirBaixa(v, r, parcelaN, faltaSugerida) {
       campo('Em', entrada('data', hojeISO(), { tipo: 'date' })) +
       campo('Forma', seletor('forma', 'PIX', (S.cfg && S.cfg.formasPg) || ['PIX', 'Dinheiro'])) +
     '</div>' +
-    campo('Amarrar numa parcela específica?', seletor('parcelaN', parcelaN != null ? String(parcelaN) : '',
-      r.carne.filter((l) => l.n > 0).map((l) => ({ v: String(l.n), t: l.rotulo + ' · ' + fmt.data(l.venc) })), 'não — aplicar na mais antiga em aberto')) +
+    campo('Amarrar numa parcela específica?', seletor('parcelaN', parcelaN != null ? String(parcelaN) : (alvo && alvo.n === 0 ? '0' : ''),
+      linhas.filter((l) => l.n > 0 || saldoDaParcela(l) > 0).map((l) => ({ v: String(l.n), t: l.rotulo + ' · ' + fmt.data(l.venc) })), 'não — aplicar na mais antiga em aberto')) +
     campo('Observação', entrada('obs', '', { placeholder: 'juros, acordo, quem trouxe…' }));
 
   abrirModal({
@@ -643,7 +657,7 @@ function abrirBaixa(v, r, parcelaN, faltaSugerida) {
         const tid = nAlvo > 0 && parcelas[nAlvo-1] ? FINANCEIRO.chave(parcelas[nAlvo-1],nAlvo-1) : null;
         const alocacoes = FINANCEIRO.alocar(vAtual, recsDaVenda(v.id), valor, c.data, tid);
         salvar('rec', {
-          vendaId:v.id, tipo:nAlvo===0 ? 'entrada' : 'parcela', parcelaN:null,
+          vendaId:v.id, tipo:nAlvo===0 ? 'entrada' : 'parcela', parcelaN:!r.espelhoOmie && nAlvo > 0 ? nAlvo : null,
           alocacoes:nAlvo===0 ? [] : alocacoes, valor, data:c.data, forma:c.forma,
           obs:String(c.obs||'').slice(0,300), editadoAMao:true,
         });
@@ -695,21 +709,23 @@ function abrirDistrato(v, r) {
       { texto: 'Voltar', aoClicar: () => fecharModal() },
       { texto: 'Confirmar distrato', classe: 'perigo', aoClicar: async (fundo) => {
         const c = lerCampos(fundo);
+        if (!valoresComerciaisValidos([numeroBR(c.valorDevolvido)])) return;
         if (!(await confirmar('Distratar de verdade? O lote volta ao estoque e o carnê para de cobrar.', { perigo: true, ok: 'Distratar' }))) return;
         const valorDev = numeroBR(c.valorDevolvido);
-        salvar('venda', {
+        const itens = [{ colecao: 'venda', registro: {
           id: v.id, situacao: 'distratada',
           distrato: { em: c.em || hojeISO(), motivo: String(c.motivo || '').slice(0, 500), valorDevolvido: valorDev, por: S.quem || '—' },
           historico: historiar(achar('venda', v.id), 'Distrato: ' + (c.motivo || 'sem motivo escrito') +
             (valorDev ? ' · a devolver ' + fmt.brl(valorDev) : '')),
-        });
+        } }];
         if (valorDev > 0 && c.devolvidoAgora) {
-          salvar('cx', {
+          itens.push({ colecao: 'cx', registro: {
             tipo: 'saida', data: c.em || hojeISO(), valor: valorDev,
             descricao: 'Devolução do distrato ' + (v.codigo || '') + ' — ' + (v.clienteNome || ''),
             categoria: 'Distrato / devolução', vendaId: v.id,
-          });
+          } });
         }
+        salvarGrupo(itens);
         fecharSilencioso(fundo);
         toast('Venda distratada — o lote voltou ao estoque');
         TELAS.venda(v.id);
@@ -877,6 +893,7 @@ function abrirFichaProposta(id) {
           // atendente redigitava o nome e nascia um cliente sósia
           propostaId:p.id, clienteId: p.clienteId || '',
           entrada: p.entrada, qtde: p.qtdeParcelas, valorParcela: p.valorParcela,
+          entradaModo: p.entradaModo || 'avista', entradaDetalhe: p.entradaDetalhe || '',
           tipo: p.tipoParcela === 'À vista' ? 'Avista' : (p.tipoParcela || 'Fixa'),
           corretorId: p.corretorId || '', comissao: p.comissao || '', formaPg: p.formaPg || 'PIX',
           cor2Id: p.corretor2Id || '', comissao2: p.comissao2 || '',
@@ -1055,33 +1072,38 @@ function abrirEditarParcela(v, idx, opts = {}) {
           // remover é ordem explícita (_remover): lista com a parcela omitida
           // não apaga mais nada no servidor (proteção contra tela desatualizada)
           const psl = ps.slice(); psl[idx] = { tid: pp.tid || null, _remover: true };
-          salvar('venda', { id: v.id, parcelas: psl });
+          const itens = [{ colecao: 'venda', registro: { id: v.id, parcelas: psl } }];
           const psD = (Array.isArray(destino.parcelas) ? destino.parcelas.slice() : []);
           psD.push(editada);
           psD.sort((x, y) => String(x.venc || '').localeCompare(String(y.venc || '')));
-          salvar('venda', { id: destino.id, parcelas: psD });
+          itens.push({ colecao: 'venda', registro: { id: destino.id, parcelas: psD } });
           // baixa manual junto com a mudança também entra no caixa — o rec
           // nasce na venda onde a parcela passou a morar
           if (virouPaga && !editada.tid && editada.pagoValor > 0) {
-            salvar('rec', { vendaId: destino.id, tipo: 'parcela', parcelaN: null,
+            itens.push({ colecao: 'rec', registro: { vendaId: destino.id, tipo: 'parcela', parcelaN: null,
               valor: editada.pagoValor, data: editada.pago, forma: 'PIX',
-              obs: 'baixa manual de parcela ✍️' });
+              obs: 'baixa manual de parcela ✍️' } });
           }
+          salvarGrupo(itens);
           fecharSilencioso(fundo);
           toast('Parcela movida para ' + (destino.codigo || 'a outra venda'));
           TELAS.venda(v.id);
           return;
         }
       }
-      if (nova) ps.push(editada); else ps[idx] = editada;
-      ps.sort((x, y) => String(x.venc || '').localeCompare(String(y.venc || '')));
-      salvar('venda', { id: v.id, parcelas: ps });
+      // A tentativa pode falhar por falta de espaço e o formulário continuar
+      // aberto. Não altera a lista capturada: a retentativa parte da mesma base.
+      const atualizadas = ps.slice();
+      if (nova) atualizadas.push(editada); else atualizadas[idx] = editada;
+      atualizadas.sort((x, y) => String(x.venc || '').localeCompare(String(y.venc || '')));
+      const itens = [{ colecao: 'venda', registro: { id: v.id, parcelas: atualizadas } }];
       // baixa manual em parcela SEM boleto: o dinheiro entra no caixa por rec
       if (virouPaga && !editada.tid && editada.pagoValor > 0) {
-        salvar('rec', { vendaId: v.id, tipo: 'parcela', parcelaN: null,
+        itens.push({ colecao: 'rec', registro: { vendaId: v.id, tipo: 'parcela', parcelaN: null,
           valor: editada.pagoValor, data: editada.pago, forma: 'PIX',
-          obs: 'baixa manual de parcela ✍️' });
+          obs: 'baixa manual de parcela ✍️' } });
       }
+      salvarGrupo(itens);
       fecharSilencioso(fundo);
       toast(nova ? 'Parcela adicionada 🔒' : 'Parcela salva 🔒');
       TELAS.venda(v.id);
@@ -1139,6 +1161,7 @@ function abrirEditarVenda(v) {
       { texto: 'Voltar', aoClicar: () => fecharModal() },
       { texto: 'Salvar', classe: 'primario', aoClicar: (fundo) => {
         const c = lerCampos(fundo);
+        if (!valoresComerciaisValidos([c.entrada, c.qtdeParcelas, c.valorParcela, c.comissao, c.comissao2].map(numeroBR))) return;
         salvar('venda', { id: v.id,
           dataVenda: c.dataVenda, entrada: numeroBR(c.entrada), dataEntrada: c.dataEntrada,
           qtdeParcelas: Math.max(0, Math.round(numeroBR(c.qtdeParcelas))), valorParcela: numeroBR(c.valorParcela),

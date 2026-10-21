@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128" fill="none" stroke-linejoin="round" stroke-linecap="round">
+<title>Configurações</title>
+<defs>
+  <linearGradient id="forest" x1="0" y1="0" x2=".85" y2="1"><stop stop-color="#6e965b"/><stop offset=".5" stop-color="#3d704b"/><stop offset="1" stop-color="#1c4936"/></linearGradient>
+  <linearGradient id="olive" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#b7c78b"/><stop offset="1" stop-color="#758d50"/></linearGradient>
+  <linearGradient id="ivory" x1="0" y1="0" x2=".8" y2="1"><stop stop-color="#fffffb"/><stop offset="1" stop-color="#e1e8d6"/></linearGradient>
+  <linearGradient id="gold" x1="0" y1="0" x2=".8" y2="1"><stop stop-color="#eddba1"/><stop offset=".45" stop-color="#d1b66d"/><stop offset="1" stop-color="#a27d37"/></linearGradient>
+  <linearGradient id="mint" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#f0f4df"/><stop offset="1" stop-color="#b8cc9d"/></linearGradient>
+  <linearGradient id="side" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#c0d0ae"/><stop offset="1" stop-color="#8ca775"/></linearGradient>
+  <linearGradient id="dark" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#3e6748"/><stop offset="1" stop-color="#153b2d"/></linearGradient>
+  <filter id="lift" x="-30%" y="-30%" width="170%" height="180%"><feDropShadow dx="0" dy="5" stdDeviation="3" flood-color="#243b2b" flood-opacity=".15"/></filter>
+  <filter id="blur" x="-30%" y="-150%" width="160%" height="400%"><feGaussianBlur stdDeviation="3"/></filter>
+</defs>
+<ellipse cx="65" cy="108" rx="39" ry="6" fill="#25452e" opacity=".13" filter="url(#blur)"/>
+<g filter="url(#lift)"><polygon points="64.00,25.00 69.61,17.37 75.13,18.47 77.39,27.66 81.50,29.69 90.18,25.89 94.41,29.59 91.77,38.69 94.31,42.50 103.73,43.54 105.53,48.87 98.70,55.43 99.00,60.00 106.63,65.61 105.53,71.13 96.34,73.39 94.31,77.50 98.11,86.18 94.41,90.41 85.31,87.77 81.50,90.31 80.46,99.73 75.13,101.53 68.57,94.70 64.00,95.00 58.39,102.63 52.87,101.53 50.61,92.34 46.50,90.31 37.82,94.11 33.59,90.41 36.23,81.31 33.69,77.50 24.27,76.46 22.47,71.13 29.30,64.57 29.00,60.00 21.37,54.39 22.47,48.87 31.66,46.61 33.69,42.50 29.89,33.82 33.59,29.59 42.69,32.23 46.50,29.69 47.54,20.27 52.87,18.47 59.43,25.30" transform="translate(3 9)" fill="#284f36"/><polygon points="64.00,25.00 69.61,17.37 75.13,18.47 77.39,27.66 81.50,29.69 90.18,25.89 94.41,29.59 91.77,38.69 94.31,42.50 103.73,43.54 105.53,48.87 98.70,55.43 99.00,60.00 106.63,65.61 105.53,71.13 96.34,73.39 94.31,77.50 98.11,86.18 94.41,90.41 85.31,87.77 81.50,90.31 80.46,99.73 75.13,101.53 68.57,94.70 64.00,95.00 58.39,102.63 52.87,101.53 50.61,92.34 46.50,90.31 37.82,94.11 33.59,90.41 36.23,81.31 33.69,77.50 24.27,76.46 22.47,71.13 29.30,64.57 29.00,60.00 21.37,54.39 22.47,48.87 31.66,46.61 33.69,42.50 29.89,33.82 33.59,29.59 42.69,32.23 46.50,29.69 47.54,20.27 52.87,18.47 59.43,25.30" fill="url(#olive)" stroke="#d6e2b9" stroke-width="1"/>
+<circle cx="64" cy="60" r="24" fill="#63834f"/><circle cx="64" cy="57" r="23" fill="url(#forest)"/><circle cx="64" cy="57" r="15.5" fill="url(#gold)"/><circle cx="64" cy="57" r="9" fill="#eff3df"/><path d="M39 38c4-7 11-12 19-14" fill="none" stroke="#edf2d6" stroke-width="2" opacity=".75"/>
+<path d="M71 82c7-2 12-5 17-12" fill="none" stroke="#375f3c" stroke-width="1.5" opacity=".5"/></g>
+</svg>

@@ -40,10 +40,55 @@ function rotaAtual() {
   return { nome: (nome === 'cronograma' ? 'centros' : nome) || (S.perfil === 'corretor' ? 'espelho' : 'home'), id: id || '' };
 }
 
+/* Controles existentes continuam acessíveis também sem mouse. */
+let _campoTelaSeq=0;
+function prepararBuscaCliente(inp){
+  const caixa=document.getElementById('cli-sugestoes');if(!caixa)return [];
+  const itens=[...caixa.querySelectorAll('.ac-item')];
+  inp.setAttribute('role','combobox');inp.setAttribute('aria-autocomplete','list');inp.setAttribute('aria-controls',caixa.id);
+  caixa.setAttribute('role','listbox');caixa.setAttribute('aria-label','Clientes encontrados');
+  itens.forEach((it,i)=>{it.id='bsq-cli-opcao-'+i;it.setAttribute('role','option');if(!it.hasAttribute('aria-selected'))it.setAttribute('aria-selected','false');});
+  inp.setAttribute('aria-expanded',String(caixa.style.display!=='none'&&itens.length>0));return itens;
+}
+function ligarAcessibilidadeTela(){
+  const app=document.getElementById('app');if(!app)return;
+  for(const label of app.querySelectorAll('label:not([for])')){
+    const irmao=label.nextElementSibling;
+    const controle=label.querySelector('input,select,textarea')||(irmao?.matches('input,select,textarea')?irmao:null);
+    if(controle){if(!controle.id)controle.id='bsq-tela-campo-'+(++_campoTelaSeq);label.setAttribute('for',controle.id);}
+  }
+  for(const el of app.querySelectorAll('div[data-id],div[data-lote],.ct-lin')){
+    if(typeof el.onclick!=='function'||el.getAttribute('role')||el.querySelector('a.home-registro'))continue;
+    el.setAttribute('role','button');el.setAttribute('tabindex','0');
+    el.addEventListener('keydown',e=>{if(e.target===el&&(e.key==='Enter'||e.key===' ')){e.preventDefault();el.click();}});
+  }
+  const busca=document.getElementById('cli-busca');if(busca)prepararBuscaCliente(busca);
+}
+document.addEventListener('input',e=>{if(e.target?.id==='cli-busca'){e.target.dataset.acPos='-1';prepararBuscaCliente(e.target);}});
+document.addEventListener('keydown',e=>{
+  const inp=e.target;if(inp?.id!=='cli-busca')return;
+  const itens=prepararBuscaCliente(inp),caixa=document.getElementById('cli-sugestoes');
+  if(e.key==='Escape'){caixa.style.display='none';inp.setAttribute('aria-expanded','false');return;}
+  if(!itens.length||caixa.style.display==='none')return;
+  let pos=Number(inp.dataset.acPos??-1);
+  if(e.key==='ArrowDown'||e.key==='ArrowUp'){
+    e.preventDefault();pos=e.key==='ArrowDown'?(pos+1)%itens.length:(pos<=0?itens.length-1:pos-1);
+    inp.dataset.acPos=String(pos);itens.forEach((it,i)=>it.setAttribute('aria-selected',String(i===pos)));inp.setAttribute('aria-activedescendant',itens[pos].id);
+  }else if(e.key==='Enter'&&pos>=0&&itens[pos]){
+    e.preventDefault();itens[pos].dispatchEvent(new Event('mousedown',{bubbles:true,cancelable:true}));inp.setAttribute('aria-expanded','false');inp.removeAttribute('aria-activedescendant');
+  }
+});
+
 /* ── Render ────────────────────────────────────────────────────────────────── */
 const DESCRICOES_TELA={home:'O empreendimento hoje, em um só lugar.',espelho:'Disponibilidade, reservas e vendas por lote.',lote:'Informações do lote e condições de venda.',vendas:'Acompanhe contratos, pagamentos e clientes.',venda:'Contrato, parcelas e histórico do cliente.',simulador:'Compare condições e monte um plano de pagamento.',simulacao:'Explore cenários de vendas e recebimentos.',contratos:'Prepare e consulte os contratos do empreendimento.',propostas:'Organize propostas e acompanhe cada negociação.',financeiro:'Entradas, saídas e retiradas com acesso aos lançamentos.',caixa:'Acompanhe as entradas e saídas do período.',lancamentos:'Consulte e edite cada movimentação.',relatorios:'Resultados mensais e detalhamento dos gastos.',centros:'Gastos por centro de custo e categoria do Omie.',clientes:'Cadastros e informações dos seus clientes.',corretores:'Equipe comercial, desempenho e comissões.',apresentacao:'Fotos e materiais para apresentar o empreendimento.',acessos:'Cadastros de quem entrou pelo link compartilhado.',config:'Preferências e acessos do sistema.'};
 const ICONES_MENU={relatorios:'M4 3h16v18H4z M8 16v-4 M12 16V7 M16 16v-7',home:'M3 10l9-7 9 7v10a1 1 0 0 1-1 1h-5v-7H9v7H4a1 1 0 0 1-1-1z',espelho:'M3 3h7v7H3z M14 3h7v7h-7z M3 14h7v7H3z M14 14h7v7h-7z',simulador:'M5 3h14v18H5z M8 7h8 M8 11h1 M15 11h1 M8 15h1 M15 15h1 M8 18h1 M15 18h1',vendas:'M4 20V8l8-5 8 5v12H4z M8 12h8 M8 16h5',contratos:'M6 3h9l4 4v14H6z M14 3v5h5 M9 12h7 M9 16h7',propostas:'M3 5h18v14H3z M3 5l9 7 9-7',financeiro:'M3 7h18v14H3z M3 7V4h15v3 M15 12h6v5h-6z',centros:'M4 5h16v16H4z M8 3v4 M16 3v4 M4 10h16 M8 14h3 M8 17h7',clientes:'M16 8a4 4 0 1 1-8 0 4 4 0 0 1 8 0 M4 21v-2a8 6 0 0 1 16 0v2',corretores:'M13 7a3 3 0 1 1-6 0 3 3 0 0 1 6 0 M3 20v-2a7 5 0 0 1 14 0v2 M16 4a3 3 0 0 1 0 6 M18 14a5 4 0 0 1 3 4v2',apresentacao:'M3 4h18v16H3z M3 16l6-6 5 5 3-3 4 4 M15 8h.01',config:'M12 3v3 M12 18v3 M3 12h3 M18 12h3 M5.6 5.6l2 2 M16.4 16.4l2 2 M5.6 18.4l2-2 M16.4 7.6l2-2 M17 12a5 5 0 1 1-10 0 5 5 0 0 1 10 0'};
-function iconeMenu(nome){return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="'+(ICONES_MENU[nome]||ICONES_MENU.financeiro)+'"/></svg>';}
+function icone3d(nome, classe = '') {
+  const destino = ({venda:'vendas',lote:'espelho',simulacao:'simulador',caixa:'financeiro',lancamentos:'financeiro',comissoes:'corretores'})[nome] || nome;
+  const arquivo = Object.prototype.hasOwnProperty.call(ROTAS, destino) ? destino : 'home';
+  return '<img class="icone-3d '+classe+'" src="icons/3d/'+arquivo+'.svg" width="48" height="48" alt="" aria-hidden="true" decoding="async">';
+}
+function iconeMenu(nome){return icone3d(nome);}
+
 function grupoMenu(nome){return nome==='home'?'Visão geral':['espelho','simulador','vendas','contratos','propostas'].includes(nome)?'Comercial':['financeiro','relatorios','centros'].includes(nome)?'Gestão':['clientes','corretores','acessos'].includes(nome)?'Cadastros':'Organização';}
 
 function renderLateral() {
@@ -64,13 +109,37 @@ function renderLateral() {
   const bs = el.querySelector('#bt-sync');
   if (bs) bs.onclick = () => { puxar(); toast('Atualizando dados do aparelho. A integração Omie fica no Financeiro.'); };
   const bx = el.querySelector('#bt-sair');
-  if (bx) bx.onclick = async () => {
-    if (await confirmar('Sair e limpar este aparelho?')) {
-      await limparCacheCompleto();
-      localStorage.clear();
-      location.reload();
-    }
-  };
+  if (bx) bx.onclick = sairDoBosques;
+}
+
+async function sairDoBosques() {
+  if (S.fila.length) { abrirPendenciasEnvio(); return false; }
+  if (!await confirmar('Sair do Bosques e remover os dados salvos neste aparelho?')) return false;
+  await limparCacheCompleto();
+  const chaves = new Set(Object.values(K));
+  for (let i=0; i<localStorage.length; i++) { const chave=localStorage.key(i);if(chave&&chave.startsWith('bsq_'))chaves.add(chave); }
+  for (const chave of chaves) localStorage.removeItem(chave);
+  S.senhaHash = '';
+  location.reload();
+  return true;
+}
+
+function abrirPendenciasEnvio() {
+  const itens=S.fila.slice();
+  const nomes={prop:'Proposta',venda:'Venda',rec:'Recebimento',cliente:'Cliente',corretor:'Corretor',lote:'Lote',cx:'Lançamento'};
+  const m=abrirModal({titulo:'Registros a enviar',largo:true,
+    corpo:'<p>Os registros abaixo continuam neste aparelho. A sessão será mantida até o envio ser confirmado. Itens recusados precisam de revisão antes de uma nova tentativa.</p><div class="fila-pendencias">'+
+      (itens.map(f=>'<article class="fila-pendencia"><b>'+esc(nomes[f.colecao]||f.colecao)+' · '+esc(f.registro.codigo||f.registro.nome||f.registro.id)+'</b><span class="etiqueta '+(f.recusado?'et-conferir':'et-aberta')+'">'+(f.recusado?'Revisão necessária':'Aguardando envio')+'</span><p>'+esc(f.erro||'Aguardando confirmação do servidor.')+'</p></article>').join('')||'<p>Nenhum registro pendente.</p>')+'</div><p class="erro" id="fila-erro" role="status"></p>',
+    acoes:[{texto:'Fechar',aoClicar:()=>fecharModal()},
+      {texto:'Guardar cópia das pendências',aoClicar:()=>{salvarNoAparelho(new Blob([JSON.stringify({geradoEm:new Date().toISOString(),itens:S.fila},null,2)],{type:'application/json'}),'bosques-pendencias-'+hojeISO()+'.json');}},
+      {texto:'Tentar enviar novamente',classe:'primario',aoClicar:async()=>{
+        if(!S.online){m.querySelector('#fila-erro').textContent='Conecte à internet para enviar. As pendências continuam guardadas neste aparelho.';return;}
+        try{if(typeof tentarNovamenteFila==='function')await tentarNovamenteFila();else await subirFila();
+          if(S.fila.length)m.querySelector('#fila-erro').textContent=S.erroSync||'Ainda há registros sem confirmação. Revise os motivos e tente novamente.';
+          else{fecharEste(m);toast('Todos os registros foram confirmados pelo servidor.');render();}}
+        catch(e){m.querySelector('#fila-erro').textContent=e.message||'Não foi possível enviar. Os registros foram preservados.';}
+      }}]});
+
 }
 
 function renderTopo() {
@@ -79,9 +148,10 @@ function renderTopo() {
   const retorno=pai&&(_origemDetalhe||'#/'+pai);
   const nomeRetorno=retorno&&ROTAS[retorno.replace(/^#\/?/,'').split('/')[0]]?.titulo;
   document.getElementById('topo').innerHTML =
-    '<div class="titulo-pagina">'+(retorno?'<a class="voltar-tela" href="'+esc(retorno)+'">← Voltar para '+esc(nomeRetorno||ROTAS[pai].titulo)+'</a>':'<span class="sobretitulo">Portal dos Bosques</span>')+'<h1 tabindex="-1">' + (ROTAS[nome] ? ROTAS[nome].titulo : 'Portal dos Bosques') + '</h1><p>'+esc(DESCRICOES_TELA[nome]||'')+'</p></div>' +
+    '<div class="titulo-pagina">'+icone3d(nome,'hero-icone')+'<div>'+(retorno?'<a class="voltar-tela" href="'+esc(retorno)+'">← Voltar para '+esc(nomeRetorno||ROTAS[pai].titulo)+'</a>':'<span class="sobretitulo">Portal dos Bosques</span>')+'<h1 tabindex="-1">' + (ROTAS[nome] ? ROTAS[nome].titulo : 'Portal dos Bosques') + '</h1><p>'+esc(DESCRICOES_TELA[nome]||'')+'</p></div></div>' +
     '<label class="atalho-telas">Ir para<select id="ir-tela" aria-label="Ir para outra tela">'+rotasDoPerfil().map(r=>'<option value="'+r+'" '+(r===(pai||nome)?'selected':'')+'>'+ROTAS[r].titulo+'</option>').join('')+'</select></label>'+
-    '<span id="sync-badge" role="status" aria-live="polite"></span>';
+    '<div class="topo-situacao"><span id="sync-badge" role="status" aria-live="polite"></span><button type="button" class="btn" id="fila-envio" hidden>Registros a enviar</button></div>';
+  document.getElementById('fila-envio').onclick=abrirPendenciasEnvio;
   document.getElementById('ir-tela').onchange=e=>{location.hash='#/'+e.target.value;};
   atualizarBadge();
 }
@@ -89,6 +159,7 @@ function renderTopo() {
 function atualizarBadge() {
   const el = document.getElementById('sync-badge');
   if (!el) return;
+  const fila=document.getElementById('fila-envio');if(fila){fila.hidden=!S.fila.length;fila.textContent=S.fila.length+' registro(s) a enviar';}
   const quando = S.ultimoPull ? new Date(S.ultimoPull).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}) : '';
   if (S.erroCache) { el.className = 'erro'; el.textContent = '⚠ ' + S.erroCache; return; }
   // O erro não esconde de quando são os dados que continuam na tela.
@@ -103,9 +174,22 @@ function atualizarBadge() {
 }
 
 let _renderPendente = false;
+let _edicaoNaTela = false;
+function avisarDadosNovos(){
+  if(document.getElementById('atualizacao-pendente'))return;
+  const aviso=document.createElement('div');aviso.id='atualizacao-pendente';aviso.className='atualizacao-pendente';aviso.setAttribute('role','status');
+  aviso.innerHTML='<span>Há dados novos. Sua edição foi preservada.</span><button type="button" class="btn">Aplicar atualização</button>';
+  aviso.querySelector('button').onclick=async()=>{if(_edicaoNaTela&&!await confirmar('Aplicar os dados novos? Os campos ainda não salvos desta tela serão descartados.'))return;render();};
+  document.getElementById('topo').after(aviso);
+}
+function atualizarSemPerderEdicao(){
+  if((typeof _modalAberto!=='undefined'&&_modalAberto)||_edicaoNaTela){_renderPendente=true;if(_edicaoNaTela)avisarDadosNovos();return;}
+  render();
+}
+for(const evento of ['input','change'])document.addEventListener(evento,e=>{if(e.target?.closest?.('#app')&&e.target.matches('input,textarea,select'))_edicaoNaTela=true;});
 function render() {
   if (!S.senhaHash) { renderLogin(); return; }
-  _renderPendente = false;
+  _renderPendente = false;_edicaoNaTela=false;document.getElementById('atualizacao-pendente')?.remove();
   // Confirma para o store que a tela consumiu o retrato novo — sem isso o
   // sync de 90s redesenharia a página toda vez, jogando a rolagem pro topo.
   if (S.assinaturaPendente) { S.assinatura = S.assinaturaPendente; S.assinaturaPendente = null; }
@@ -122,7 +206,7 @@ function render() {
     document.getElementById('app').innerHTML='<section class="cartao" role="status"><h2>'+ (S.erroSync?'Dados ainda indisponíveis':'Preparando os dados do sistema') +'</h2><p>'+esc(S.erroSync||'Aguarde a leitura completa. Os indicadores serão apresentados juntos, com a mesma base de dados.')+'</p><button class="btn" id="dados-tentar">Tentar carregar novamente</button></section>';
     document.getElementById('dados-tentar').onclick=()=>puxar();return;
   }
-  if (tela) tela(id);
+  if (tela) { tela(id);ligarAcessibilidadeTela(); }
   else location.hash = '#/' + rotasDoPerfil()[0];
   if (S.perfil !== 'corretor') vigiarSaudeOmie();
 }
@@ -134,8 +218,8 @@ function renderLogin() {
       '<img src="icons/icon-192.png" alt="">' +
       '<h1>Portal dos Bosques</h1>' +
       '<div class="sub">gestão do loteamento</div>' +
-      '<input type="text" id="lg-nome" placeholder="Seu nome" autocomplete="name" value="' + esc(S.quem || '') + '">' +
-      '<input type="password" id="lg-senha" placeholder="Senha" autocomplete="current-password">' +
+      '<label for="lg-nome">Seu nome</label><input type="text" id="lg-nome" placeholder="Seu nome" autocomplete="name" value="' + esc(S.quem || '') + '">' +
+      '<label for="lg-senha">Senha</label><input type="password" id="lg-senha" placeholder="Senha" autocomplete="current-password">' +
       '<div class="erro" id="lg-erro"></div>' +
       '<button class="btn primario" id="lg-entrar">Entrar</button>' +
     '</div></div>';
@@ -186,42 +270,47 @@ TELAS.home = function () {
   const propsQuentes = lista('prop').filter((p) => (p.situacao || 'enviada') === 'enviada' &&
     (p.eventos || []).some((e) => e.tipo === 'interesse'));
 
-  app.innerHTML = painelInadimplenciaOmie()+
+  const comercial=resumoComercial();
+  const atalhos=[['espelho','Encontrar um lote','Disponibilidade e mapa'],['simulador','Simular condições','Compare os planos de pagamento'],['propostas','Acompanhar propostas',propsQuentes.length?propsQuentes.length+' com interesse registrado':'Sua fila de negociações'],['financeiro','Conferir o financeiro','Movimentos e contas em aberto']];
+  app.innerHTML = '<section class="home-hero"><div>'+icone3d('home','hero-icone')+'</div><div class="home-boas-vindas"><span class="sobretitulo">Gestão do loteamento</span><h2>Seu dia no Bosques.</h2><p>Consulte os lotes, acompanhe as propostas e confira os recebimentos.</p><div class="home-acoes"><span>'+comercial.disponiveis+' lotes disponíveis</span><span>'+comercial.vendidos+' vendidos</span><span>Propostas com interesse: '+propsQuentes.length+'</span></div></div><a class="btn primario" data-disponiveis href="#/espelho">Ver lotes disponíveis →</a></section>'+
+    '<nav class="home-atalhos" aria-label="Ações principais">'+atalhos.map(([rota,titulo,descricao])=>'<a class="home-atalho" href="#/'+rota+'">'+icone3d(rota,'atalho-icone')+'<span><b>'+titulo+'</b><small>'+descricao+'</small></span><span aria-hidden="true">↗</span></a>').join('')+'</nav>'+
+    painelInadimplenciaOmie()+
     '<div class="paineis">' +
-      '<button class="painel clicavel" data-vai="financeiro" data-aba="recebimentos"><span class="rot">Entradas · ' + nomeMes(mes) + '</span>' +
+      '<button class="painel clicavel painel-modernizado" data-vai="financeiro" data-aba="recebimentos">'+icone3d('financeiro','kpi-icone')+'<span class="rot">Entradas · ' + nomeMes(mes) + '</span>' +
         '<span class="num fin-entrada">' + fmt.brl(t.entradas) + '</span></button>' +
-      '<button class="painel clicavel" data-vai="financeiro" data-aba="despesas"><span class="rot">Saídas · ' + nomeMes(mes) + '</span><span class="num fin-saida">' + fmt.brl(t.saidas) + '</span></button>' +
-      '<button class="painel clicavel" data-vai="relatorios"><span class="rot">Resultado do mês</span>' +
+      '<button class="painel clicavel painel-modernizado" data-vai="financeiro" data-aba="despesas">'+icone3d('centros','kpi-icone')+'<span class="rot">Saídas · ' + nomeMes(mes) + '</span><span class="num fin-saida">' + fmt.brl(t.saidas) + '</span></button>' +
+      '<button class="painel clicavel painel-modernizado" data-vai="relatorios">'+icone3d('relatorios','kpi-icone')+'<span class="rot">Resultado do mês</span>' +
         '<span class="num ' + (t.resultado >= 0 ? 'fin-entrada' : 'fin-saida') + '">' + fmt.brl(t.resultado) + '</span></button>' +
-      '<button class="painel clicavel" data-vai="vendas"><span class="rot">Atraso nas fichas confirmadas</span>' +
+      '<button class="painel clicavel painel-modernizado" data-vai="vendas">'+icone3d('vendas','kpi-icone')+'<span class="rot">Atraso nas fichas confirmadas</span>' +
         '<span class="num fin-atraso">' + fmt.brl(totalAtraso) + '</span>' +
         '<span class="sub">' + comAtraso.length + ' contrato(s)</span></button>' +
     '</div>' +
-    (propsQuentes.length ? '<div class="cartao"><h2>🔥 Interesse nas propostas</h2>' +
-      propsQuentes.slice(0, 5).map((p) => '<div class="lin prop-lin" data-id="' + esc(p.id) + '">' +
+    (propsQuentes.length ? '<div class="cartao home-secao"><h2>Propostas que pedem retorno</h2>' +
+      propsQuentes.slice(0, 5).map((p) => '<button type="button" class="lin prop-lin" data-id="' + esc(p.id) + '">' +
         '<div class="cresce"><b>' + esc((p.cliente && p.cliente.nome) || '?') + ' · Q' + p.quadra + '-L' + p.lote + '</b>' +
         '<span class="sub">clicou "tenho interesse" · proposta de ' + esc(p.donoNome || '—') + '</span></div>' +
-        '<span class="etiqueta et-hoje">responder</span></div>').join('') + '</div>' : '') +
-    '<div class="cartao"><h2>Cobranças em atraso <span class="nota">— as maiores primeiro</span></h2>' +
+        '<span class="etiqueta et-hoje">Responder</span></button>').join('') + '</div>' : '') +
+    '<div class="home-operacao"><section class="cartao home-secao"><div class="home-secao-titulo"><h2>Prioridades de cobrança</h2><a href="#/vendas">Ver carteira →</a></div><p class="nota">Saldos em aberto, dos maiores para os menores.</p>' +
       (comAtraso.slice(0, 8).map(({ v, r }) =>
         '<div class="lin venda-lin" data-id="' + esc(v.id) + '">' +
-        '<div class="cresce"><b>Q' + v.quadra + '-L' + v.lote + ' · ' + esc(v.clienteNome || '?') + '</b>' +
-        '<span class="sub">' + r.qtdAtraso + ' parcela(s) vencida(s)</span></div>' +
+        '<a class="cresce home-registro" href="#/venda/'+esc(v.id)+'"><b>Q' + v.quadra + '-L' + v.lote + ' · ' + esc(v.clienteNome || '?') + '</b>' +
+        '<span class="sub">' + r.qtdAtraso + ' parcela(s) vencida(s)</span></a>' +
         botaoCobranca(v, r, true) +
         '<span class="dinheiro" style="color:var(--ruim)">' + fmt.brl(r.emAtraso) + '</span></div>').join('') ||
-        '<p class="nota">Sem atraso nas fichas confirmadas. Os títulos ainda sem lote aparecem no quadro do Omie.</p>') + '</div>' +
-    '<div class="cartao"><h2>Últimos recebimentos</h2>' +
+        '<p class="nota">Sem atraso nas fichas confirmadas. Os títulos ainda sem lote aparecem no quadro do Omie.</p>') + '</section>' +
+    '<section class="cartao home-secao"><div class="home-secao-titulo"><h2>Últimos recebimentos</h2><a href="#/financeiro">Ver financeiro →</a></div>' +
       (ultimosRecs.map((rc) => {
         const v = achar('venda', rc.vendaId);
         return '<button class="lin home-rec" data-rec="' + esc(rc.id) + '">' +
           '<span class="cresce"><b class="fin-entrada">' + fmt.brl(rc.valor) + '</b>' +
           '<span class="sub">' + fmt.data(rc.data) + ' · ' + (v ? 'Q' + v.quadra + '-L' + v.lote + ' · ' + esc(v.clienteNome || '') : 'Sem lote confirmado · abrir recebimento') + '</span></span></button>';
-      }).join('') || '<p class="nota">Nenhum dinheiro lançado ainda.</p>') + '</div>' +
+      }).join('') || '<p class="nota">Nenhum recebimento registrado.</p>') + '</section></div>' +
     // O pulso da ponte com o Omie: quando sincronizou e se deu certo.
     (S.perfil !== 'corretor'
       ? '<p class="nota" id="home-omie" style="margin:6px 2px">consultando a sincronização do Omie…</p>'
       : '');
 
+  const disponiveis=app.querySelector('[data-disponiveis]');if(disponiveis)disponiveis.onclick=()=>{TELAS._fEspelho={q:'',quadra:'',status:'Disponível',atraso:false};};
   if (S.perfil !== 'corretor') statusOmieHome(document.getElementById('home-omie'));
   ligarBotoesCobranca(app);
   app.querySelectorAll('[data-vai]').forEach((el) => { el.onclick = () => {
@@ -506,13 +595,9 @@ const _tinhaControleSW = !!(navigator.serviceWorker && navigator.serviceWorker.c
 if (navigator.serviceWorker) navigator.serviceWorker.addEventListener('controllerchange', () => { if (_tinhaControleSW) avisarVersaoNova(); });
 
 /* ── Eventos e partida ─────────────────────────────────────────────────────── */
-document.addEventListener('bsq:status', () => { atualizarBadge(); if(S.senhaHash && S.cacheCompleto===false && !S.sincronizando) render(); });
-document.addEventListener('bsq:dados', () => {
-  // Redesenhar com modal aberto apagaria o que está sendo digitado.
-  if (typeof _modalAberto !== 'undefined' && _modalAberto) { _renderPendente = true; return; }
-  render();
-});
-document.addEventListener('ui:modais-fechados', () => { if (_renderPendente) render(); });
+document.addEventListener('bsq:status', () => { atualizarBadge(); if(S.senhaHash && S.cacheCompleto===false && !S.sincronizando) atualizarSemPerderEdicao(); });
+document.addEventListener('bsq:dados', atualizarSemPerderEdicao);
+document.addEventListener('ui:modais-fechados', () => { if (_renderPendente && !_edicaoNaTela) render(); });
 document.addEventListener('bsq:semsenha', () => {
   localStorage.removeItem(K.senha);
   S.senhaHash = '';
@@ -523,6 +608,7 @@ document.addEventListener('bsq:sempermissao', (e) => {
   const d = e.detail || {};
   toast('Não salvou: ' + (d.msg || 'seu acesso não permite'), 'ruim');
 });
+window.addEventListener('beforeunload',e=>{if(S.fila.length||_edicaoNaTela){e.preventDefault();e.returnValue='';}});
 let _origemDetalhe='';
 const _rolagemRotas=new Map();
 window.addEventListener('hashchange', e=>{
@@ -540,9 +626,10 @@ window.addEventListener('hashchange', e=>{
 (async function iniciar() {
   lerCache();
   await carregarCacheCompleto();
-  if ('serviceWorker' in navigator) {
+  if (!window.BOSQUES_PREVIA && 'serviceWorker' in navigator) {
     navigator.serviceWorker.register('sw.js').then((reg) => { _swRegistro = reg; }).catch(() => {});
   }
   render();
+  if(typeof MutationObserver!=='undefined'){const a11y=new MutationObserver(ligarAcessibilidadeTela);a11y.observe(document.getElementById('app'),{childList:true,subtree:true});}
   if (S.senhaHash) { puxarSeNecessario(); talvezSincronizarOmie(); }
 })();

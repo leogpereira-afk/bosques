@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128" fill="none" stroke-linejoin="round" stroke-linecap="round">
+<title>Centros de custo</title>
+<defs>
+  <linearGradient id="forest" x1="0" y1="0" x2=".85" y2="1"><stop stop-color="#6e965b"/><stop offset=".5" stop-color="#3d704b"/><stop offset="1" stop-color="#1c4936"/></linearGradient>
+  <linearGradient id="olive" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#b7c78b"/><stop offset="1" stop-color="#758d50"/></linearGradient>
+  <linearGradient id="ivory" x1="0" y1="0" x2=".8" y2="1"><stop stop-color="#fffffb"/><stop offset="1" stop-color="#e1e8d6"/></linearGradient>
+  <linearGradient id="gold" x1="0" y1="0" x2=".8" y2="1"><stop stop-color="#eddba1"/><stop offset=".45" stop-color="#d1b66d"/><stop offset="1" stop-color="#a27d37"/></linearGradient>
+  <linearGradient id="mint" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#f0f4df"/><stop offset="1" stop-color="#b8cc9d"/></linearGradient>
+  <linearGradient id="side" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#c0d0ae"/><stop offset="1" stop-color="#8ca775"/></linearGradient>
+  <linearGradient id="dark" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#3e6748"/><stop offset="1" stop-color="#153b2d"/></linearGradient>
+  <filter id="lift" x="-30%" y="-30%" width="170%" height="180%"><feDropShadow dx="0" dy="5" stdDeviation="3" flood-color="#243b2b" flood-opacity=".15"/></filter>
+  <filter id="blur" x="-30%" y="-150%" width="160%" height="400%"><feGaussianBlur stdDeviation="3"/></filter>
+</defs>
+<ellipse cx="65" cy="108" rx="39" ry="6" fill="#25452e" opacity=".13" filter="url(#blur)"/>
+<g filter="url(#lift)"><path d="m16 82 47-25 49 25v9l-47 26-49-25Z" fill="#a4b98b"/><path d="m16 82 47-25 49 25-47 26Z" fill="url(#mint)"/><path d="m65 108 47-26v9l-47 26Z" fill="#8ca575"/>
+<path d="m16 60 47-25 49 25v9L65 95 16 70Z" fill="#4c7447"/><path d="m16 60 47-25 49 25-47 26Z" fill="url(#forest)"/><path d="m65 86 47-26v9L65 95Z" fill="#204a34"/>
+<path d="m16 38 47-25 49 25v9L65 73 16 48Z" fill="#a3b981"/><path d="m16 38 47-25 49 25-47 26Z" fill="url(#olive)"/><path d="m65 64 47-26v9L65 73Z" fill="#728d4e"/>
+<path d="m34 38 29-15 29 15-28 16Z" fill="none" stroke="#e8efd7" stroke-width="1.3" opacity=".9"/><path d="m55 38 9-5 9 5-9 5Z" fill="url(#gold)"/></g>
+</svg>

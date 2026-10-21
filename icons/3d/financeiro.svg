@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128" fill="none" stroke-linejoin="round" stroke-linecap="round">
+<title>Gestão financeira</title>
+<defs>
+  <linearGradient id="forest" x1="0" y1="0" x2=".85" y2="1"><stop stop-color="#6e965b"/><stop offset=".5" stop-color="#3d704b"/><stop offset="1" stop-color="#1c4936"/></linearGradient>
+  <linearGradient id="olive" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#b7c78b"/><stop offset="1" stop-color="#758d50"/></linearGradient>
+  <linearGradient id="ivory" x1="0" y1="0" x2=".8" y2="1"><stop stop-color="#fffffb"/><stop offset="1" stop-color="#e1e8d6"/></linearGradient>
+  <linearGradient id="gold" x1="0" y1="0" x2=".8" y2="1"><stop stop-color="#eddba1"/><stop offset=".45" stop-color="#d1b66d"/><stop offset="1" stop-color="#a27d37"/></linearGradient>
+  <linearGradient id="mint" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#f0f4df"/><stop offset="1" stop-color="#b8cc9d"/></linearGradient>
+  <linearGradient id="side" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#c0d0ae"/><stop offset="1" stop-color="#8ca775"/></linearGradient>
+  <linearGradient id="dark" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#3e6748"/><stop offset="1" stop-color="#153b2d"/></linearGradient>
+  <filter id="lift" x="-30%" y="-30%" width="170%" height="180%"><feDropShadow dx="0" dy="5" stdDeviation="3" flood-color="#243b2b" flood-opacity=".15"/></filter>
+  <filter id="blur" x="-30%" y="-150%" width="160%" height="400%"><feGaussianBlur stdDeviation="3"/></filter>
+</defs>
+<ellipse cx="65" cy="108" rx="39" ry="6" fill="#25452e" opacity=".13" filter="url(#blur)"/>
+<g filter="url(#lift)"><path d="m21 40 60-19 24 13v53l-62 24-22-12Z" fill="#1d4733"/><path d="m22 34 60-18 19 12-61 19Z" fill="url(#olive)"/><path d="m25 34 55-15 15 8-55 18Z" fill="url(#ivory)"/><path d="m21 40 61-18v66l-61 20Z" fill="url(#forest)"/><path d="m82 22 23 12v61l-23-7Z" fill="#234e36"/><path d="m21 40 22 13 62-19" fill="none" stroke="#9eb77f" stroke-width="1.5"/>
+<path d="m75 56 27-9 10 7v21l-28 10-10-6Z" fill="#9b7b38"/><path d="m75 53 27-9 10 7v21l-28 10-10-6Z" fill="url(#gold)"/><ellipse cx="92" cy="63" rx="4" ry="5" fill="#f4e7b7"/><path d="m27 56 10 5" stroke="#b2c391" stroke-width="1.5" stroke-dasharray="2 3"/>
+</g><g transform="translate(38 102) scale(0.8)"><ellipse cy="3" rx="11" ry="6" fill="#a3813b"/><path d="M-11 0v4c0 8 22 8 22 0V0Z" fill="url(#gold)"/><ellipse rx="11" ry="6" fill="#ead697"/><ellipse rx="7.5" ry="3.7" fill="none" stroke="#c1a45c" stroke-width="1"/><path d="m-2-1 4 2" stroke="#b2944d" stroke-width="1.4" stroke-linecap="round"/></g><g transform="translate(38 97) scale(0.8)"><ellipse cy="3" rx="11" ry="6" fill="#a3813b"/><path d="M-11 0v4c0 8 22 8 22 0V0Z" fill="url(#gold)"/><ellipse rx="11" ry="6" fill="#ead697"/><ellipse rx="7.5" ry="3.7" fill="none" stroke="#c1a45c" stroke-width="1"/><path d="m-2-1 4 2" stroke="#b2944d" stroke-width="1.4" stroke-linecap="round"/></g><g transform="translate(38 92) scale(0.8)"><ellipse cy="3" rx="11" ry="6" fill="#a3813b"/><path d="M-11 0v4c0 8 22 8 22 0V0Z" fill="url(#gold)"/><ellipse rx="11" ry="6" fill="#ead697"/><ellipse rx="7.5" ry="3.7" fill="none" stroke="#c1a45c" stroke-width="1"/><path d="m-2-1 4 2" stroke="#b2944d" stroke-width="1.4" stroke-linecap="round"/></g>
+</svg>

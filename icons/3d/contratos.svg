@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128" fill="none" stroke-linejoin="round" stroke-linecap="round">
+<title>Contrato revisado</title>
+<defs>
+  <linearGradient id="forest" x1="0" y1="0" x2=".85" y2="1"><stop stop-color="#6e965b"/><stop offset=".5" stop-color="#3d704b"/><stop offset="1" stop-color="#1c4936"/></linearGradient>
+  <linearGradient id="olive" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#b7c78b"/><stop offset="1" stop-color="#758d50"/></linearGradient>
+  <linearGradient id="ivory" x1="0" y1="0" x2=".8" y2="1"><stop stop-color="#fffffb"/><stop offset="1" stop-color="#e1e8d6"/></linearGradient>
+  <linearGradient id="gold" x1="0" y1="0" x2=".8" y2="1"><stop stop-color="#eddba1"/><stop offset=".45" stop-color="#d1b66d"/><stop offset="1" stop-color="#a27d37"/></linearGradient>
+  <linearGradient id="mint" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#f0f4df"/><stop offset="1" stop-color="#b8cc9d"/></linearGradient>
+  <linearGradient id="side" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#c0d0ae"/><stop offset="1" stop-color="#8ca775"/></linearGradient>
+  <linearGradient id="dark" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#3e6748"/><stop offset="1" stop-color="#153b2d"/></linearGradient>
+  <filter id="lift" x="-30%" y="-30%" width="170%" height="180%"><feDropShadow dx="0" dy="5" stdDeviation="3" flood-color="#243b2b" flood-opacity=".15"/></filter>
+  <filter id="blur" x="-30%" y="-150%" width="160%" height="400%"><feGaussianBlur stdDeviation="3"/></filter>
+</defs>
+<ellipse cx="65" cy="108" rx="39" ry="6" fill="#25452e" opacity=".13" filter="url(#blur)"/>
+<g filter="url(#lift)"><path d="m29 26 49-13 22 22v65l-52 16-19-10Z" fill="#a1b58a"/><path d="m22 21 50-12 22 21v66l-54 16-18-10Z" fill="url(#ivory)"/><path d="m72 9 22 21-21 5Z" fill="#c7d5b7"/><path d="m40 112 54-16v7l-54 16Z" fill="#a9bd93"/>
+<path d="m35 37 28-7m-28 18 42-10m-42 22 42-10m-42 22 26-6" stroke="#96ad80" stroke-width="3"/><path d="m35 37 20-5" stroke="#3b6745" stroke-width="4"/>
+<path d="m70 79 8 3 8-6 1 29-9-2-8 6Z" fill="#658450"/><circle cx="79" cy="76" r="13" fill="url(#gold)"/><circle cx="79" cy="76" r="8.5" fill="none" stroke="#f4e6af" stroke-width="1.3"/><path d="m74 76 3 3 7-8" fill="none" stroke="#75602e" stroke-width="2"/>
+<path d="m33 88 12-4 5 3 9-6" fill="none" stroke="#4e7350" stroke-width="1.8"/></g>
+</svg>

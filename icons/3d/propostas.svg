@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128" fill="none" stroke-linejoin="round" stroke-linecap="round">
+<title>Proposta comercial</title>
+<defs>
+  <linearGradient id="forest" x1="0" y1="0" x2=".85" y2="1"><stop stop-color="#6e965b"/><stop offset=".5" stop-color="#3d704b"/><stop offset="1" stop-color="#1c4936"/></linearGradient>
+  <linearGradient id="olive" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#b7c78b"/><stop offset="1" stop-color="#758d50"/></linearGradient>
+  <linearGradient id="ivory" x1="0" y1="0" x2=".8" y2="1"><stop stop-color="#fffffb"/><stop offset="1" stop-color="#e1e8d6"/></linearGradient>
+  <linearGradient id="gold" x1="0" y1="0" x2=".8" y2="1"><stop stop-color="#eddba1"/><stop offset=".45" stop-color="#d1b66d"/><stop offset="1" stop-color="#a27d37"/></linearGradient>
+  <linearGradient id="mint" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#f0f4df"/><stop offset="1" stop-color="#b8cc9d"/></linearGradient>
+  <linearGradient id="side" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#c0d0ae"/><stop offset="1" stop-color="#8ca775"/></linearGradient>
+  <linearGradient id="dark" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#3e6748"/><stop offset="1" stop-color="#153b2d"/></linearGradient>
+  <filter id="lift" x="-30%" y="-30%" width="170%" height="180%"><feDropShadow dx="0" dy="5" stdDeviation="3" flood-color="#243b2b" flood-opacity=".15"/></filter>
+  <filter id="blur" x="-30%" y="-150%" width="160%" height="400%"><feGaussianBlur stdDeviation="3"/></filter>
+</defs>
+<ellipse cx="65" cy="108" rx="39" ry="6" fill="#25452e" opacity=".13" filter="url(#blur)"/>
+<g filter="url(#lift)"><path d="m17 59 50-29 44 25-1 41-49 25-44-24Z" fill="#6b8b57"/><path d="m18 55 49-29 43 24-49 31Z" fill="url(#forest)"/>
+<path d="m35 24 46-11 12 68-46 14Z" fill="#d0dcbc"/><path d="m30 20 47-11 12 66-47 14Z" fill="url(#ivory)"/><path d="m39 33 28-7m-26 17 31-7m-30 17 27-6" stroke="#8da779" stroke-width="3"/><path d="m39 33 21-5" stroke="#3c6b46" stroke-width="3"/>
+<path d="m17 55 44 26 49-31v43l-49 27-44-25Z" fill="url(#olive)"/><path d="m17 55 43 43 50-48-49 31Z" fill="url(#mint)"/><path d="m17 95 32-24m61 22L76 71" fill="none" stroke="#a0b684" stroke-width="1.5"/>
+<circle cx="61" cy="90" r="8" fill="url(#gold)"/><path d="m58 90 2 2 5-5" fill="none" stroke="#827039" stroke-width="1.5"/></g>
+</svg>
