@@ -903,5 +903,24 @@ const PDF = (() => {
     for(let p=1;p<=doc.getNumberOfPages();p++){doc.setPage(p);rodape(doc,'Portal dos Bosques · '+dataBR(new Date().toISOString())+' · Página '+p+' de '+doc.getNumberOfPages());}
     const blob=doc.output('blob');salvarNoAparelho(blob,(d.titulo==='Centro de custos'?'Centro-de-custos':'Financeiro')+'-Bosques.pdf');return blob;
   }
-  return { gestao, historico, financeiro, proposta, recibo, venda, vendasDash, dre, espelho, relatorio, cronograma, lancamentos, simulacao };
+  function painelCaixa(d,cfg={}) {
+    const cols=d.colunas||[],doc=new window.jspdf.jsPDF({unit:'mm',format:'a4',orientation:cols.length>6?'landscape':'portrait'}),w=doc.internal.pageSize.getWidth(),h=doc.internal.pageSize.getHeight(),util=w-28,largura=util/Math.max(1,cols.length);let y=42;
+    const escrever=(t,x,yy,opts={})=>doc.text(soLatin1(String(t??'')),x,yy,opts);
+    const topo=()=>{doc.setFillColor(...VERDE);doc.rect(0,0,w,30,'F');doc.setFillColor(...VERDE_CLARO);doc.rect(0,30,w,1.6,'F');doc.setFont('helvetica','bold');doc.setFontSize(15);doc.setTextColor(255,255,255);escrever('PORTAL DOS BOSQUES',14,14);doc.setFontSize(11);escrever('FINANCEIRO',w-14,14,{align:'right'});doc.setFont('helvetica','normal');doc.setFontSize(8);escrever((cfg.empresa?.nome||'Portal dos Bosques')+' · Montes Claros/MG',14,23);};
+    const nova=()=>{doc.addPage();topo();y=42;};
+    const par=t=>{doc.setFont('helvetica','normal');doc.setFontSize(9);doc.setTextColor(...CINZA);for(const l of doc.splitTextToSize(soLatin1(t),util)){if(y>h-25)nova();escrever(l,14,y);y+=5;}y+=4;};
+    topo();par(d.titulo||'Caixa e fluxo');par(d.contexto||'');
+    par('Valores em reais. Não confirmado significa ausência de base suficiente; não equivale a zero. Fonte: Omie e registros importados. Gerado em '+new Date().toLocaleString('pt-BR')+'.');
+    const cab=()=>{doc.setFont('helvetica','bold');doc.setFontSize(8);doc.setTextColor(...NEUTRO_FIN);let maior=1;cols.forEach((c,i)=>{const ls=doc.splitTextToSize(soLatin1(c),largura-4);maior=Math.max(maior,ls.length);doc.text(ls,16+i*largura,y);});y+=maior*4+6;};
+    cab();
+    for(const linha of d.linhas||[]){
+      doc.setFont('helvetica','normal');doc.setFontSize(8);
+      const ls=cols.map((_,i)=>doc.splitTextToSize(soLatin1(String(linha[i]??'')),largura-4)),altura=Math.max(...ls.map(x=>x.length))*4+7;
+      if(y+altura>h-25){nova();cab();doc.setFont('helvetica','normal');doc.setFontSize(8);}
+      ls.forEach((t,i)=>doc.text(t,16+i*largura,y));y+=altura;doc.setDrawColor(225,232,225);doc.line(14,y-4,w-14,y-4);
+    }
+    for(let p=1;p<=doc.getNumberOfPages();p++){doc.setPage(p);doc.setFontSize(8);doc.setTextColor(...CINZA);escrever('Portal dos Bosques · Página '+p+' de '+doc.getNumberOfPages(),w/2,h-12,{align:'center'});}
+    const blob=doc.output('blob');salvarNoAparelho(blob,'Bosques-Caixa-e-Fluxo.pdf');return blob;
+  }
+  return { painelCaixa, gestao, historico, financeiro, proposta, recibo, venda, vendasDash, dre, espelho, relatorio, cronograma, lancamentos, simulacao };
 })();

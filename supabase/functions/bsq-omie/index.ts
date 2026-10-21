@@ -154,6 +154,40 @@ async function gravarMeta(chave: string, valor: unknown): Promise<void> {
   if (error) throw new Error("meta " + chave + ": " + error.message);
 }
 
+// Contrato de saldos v2: a resposta do extrato é preservada por campo.
+// Não usa nSaldoAtual como fechamento histórico nem soma limite de crédito.
+function numeroSaldo(v:any):number|null {
+  return v==null||!["number","string"].includes(typeof v)||String(v).trim()===""||typeof v==="boolean"||!Number.isFinite(Number(v))?null:Number(v);
+}
+function dataSaldo(v:any):string { return /^\d{2}\/\d{2}\/\d{4}$/.test(String(v||""))?String(v).slice(6)+"-"+String(v).slice(3,5)+"-"+String(v).slice(0,2):String(v||"").slice(0,10); }
+function dataSaldoValida(v:any):boolean {return /^\d{4}-\d{2}-\d{2}$/.test(v||"")&&Number.isFinite(Date.parse(v+"T12:00Z"))&&new Date(v+"T12:00Z").toISOString().slice(0,10)===v;}
+function compactoExtrato(cc:any,ex:any,de:string,ate:string) {
+  if(String(ex.nCodCC)!==String(cc.nCodCC))throw new Error("Extrato pertence a outra conta; leitura recusada.");
+  if(dataSaldo(ex.dPeriodoInicial)!==de||dataSaldo(ex.dPeriodoFinal)!==ate)throw new Error("Período do extrato não corresponde ao solicitado.");
+  const valores:Record<string,number|null>={};for(const k of ["nSaldoAnterior","nSaldoAnteriorPrevisto","nSaldoAtual","nSaldoAtualPrevisto","nSaldoConciliado","nSaldoProvisorio","nLimiteCreditoTotal","nSaldoDisponivel"])valores[k]=numeroSaldo(ex[k]);
+  const linhas=Array.isArray(ex.listaMovimentos)?ex.listaMovimentos:null;
+  const datasValidas=linhas!==null&&linhas.every((m:any)=>dataSaldoValida(dataSaldo(m.dDataLancamento))&&dataSaldo(m.dDataLancamento)>=de&&dataSaldo(m.dDataLancamento)<=ate);
+  const ordenadas=datasValidas?[...linhas!].sort((a,b)=>dataSaldo(a.dDataLancamento).localeCompare(dataSaldo(b.dDataLancamento))):[];
+  const saldoFinal=datasValidas?(ordenadas.length?numeroSaldo(ordenadas.at(-1).nSaldo):valores.nSaldoAnterior):null;
+  return {schema:2,conta:String(cc.nCodCC),nome:cc.descricao||ex.cDescricao||"Conta Omie "+cc.nCodCC,tipo:cc.tipo_conta_corrente||cc.tipo||ex.cCodTipo||"",de,ate,quando:agora(),
+    saldoInicial:valores.nSaldoAnterior,saldoFinalExtrato:saldoFinal,completo:datasValidas&&saldoFinal!==null&&valores.nSaldoAnterior!==null,
+    criterio:"nSaldoAnterior e último nSaldo do extrato do período; comparar com movimentos importados",valores,
+    movimentos:linhas?.length??null,fluxo:ex.cFluxoCaixa!=="N"&&cc.nao_fluxo!=="S",inativa:cc.inativo==="S",
+    // Evidência mínima para conferir o fechamento; sem CPF, banco/agência ou texto livre.
+    trilha:datasValidas?ordenadas.map(m=>({id:String(m.nCodLancamento||""),data:dataSaldo(m.dDataLancamento),saldo:numeroSaldo(m.nSaldo),bloqueado:m.cBloqueado==="S",conciliacao:dataSaldo(m.dDataConciliacao)})):[]};
+}
+async function contasParaSaldos(signal?:AbortSignal) {
+  const contas:any[]=[];let esperado:number|null=null;
+  for(let pagina=1;pagina<=100;pagina++){
+    const r=await omie("geral/contacorrente","ListarContasCorrentes",{pagina,registros_por_pagina:100},signal);
+    const p=paginaOmie(r,"ListarContasCorrentes",pagina,"ListarContasCorrentes","total_de_paginas","total_de_registros","pagina");
+    if(numeroSaldo(r.total_de_registros)!==null){if(esperado!==null&&esperado!==Number(r.total_de_registros))throw new Error("Cadastro de contas mudou durante a consulta. Tente novamente.");esperado=Number(r.total_de_registros);}
+    contas.push(...p.itens);
+    if(pagina>=p.paginas){if(new Set(contas.map(c=>String(c.nCodCC))).size!==contas.length||contas.some(c=>!c.nCodCC)||esperado!==null&&esperado!==contas.length)throw new Error("Cadastro de contas incompleto ou duplicado.");return contas;}
+  }
+  throw new Error("Cadastro excedeu o limite de páginas; nenhuma soma foi confirmada.");
+}
+
 // Título e movimento bancário são milhares de registros com o original do Omie
 // e o histórico: carregar todos a cada chamada estourava a memória da função.
 // Por página, só os que ela toca (id consultado e ausente = registro novo).
@@ -890,42 +924,57 @@ Deno.serve(async (req) => {
           pendencias: terminou ? pendTotal : undefined });
       }
 
-      /* ── saldos: quanto tem em cada conta, segundo o Omie ────────────────── */
-      // O saldo vem do extrato do dia (nSaldoAtual). Carência de 30 minutos no
-      // servidor para o Caixa poder perguntar sempre sem martelar o Omie.
+      /* Consulta de saldos não altera títulos, contratos ou conciliação. */
       case "saldos": {
-        const meta = await lerMeta("omie_saldos");
-        if (!body.forcar && meta?.quando &&
-            Date.now() - new Date(meta.quando).getTime() < 30 * 60e3) {
-          return json({ ok: true, ...meta, cache: true });
-        }
-        const hojeBR = isoParaBR(diaBrasil());
-        const r = await omie("geral/contacorrente", "ListarContasCorrentes",
-          { pagina: 1, registros_por_pagina: 50 });
-        const contas: any[] = [];
-        for (const cc of (r.ListarContasCorrentes || [])) {
-          if (cc.inativo === "S") continue;
-          try {
-            const ex = await omie("financas/extrato", "ListarExtrato",
-              { nCodCC: cc.nCodCC, dPeriodoInicial: hojeBR, dPeriodoFinal: hojeBR });
-            contas.push({ id:cc.nCodCC, nome: cc.descricao || "", tipo: cc.tipo || "", saldo: Number(ex.nSaldoAtual) || 0 });
-          } catch {
-            contas.push({ id:cc.nCodCC, nome: cc.descricao || "", tipo: cc.tipo || "", saldo: null });
+        const meta=await lerMeta("omie_saldos");
+        if(!body.forcar&&meta?.schema===2&&!meta.parcial&&Date.now()-Date.parse(meta.quando)<30*60e3)return json({ok:true,...meta,cache:true});
+        try {
+          const signal=AbortSignal.timeout(80000),cadastros=await contasParaSaldos(signal),dataBase=diaBrasil(),br=isoParaBR(dataBase),contas:any[]=[];
+          for(const cc of cadastros){
+            const c:any={id:String(cc.nCodCC),nome:cc.descricao||"Conta Omie "+cc.nCodCC,tipo:cc.tipo_conta_corrente||cc.tipo||"",inativa:cc.inativo==="S",fluxo:cc.nao_fluxo!=="S",saldo:null,saldoRealizado:null};
+            if(!c.inativa)try {
+              const ex=await omie("financas/extrato","ListarExtrato",{nCodCC:cc.nCodCC,dPeriodoInicial:br,dPeriodoFinal:br},signal);
+              const e=compactoExtrato(cc,ex,dataBase,dataBase);
+              Object.assign(c,{fluxo:e.fluxo,saldo:e.saldoFinalExtrato,saldoRealizado:e.completo?e.saldoFinalExtrato:null,valores:e.valores,criterio:e.criterio,quando:e.quando});
+              if(!e.completo)c.erro="Extrato sem base completa para confirmar o saldo realizado.";
+            }catch(e){c.erro=String((e as Error).message||e);}
+            contas.push(c);
           }
+          const incluidas=contas.filter(c=>!c.inativa&&c.fluxo&&["CC","CX","CP","CV","PG"].includes(c.tipo));
+          const parcial=contas.some(c=>!c.inativa&&c.saldoRealizado===null),bancario=incluidas.length&&incluidas.every(c=>c.saldoRealizado!==null)?incluidas.reduce((s,c)=>s+centavos(c.saldoRealizado),0)/100:null;
+          const novo={schema:2,quando:agora(),dataBase,contas,bancario,parcial,fonte:"Extrato Omie · realizado; não comprova conciliação bancária"};
+          if(!parcial){await gravarMeta("omie_saldos_evidencia:"+novo.quando,novo);await gravarMeta("omie_saldos",novo);}
+          return json({ok:true,...novo});
+        }catch(e){if(meta?.quando)return json({ok:true,...meta,desatualizado:true,erro:String((e as Error).message||e)});throw e;}
+      }
+      case "extratoCaixa": {
+        const de=String(body.de||""),ate=String(body.ate||""),conta=String(body.conta||"");
+        if(!/^\d+$/.test(conta)||!dataSaldoValida(de)||!dataSaldoValida(ate)||de>ate||de.slice(0,7)!==ate.slice(0,7)||ate>diaBrasil())return json({error:"Selecione uma conta e um intervalo válido dentro de um mês, até hoje."},400);
+        const chave="omie_extrato_atual:"+conta+":"+de+":"+ate,anterior=await lerMeta(chave);
+        if(!body.forcar&&anterior?.quando&&Date.now()-Date.parse(anterior.quando)<86400e3)return json({ok:true,...anterior,cache:true});
+        try{
+          const cc=await omie("geral/contacorrente","ConsultarContaCorrente",{nCodCC:Number(conta)});
+          if(String(cc.nCodCC)!==conta)throw new Error("Conta não confirmada no Omie.");
+          const ex=await omie("financas/extrato","ListarExtrato",{nCodCC:Number(conta),dPeriodoInicial:isoParaBR(de),dPeriodoFinal:isoParaBR(ate)});
+          const r=compactoExtrato(cc,ex,de,ate);
+          if(!r.completo)throw new Error("O extrato não retornou saldo anterior, fechamento e datas consistentes. Última leitura preservada.");
+          await gravarMeta("omie_extrato_evidencia:"+conta+":"+de+":"+ate+":"+r.quando,r);
+          await gravarMeta(chave,r);
+          return json({ok:true,...r});
+        }catch(e){if(anterior)return json({ok:true,...anterior,desatualizado:true,erro:String((e as Error).message||e)});throw e;}
+      }
+      case "historicoSaldos": {
+        const de=String(body.de||""),ate=String(body.ate||""),conta=String(body.conta||"");
+        if(!dataSaldoValida(de)||!dataSaldoValida(ate)||de>ate||conta&&!/^\d+$/.test(conta))return json({error:"Filtro de histórico inválido."},400);
+        const encontrados:any[]=[];
+        // Páginas do banco, não apenas a primeira. Nenhum registro privado é público.
+        for(let inicio=0;inicio<100000;inicio+=500){
+          const {data:rs,error}=await db.from("bsq_meta").select("valor").like("chave","omie_extrato_atual:"+(conta?conta+":":"")+"%").order("chave").range(inicio,inicio+499);
+          if(error)throw new Error("Histórico de saldos indisponível.");
+          for(const x of rs||[])if(x.valor.de>=de&&x.valor.ate<=ate)encontrados.push(x.valor);
+          if((rs||[]).length<500)return json({ok:true,extratos:encontrados,quando:agora()});
         }
-        // O número do painel: só conta bancária de verdade (tipo CC), viva de
-        // nome e de fato. "Caixinha" e afins ficam no detalhe, não no painel.
-        const bancario = contas
-          .filter((c) => c.tipo === "CC" && !/inativ/i.test(c.nome) && c.saldo != null)
-          .reduce((soma, c) => soma + c.saldo, 0);
-        // Alguma conta falhou (rate limit do Omie devolve 500): o total está
-        // incompleto — responde com a flag `parcial` e NÃO grava o cache de
-        // 30 min, senão o número errado fica pregado no painel do Caixa.
-        const parcial = contas.some((c) => c.saldo == null);
-        const novo: any = { quando: agora(), contas, bancario };
-        if (parcial) novo.parcial = true;
-        else await gravarMeta("omie_saldos", novo);
-        return json({ ok: true, ...novo });
+        throw new Error("Histórico excedeu o limite de leitura. Restrinja a conta.");
       }
 
       /* ── boleto: os títulos em aberto de um cliente, na hora ─────────────── */

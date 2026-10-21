@@ -355,21 +355,19 @@ const K_OMIE_SALDOS = 'bsq_omie_saldos';
 
 // Cache local de 30 min: o painel do Caixa aparece na hora e atualiza quando
 // a resposta fresca chega. Devolve { quando, contas, bancario } ou null.
-async function saldoBancosOmie() {
+async function saldoBancosOmie(forcar=false) {
+  let guardado=null;
+  try { guardado=JSON.parse(localStorage.getItem(K_OMIE_SALDOS)||'null'); } catch {}
+  if(!forcar&&guardado?.schema===2&&!guardado.parcial&&Date.now()-Date.parse(guardado.quando)<30*60e3)return {...guardado,cache:true};
   try {
-    const guardado = JSON.parse(localStorage.getItem(K_OMIE_SALDOS) || 'null');
-    if (guardado && Date.now() - new Date(guardado.quando).getTime() < 30 * 60e3) return guardado;
-    const r = await apiOmie('saldos');
-    if (!r.ok) throw new Error(r.error || '');
-    const novo = { quando: r.quando, contas: r.contas || [], bancario: r.bancario };
-    // Resposta parcial (alguma conta falhou no Omie): repassa a flag e NÃO
-    // grava no cache local — número incompleto não pode ficar 30 min na tela.
-    if (r.parcial) { novo.parcial = true; return novo; }
-    localStorage.setItem(K_OMIE_SALDOS, JSON.stringify(novo));
+    const r=await apiOmie('saldos',{forcar},{prazoMs:90000});
+    if(!r?.ok||!Array.isArray(r.contas))throw new Error(r?.error||'Consulta de saldos incompleta.');
+    const novo={...r};
+    if(!novo.parcial&&!novo.desatualizado)try{localStorage.setItem(K_OMIE_SALDOS,JSON.stringify(novo));}catch{novo.avisoCache='Leitura recebida; não foi possível guardar neste aparelho.';}
     return novo;
-  } catch (e) {
-    // Sem rede, o último visto ainda serve — velho e dito é melhor que nada.
-    try { return JSON.parse(localStorage.getItem(K_OMIE_SALDOS) || 'null'); } catch { return null; }
+  } catch(e) {
+    if(guardado)return {...guardado,desatualizado:true,erro:e.message||'Falha ao atualizar saldos.'};
+    return {schema:2,contas:[],quando:null,parcial:true,desatualizado:true,erro:e.message||'Saldo indisponível.'};
   }
 }
 
