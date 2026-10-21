@@ -241,7 +241,7 @@ const GESTAO_UI = (() => {
     rendererAtual=renderizar;const f=estado();
     const atribuir=(id,k)=>{const e=document.getElementById(id);if(e)e.onchange=()=>{f[k]=e.type==='checkbox'?e.checked:e.value;if(k==='horizonte'&&e.value==='personalizado'){f.fluxoDe=f.fluxoDe||F.dia(hojeISO(),1);f.fluxoAte=f.fluxoAte||F.dia(hojeISO(),90);}renderizar();};};
     for(const [id,k] of [['gf-horizonte','horizonte'],['gf-gran','granularidade'],['gf-fluxo-de','fluxoDe'],['gf-fluxo-ate','fluxoAte'],['gf-reconsultar','reconsultar'],['gf-comparacao','comparacao']])atribuir(id,k);
-    if(renderizar===financeiro&&f.secao==='contas'){const p=F.intervalo(f,hojeISO(),base().bancos),chave=[p.de,p.ate,f.conta].join('|');if(p.valido&&!historicosTentados.has(chave)){historicosTentados.add(chave);Promise.resolve().then(()=>carregarHistorico(renderizar,false));}}
+    if(renderizar===financeiro&&f.secao==='contas'){const p=F.intervalo(f,hojeISO(),base().bancos),chave=[p.de,p.ate,f.conta].join('|');if(p.valido&&!histLendo&&!historicosTentados.has(chave)){historicosTentados.add(chave);Promise.resolve().then(()=>carregarHistorico(renderizar,false));}}
     const s=document.getElementById('gf-consultar-saldo');if(s)s.onclick=()=>consultarSaldos(renderizar,true);
     if(renderizar===financeiro&&f.secao==='conferencias')return;
     if(!saldosTentados)consultarSaldos(renderizar,false);
