@@ -1,3 +1,4 @@
+import { planoRevisao } from "./revisao.ts";
 // bsq-omie — a ponte com o ERP Omie (app.omie.com.br).
 //
 // O Omie é onde os boletos dos carnês vivem e onde os pagamentos caem
@@ -177,12 +178,13 @@ function compactoExtrato(cc:any,ex:any,de:string,ate:string) {
   const ordenadas=datasValidas?[...linhas!].sort((a,b)=>dataSaldo(a.dDataLancamento).localeCompare(dataSaldo(b.dDataLancamento))):[];
   const saldoFinal=datasValidas?(ordenadas.length?numeroSaldo(ordenadas.at(-1).nSaldo):valores.nSaldoAnterior):null;
   return {schema:2,conta:String(cc.nCodCC),nome:cc.descricao||ex.cDescricao||"Conta Omie "+cc.nCodCC,tipo:cc.tipo_conta_corrente||cc.tipo||ex.cCodTipo||"",de,ate,quando:agora(),
+    cadastro:{saldoInicial:numeroSaldo(cc.saldo_inicial),dataInicial:dataSaldo(cc.saldo_data)},
     saldoInicial:valores.nSaldoAnterior,saldoFinalExtrato:saldoFinal,completo:datasValidas&&saldoFinal!==null&&valores.nSaldoAnterior!==null,
     criterio:"nSaldoAnterior e último nSaldo do extrato do período; comparar com movimentos importados",valores,
     diagnostico:{listaPresente:linhas!==null,datasValidas,aberturaInformada:valores.nSaldoAnterior!==null,fechamentoInformado:saldoFinal!==null},
     movimentos:linhas?.length??null,aberturaNoExtrato,fluxo:ex.cFluxoCaixa!=="N"&&cc.nao_fluxo!=="S",inativa:cc.inativo==="S",
     // Evidência mínima para conferir o fechamento; sem CPF, banco/agência ou texto livre.
-    trilha:datasValidas?ordenadas.map(m=>({id:String(m.nCodLancamento||""),data:dataSaldo(m.dDataLancamento),saldo:numeroSaldo(m.nSaldo),bloqueado:m.cBloqueado==="S",conciliacao:dataSaldo(m.dDataConciliacao)})):[]};
+    trilha:datasValidas?ordenadas.map(m=>({id:String(m.nCodLancamento||""),data:dataSaldo(m.dDataLancamento),saldo:numeroSaldo(m.nSaldo),valor:numeroSaldo(m.nValorDocumento),natureza:String(m.cNatureza||""),situacao:String(m.cSituacao||""),origem:String(m.cOrigem||""),bloqueado:m.cBloqueado==="S",conciliacao:dataSaldo(m.dDataConciliacao)})):[]};
 }
 async function contasParaSaldos(signal?:AbortSignal) {
   const contas:any[]=[];let esperado:number|null=null;
@@ -565,7 +567,7 @@ Deno.serve(async (req) => {
               gravar.push({colecao:"movbanco",id,registro:{...(anterior||{}),id,contaOmie:d.nCodCC,titulo:d.nCodTitulo||null,
                 data:brParaISO(d.dDtPagamento),valor:Number(d.nValorMovCC ?? res.nValPago)||0,
                 entrada:d.cNatureza==="R",transferencia:["TRAP","TRAR"].includes(d.cOrigem),
-                original,origem:"omie",atualizadoEm:agora(),
+                original,origem:"omie",omitidoOmie:null,atualizadoEm:agora(),
                 historico: anterior && canonico(anterior.original)!==canonico(original)?[...(anterior.historico||[]),{em:agora(),por:"omie",original:anterior.original}]:anterior?.historico||[]}});
             }
 
@@ -939,7 +941,7 @@ Deno.serve(async (req) => {
         try {
           const signal=AbortSignal.timeout(80000),cadastros=await contasParaSaldos(signal),dataBase=diaBrasil(),br=isoParaBR(dataBase),contas:any[]=[];
           for(const cc of cadastros){
-            const c:any={id:String(cc.nCodCC),nome:cc.descricao||"Conta Omie "+cc.nCodCC,tipo:cc.tipo_conta_corrente||cc.tipo||"",inativa:cc.inativo==="S",fluxo:cc.nao_fluxo!=="S",saldo:null,saldoRealizado:null};
+            const c:any={id:String(cc.nCodCC),nome:cc.descricao||"Conta Omie "+cc.nCodCC,tipo:cc.tipo_conta_corrente||cc.tipo||"",inativa:cc.inativo==="S",fluxo:cc.nao_fluxo!=="S",cadastro:{saldoInicial:numeroSaldo(cc.saldo_inicial),dataInicial:dataSaldo(cc.saldo_data)},saldo:null,saldoRealizado:null};
             if(!c.inativa)try {
               const ex=await omie("financas/extrato","ListarExtrato",{nCodCC:cc.nCodCC,dPeriodoInicial:br,dPeriodoFinal:br,cExibirApenasSaldo:"S"},signal);
               const e=compactoExtrato(cc,ex,dataBase,dataBase);
@@ -966,7 +968,7 @@ Deno.serve(async (req) => {
           // 30 minutos a consulta completa evita o bloqueio REDUNDANT do Omie.
           const cadastro=await lerMeta("omie_saldos");
           const conhecida=cadastro?.schema===2&&!cadastro.parcial&&Date.now()-Date.parse(cadastro.quando)<30*60e3?cadastro.contas?.find((c:any)=>String(c.id)===conta):null;
-          const cc=conhecida?{nCodCC:Number(conta),descricao:conhecida.nome,tipo_conta_corrente:conhecida.tipo,inativo:conhecida.inativa?"S":"N",nao_fluxo:conhecida.fluxo?"N":"S"}:await omie("geral/contacorrente","ConsultarContaCorrente",{nCodCC:Number(conta)});
+          const cc=conhecida?{nCodCC:Number(conta),descricao:conhecida.nome,tipo_conta_corrente:conhecida.tipo,inativo:conhecida.inativa?"S":"N",nao_fluxo:conhecida.fluxo?"N":"S",saldo_inicial:conhecida.cadastro?.saldoInicial,saldo_data:conhecida.cadastro?.dataInicial}:await omie("geral/contacorrente","ConsultarContaCorrente",{nCodCC:Number(conta)});
           if(String(cc.nCodCC)!==conta)throw new Error("Conta não confirmada no Omie.");
           const ex=await omie("financas/extrato","ListarExtrato",{nCodCC:Number(conta),dPeriodoInicial:isoParaBR(de),dPeriodoFinal:isoParaBR(ate),cExibirApenasSaldo:"N"});
           const r=compactoExtrato(cc,ex,de,ate);
@@ -975,6 +977,58 @@ Deno.serve(async (req) => {
           await gravarMeta(chave,r);
           return json({ok:true,...r});
         }catch(e){if(anterior)return json({ok:true,...anterior,desatualizado:true,erro:String((e as Error).message||e)});throw e;}
+      }
+      case "revisarMovimentos": {
+        if(perfil!=="direcao")return json({error:"Somente a direção confirma revisões do caixa."},403);
+        const conta=String(body.conta||""),de=String(body.de||""),ate=String(body.ate||"");
+        if(!/^\d+$/.test(conta)||!dataSaldoValida(de)||!dataSaldoValida(ate)||de>ate||de.slice(0,7)!==ate.slice(0,7)||ate>diaBrasil())return json({error:"Selecione uma conta e um mês já realizado."},400);
+        const signal=AbortSignal.timeout(80000),movimentos:any[]=[];let esperado:number|null=null;
+        for(let pagina=1;pagina<=100;pagina++){
+          const r=await omie("financas/mf","ListarMovimentos",{nPagina:pagina,nRegPorPagina:50,cTpLancamento:"CC",nCodCC:Number(conta),dDtPagtoDe:isoParaBR(de),dDtPagtoAte:isoParaBR(ate)},signal);
+          const p=paginaOmie(r,"ListarMovimentos",pagina,"movimentos","nTotPaginas","nTotRegistros","nPagina"),n=numeroSaldo(r.nTotRegistros);
+          if(n===null||esperado!==null&&n!==esperado)throw new Error("Origem mudou durante a conferência. Repita sem alterar o caixa.");esperado=n;movimentos.push(...p.itens);
+          if(pagina>=p.paginas)break;if(pagina===100)throw new Error("Limite de páginas atingido; revisão não aplicada.");
+        }
+        if(movimentos.length!==esperado)throw new Error("Leitura incompleta dos movimentos.");
+        const cc=await omie("geral/contacorrente","ConsultarContaCorrente",{nCodCC:Number(conta)},signal);
+        if(String(cc.nCodCC)!==conta)throw new Error("Cadastro pertence a outra conta.");
+        const ex=await omie("financas/extrato","ListarExtrato",{nCodCC:Number(conta),dPeriodoInicial:isoParaBR(de),dPeriodoFinal:isoParaBR(ate),cExibirApenasSaldo:"N"},signal),e=compactoExtrato(cc,ex,de,ate);
+        const locais:any[]=[];
+        for(let inicio=0;inicio<100000;inicio+=500){const {data:rs,error}=await db.from("bsq_registros").select("id,registro").eq("colecao","movbanco").eq("apagado",false).eq("registro->>contaOmie",conta).gte("registro->>data",de).lte("registro->>data",ate).order("id").range(inicio,inicio+499);if(error)throw new Error("Não foi possível ler o espelho.");locais.push(...(rs||[]).map(x=>x.registro));if((rs||[]).length<500)break;if(inicio===99500)throw new Error("Espelho excedeu o limite.");}
+        const plano=planoRevisao(locais,movimentos,e),em=agora(),chave="omie_revisao_caixa:"+conta+":"+de+":"+em;
+        await gravarMeta(chave,{em,por,conta,de,ate,extrato:e,origem:movimentos.map(m=>({id:m.detalhes.nCodMovCC,valor:m.detalhes.nValorMovCC})),anteriores:plano.retirar,status:"preparado"});
+        let corrigidos=0;
+        for(const r of plano.retirar){const registro={...r,omitidoOmie:{em,por,evidencia:chave,motivo:"Ausente na lista completa de movimentos e no extrato da origem"}};
+          const {data:alterados,error}=await db.from("bsq_registros").update({registro,atualizado_em:em}).eq("colecao","movbanco").eq("id",r.id).eq("registro",r).eq("apagado",false).select("id");
+          if(error||alterados?.length!==1){await marcarMudanca("movbanco");throw new Error("Revisão interrompida após "+corrigidos+" registros. Houve alteração concorrente; repita a conferência.");}corrigidos++;
+        }
+        if(corrigidos)await marcarMudanca("movbanco");
+        await gravarMeta("omie_extrato_atual:"+conta+":"+de+":"+ate,e);
+        await gravarMeta(chave+":resultado",{em,por,conta,de,ate,corrigidos,quantidadeOrigem:plano.quantidadeOrigem,status:"concluido"});
+        return json({ok:true,corrigidos,quantidadeOrigem:plano.quantidadeOrigem,extrato:e,quando:em});
+      }
+      // Leitura independente, sem filtro de vencimento, para medir a cobertura do passivo.
+      case "auditarPagar": {
+        const titulos:any[]=[],vistos=new Set<string>();let esperado:number|null=null;
+        const signal=AbortSignal.timeout(80000);
+        for(let pagina=1;pagina<=100;pagina++){
+          const r=await omie("financas/mf","ListarMovimentos",{nPagina:pagina,nRegPorPagina:50,cTpLancamento:"CP"},signal);
+          const p=paginaOmie(r,"ListarMovimentos",pagina,"movimentos","nTotPaginas","nTotRegistros","nPagina");
+          const total=numeroSaldo(r.nTotRegistros);
+          if(total===null||esperado!==null&&total!==esperado)throw new Error("Total de contas a pagar mudou durante a leitura. Repita a conferência.");
+          esperado=total;
+          for(const m of p.itens){const d=m.detalhes||{},a=numeroSaldo(m.resumo?.nValAberto),id=String(d.nCodTitulo||"");
+            if(d.cGrupo!=="CONTA_A_PAGAR"||!id||vistos.has(id)||a===null)throw new Error("Contas a pagar incompletas, duplicadas ou fora do filtro.");
+            vistos.add(id);titulos.push({id,status:d.cStatus||"",aberto:a,venc:dataSaldo(d.dDtVenc),conta:String(d.nCodCC||"")});
+          }
+          if(pagina>=p.paginas){
+            if(titulos.length!==esperado)throw new Error("Total lido de contas a pagar não corresponde ao Omie.");
+            const abertos=titulos.filter(t=>t.status!=="CANCELADO"&&t.aberto>0);
+            const a={quando:agora(),total:titulos.length,abertos:abertos.length,valorAberto:abertos.reduce((s,t)=>s+centavos(t.aberto),0)/100,titulos,completo:true,fonte:"Omie ListarMovimentos · CP · todas as páginas e vencimentos"};
+            await gravarMeta("omie_auditoria_pagar",a);return json({ok:true,...a});
+          }
+        }
+        throw new Error("Consulta de contas a pagar excedeu limite. Nenhuma cobertura confirmada.");
       }
       case "historicoSaldos": {
         const de=String(body.de||""),ate=String(body.ate||""),conta=String(body.conta||"");

@@ -112,3 +112,13 @@ Referências da integração:
 
 - https://app.omie.com.br/api/v1/financas/extrato/
 - https://app.omie.com.br/api/v1/geral/contacorrente/
+
+## Revisão de divergências (v82)
+
+- O saldo inicial de implantação de uma conta é apresentado separado de receitas e transferências. Só entra se data e valor do cadastro coincidirem com uma única linha bloqueada de origem `Cadastro da Conta Corrente` no extrato.
+- `Revisar movimentos na origem` exige direção, uma conta e um mês. Lê todas as páginas de `ListarMovimentos` com `cTpLancamento=CC`, confere filtro, IDs únicos, quantidade total, valores e natureza contra a importação e o extrato. O saldo deve fechar antes de qualquer alteração.
+- Espelhos antigos ausentes nas duas leituras deixam os totais mediante `omitidoOmie`, conservando registro original e evidência privada em `bsq_meta`. Atualização usa comparação do JSON original para não sobrescrever mudanças concorrentes. Uma reaparição na sincronização limpa a marca. Nenhum lançamento é criado, apagado ou alterado no Omie.
+- `Conferir contas a pagar no Omie` faz consulta independente de todos os vencimentos com `cTpLancamento=CP`, paginada e com total estável. Ausência de títulos abertos não comprova ausência de despesas futuras: planejamento e comissões continuam identificados separadamente.
+- Uma conta com “inativa” no nome, mas ativa no cadastro Omie, gera aviso. O nome não autoriza excluir seu saldo.
+
+Referências oficiais: https://app.omie.com.br/api/v1/financas/mf/ ; https://app.omie.com.br/api/v1/financas/extrato/ ; https://app.omie.com.br/api/v1/geral/contacorrente/ .

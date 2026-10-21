@@ -43,14 +43,14 @@ const FIN_GESTAO = (() => {
         situacao:pendente?(!valida(dt)?'Sem vencimento':dt<hoje?'Vencido':dt===hoje?'Vence hoje':'A vencer'):r.transferencia?'Transferência':!valida(dt)?'Sem data':dt>hoje?'Data futura na origem':'Realizado',
       };
     };
-    const vistos=new Set();const bancos=(reg.movbanco||[]).filter(r=>!r.apagadoEm&&r.origem==='omie'&&!vistos.has(r.id)&&vistos.add(r.id)).map(r=>enriquecer(r));
+    const vistos=new Set();const bancos=(reg.movbanco||[]).filter(r=>!r.apagadoEm&&!r.omitidoOmie&&r.origem==='omie'&&!vistos.has(r.id)&&vistos.add(r.id)).map(r=>enriquecer(r));
     const movimentos=bancos.filter(x=>!x.transferencia&&valida(x.data)&&x.data<=hoje&&x.valor>0);
     const excluidos=bancos.filter(x=>!x.transferencia&&(!valida(x.data)||x.data>hoje||x.valor<=0));
     const abertos=[...titulos.values()].filter(t=>t.status!=='CANCELADO'&&Number(t.original?.resumo?.nValAberto)>0&&['CONTA_A_RECEBER','CONTA_A_PAGAR'].includes(t.grupo)).map(t=>enriquecer(t,true));
     const retiradas=movimentos.flatMap(x=>fatias(x,'categorias').filter(p=>socio(p.nome)).map(p=>({...x,valor:p.valor,valorOriginal:x.valor,categoria:p.nome,categorias:[],centros:[],centroCusto:'Não detalhado por categoria',parcial:p.percentual<99.999})));
     const possiveis=movimentos.filter(x=>!retiradas.some(r=>r.id===x.id)&&socio(x.descricao));
     const locais=[...(reg.rec||[]),...(reg.cx||[])].filter(x=>!x.apagadoEm&&!x.anotacao&&!x.omie?.titulo);
-    return {movimentos,bancos,transferencias:bancos.filter(x=>x.transferencia&&valida(x.data)&&x.data<=hoje),excluidos,abertos,retiradas,possiveis,locais,hoje};
+    return {movimentos,bancos,omitidos:(reg.movbanco||[]).filter(r=>r.omitidoOmie&&!r.apagadoEm),transferencias:bancos.filter(x=>x.transferencia&&valida(x.data)&&x.data<=hoje),excluidos,abertos,retiradas,possiveis,locais,hoje};
   }
   function filtrar(lista,f={}) {return lista.filter(x=>(!f.ano||x.data.startsWith(f.ano))&&(!f.mes||x.data.slice(5,7)===f.mes)&&(!f.de||x.data>=f.de)&&(!f.ate||x.data<=f.ate)&&(!f.tipo||x.entrada===(f.tipo==='entrada'))&&(!f.conta||x.conta===f.conta)&&(!f.pessoa||x.pessoaCodigo===f.pessoa)&&(!f.situacao||x.situacao===f.situacao)&&(!f.q||texto([x.descricao,x.pessoa,x.ref?.documento,x.titulo,x.categoria,x.contaNome].join(' ')).includes(texto(f.q))));}
   function resumo(itens){const e=itens.filter(x=>x.entrada).reduce((s,x)=>s+cent(x.valor),0),s=itens.filter(x=>!x.entrada).reduce((s,x)=>s+cent(x.valor),0);return {entradas:rs(e),saidas:rs(s),resultado:rs(e-s),quantidade:itens.length};}
@@ -106,12 +106,14 @@ const FIN_GESTAO = (() => {
       const contasMes=ids.map(id=>{
         const candidatos=extratos.filter(e=>String(e.conta)===id&&e.de===p.de&&e.ate===ate&&!e.erro).sort((a,b)=>String(b.quando).localeCompare(String(a.quando))),e=candidatos[0];
         const ms=filtrar(xs,{conta:id,de:p.de,ate}),net=resumo(ms).resultado,inicial=numero(e?.saldoInicial),origem=numero(e?.saldoFinalExtrato);
-        const diferenca=inicial!==null&&origem!==null?(cent(inicial)+cent(net)-cent(origem))/100:null;
+        const aberturas=(e?.trilha||[]).filter(t=>t.origem==='Cadastro da Conta Corrente'&&t.bloqueado&&t.data===e.cadastro?.dataInicial&&t.data>=p.de&&t.data<=ate&&['R','P'].includes(t.natureza));
+        const implantacao=aberturas.length===1&&numero(e?.cadastro?.saldoInicial)!==null&&cent(e.cadastro.saldoInicial)===(aberturas[0].natureza==='R'?1:-1)*cent(aberturas[0].valor)?numero(e.cadastro.saldoInicial):0;
+        const diferenca=inicial!==null&&origem!==null?(cent(inicial)+cent(net)+cent(implantacao)-cent(origem))/100:null;
         const confirmado=!!e?.completo&&diferenca===0&&p.de<=b.hoje;
-        return {id,nome:contas.find(c=>String(c.id)===id)?.nome||id,inicial,origem,diferenca,confirmado,extrato:e,itens:ms};
+        return {id,nome:contas.find(c=>String(c.id)===id)?.nome||id,inicial,origem,implantacao,diferenca,confirmado,extrato:e,itens:ms};
       });
       const confirmado=ids.length>0&&contasMes.every(c=>c.confirmado)&&!ls.some(x=>!x.conta);
-      return {...p,ate,itens:ls,operacionais:ops,transferencias:tr,...r,transferencia:rt.resultado,variacao:(cent(r.resultado)+cent(rt.resultado))/100,contas:contasMes,
+      return {...p,ate,itens:ls,operacionais:ops,transferencias:tr,...r,transferencia:rt.resultado,implantacao:contasMes.reduce((s,c)=>s+cent(c.implantacao),0)/100,variacao:(cent(r.resultado)+cent(rt.resultado)+contasMes.reduce((s,c)=>s+cent(c.implantacao),0))/100,contas:contasMes,
         saldoInicial:confirmado?contasMes.reduce((s,c)=>s+cent(c.inicial),0)/100:null,saldoFinal:confirmado?contasMes.reduce((s,c)=>s+cent(c.origem),0)/100:null,
         estado:p.de>b.hoje?'Período futuro':confirmado?'Conferido com extrato':contasMes.some(c=>c.diferenca!==null&&c.diferenca!==0)?'Diferença a conferir':ls.length?'Saldo não comprovado':'Sem base suficiente'};
     });
@@ -119,7 +121,7 @@ const FIN_GESTAO = (() => {
   function resumirCaixa(linhas){
     const ls=linhas.filter(l=>l.estado!=='Período futuro'),primeiro=ls[0],ultimo=ls.at(-1),s=k=>ls.reduce((a,l)=>a+cent(l[k]),0)/100;
     const fechado=ls.length>0&&ls.every((l,i)=>l.saldoInicial!==null&&l.saldoFinal!==null&&(!i||cent(ls[i-1].saldoFinal)===cent(l.saldoInicial)));
-    return {de:primeiro?.de,ate:ultimo?.ate,entradas:s('entradas'),saidas:s('saidas'),transferencia:s('transferencia'),variacao:s('variacao'),saldoInicial:fechado?primeiro.saldoInicial:null,saldoFinal:fechado?ultimo.saldoFinal:null,estado:fechado?'Períodos conferidos e saldos contínuos':'Fechamento anual não comprovado · confira meses e continuidade'};
+    return {de:primeiro?.de,ate:ultimo?.ate,entradas:s('entradas'),saidas:s('saidas'),transferencia:s('transferencia'),implantacao:s('implantacao'),variacao:s('variacao'),saldoInicial:fechado?primeiro.saldoInicial:null,saldoFinal:fechado?ultimo.saldoFinal:null,estado:fechado?'Períodos conferidos e saldos contínuos':'Fechamento anual não comprovado · confira meses e continuidade'};
   }
   function comparar(b,f,modo='equivalente') {
     const itens=filtrar(b.movimentos,{conta:f.conta}),p=intervalo(f,b.hoje,itens);
