@@ -107,7 +107,7 @@ const FIN_GESTAO = (() => {
         const candidatos=extratos.filter(e=>String(e.conta)===id&&e.de===p.de&&e.ate===ate&&!e.erro).sort((a,b)=>String(b.quando).localeCompare(String(a.quando))),e=candidatos[0];
         const ms=filtrar(xs,{conta:id,de:p.de,ate}),net=resumo(ms).resultado,inicial=numero(e?.saldoInicial),origem=numero(e?.saldoFinalExtrato);
         const aberturas=(e?.trilha||[]).filter(t=>t.origem==='Cadastro da Conta Corrente'&&t.bloqueado&&t.data===e.cadastro?.dataInicial&&t.data>=p.de&&t.data<=ate&&['R','P'].includes(t.natureza));
-        const implantacao=aberturas.length===1&&numero(e?.cadastro?.saldoInicial)!==null&&cent(e.cadastro.saldoInicial)===(aberturas[0].natureza==='R'?1:-1)*cent(aberturas[0].valor)?numero(e.cadastro.saldoInicial):0;
+        const implantacao=aberturas.length===1&&numero(e?.cadastro?.saldoInicial)!==null&&cent(e.cadastro.saldoInicial)===(aberturas[0].natureza==='R'?1:-1)*Math.abs(cent(aberturas[0].valor))?numero(e.cadastro.saldoInicial):0;
         const diferenca=inicial!==null&&origem!==null?(cent(inicial)+cent(net)+cent(implantacao)-cent(origem))/100:null;
         const confirmado=!!e?.completo&&diferenca===0&&p.de<=b.hoje;
         return {id,nome:contas.find(c=>String(c.id)===id)?.nome||id,inicial,origem,implantacao,diferenca,confirmado,extrato:e,itens:ms};

@@ -995,6 +995,7 @@ Deno.serve(async (req) => {
         const ex=await omie("financas/extrato","ListarExtrato",{nCodCC:Number(conta),dPeriodoInicial:isoParaBR(de),dPeriodoFinal:isoParaBR(ate),cExibirApenasSaldo:"N"},signal),e=compactoExtrato(cc,ex,de,ate);
         const locais:any[]=[];
         for(let inicio=0;inicio<100000;inicio+=500){const {data:rs,error}=await db.from("bsq_registros").select("id,registro").eq("colecao","movbanco").eq("apagado",false).eq("registro->>contaOmie",conta).gte("registro->>data",de).lte("registro->>data",ate).order("id").range(inicio,inicio+499);if(error)throw new Error("Não foi possível ler o espelho.");locais.push(...(rs||[]).map(x=>x.registro));if((rs||[]).length<500)break;if(inicio===99500)throw new Error("Espelho excedeu o limite.");}
+        await gravarMeta("omie_revisao_leitura:"+conta+":"+de,{quando:agora(),extrato:e,movimentos:movimentos.map(m=>({detalhes:{cGrupo:m.detalhes.cGrupo,nCodMovCC:m.detalhes.nCodMovCC,nCodCC:m.detalhes.nCodCC,dDtPagamento:m.detalhes.dDtPagamento,nValorMovCC:m.detalhes.nValorMovCC,cNatureza:m.detalhes.cNatureza}}))});
         const plano=planoRevisao(locais,movimentos,e),em=agora(),chave="omie_revisao_caixa:"+conta+":"+de+":"+em;
         await gravarMeta(chave,{em,por,conta,de,ate,extrato:e,origem:movimentos.map(m=>({id:m.detalhes.nCodMovCC,valor:m.detalhes.nValorMovCC})),anteriores:plano.retirar,status:"preparado"});
         let corrigidos=0;
