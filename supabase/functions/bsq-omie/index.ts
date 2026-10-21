@@ -999,7 +999,7 @@ Deno.serve(async (req) => {
         await gravarMeta(chave,{em,por,conta,de,ate,extrato:e,origem:movimentos.map(m=>({id:m.detalhes.nCodMovCC,valor:m.detalhes.nValorMovCC})),anteriores:plano.retirar,status:"preparado"});
         let corrigidos=0;
         for(const r of plano.retirar){const registro={...r,omitidoOmie:{em,por,evidencia:chave,motivo:"Ausente na lista completa de movimentos e no extrato da origem"}};
-          const {data:alterados,error}=await db.from("bsq_registros").update({registro,atualizado_em:em}).eq("colecao","movbanco").eq("id",r.id).eq("registro",r).eq("apagado",false).select("id");
+          const {data:alterados,error}=await db.from("bsq_registros").update({registro,atualizado_em:em}).eq("colecao","movbanco").eq("id",r.id).eq("registro",JSON.stringify(r)).eq("apagado",false).select("id");
           if(error||alterados?.length!==1){await marcarMudanca("movbanco");throw new Error("Revisão interrompida após "+corrigidos+" registros. Houve alteração concorrente; repita a conferência.");}corrigidos++;
         }
         if(corrigidos)await marcarMudanca("movbanco");
