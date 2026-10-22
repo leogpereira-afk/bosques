@@ -2,6 +2,7 @@ import { planoRevisao } from "./revisao.ts";
 import { lerPagarIntegral } from "./auditoria-integral.ts";
 import { lerBaixasIntegral } from "./auditoria-baixas.ts";
 import { enviarCorrecaoAuditada, confirmarCorrecaoAuditada } from "./correcao-auditada.ts";
+import { enviarCentroBancario, confirmarCentroBancario } from "./centros-bancarios.ts";
 import { enviarCentroAuditado, confirmarCentroAuditado } from "./centros-auditados.ts";
 // bsq-omie — a ponte com o ERP Omie (app.omie.com.br).
 //
@@ -395,15 +396,15 @@ Deno.serve(async (req) => {
           const inicio=Number(body.inicioConferencia||0);
           if(!Number.isInteger(inicio)||inicio<0||inicio>=fila.itens.length)return json({error:"Página de conferência inválida."},400);
           let nova=await lerMeta(chave+":leituraFinal");
-          if(inicio===0){
+          if(inicio===0 && fila.itens.some((p:any)=>p.modo!=="centros_cc")){
             const leitura=await lerPagarIntegral(omie,AbortSignal.timeout(80000));
             nova={...leitura,quando:agora(),por,fonte:"Omie · conferência independente após correções"};
             await gravarMeta("omie_auditoria_contaspagar_evidencia:"+nova.quando,nova);
             await gravarMeta("omie_auditoria_contaspagar",nova);
             await gravarMeta(chave+":leituraFinal",nova);
           }
-          if(!nova?.completo)throw new Error("Leitura final integral não confirmada.");
-          const quando=agora(),leitura=nova;
+          if(!nova?.completo && fila.itens.some((p:any)=>p.modo!=="centros_cc"))throw new Error("Leitura final integral não confirmada.");
+          const quando=agora(),leitura=nova||{registros:[]};
           const porId=new Map(leitura.registros.map((r:any)=>[String(r.codigo_lancamento_omie),r]));
           let concluidas=0,pendentes=0;
           for(const [indice,plano] of fila.itens.entries()){
@@ -414,14 +415,14 @@ Deno.serve(async (req) => {
             if(e.situacao!=="aguardando_conferencia"){pendentes++;continue;}
             // A consulta pontual do Omie pode devolver o estado anterior por 60s.
             // Retomar somente a conferência; nunca reenviar a alteração.
-            if(e.plano.modo==="centros"&&Date.now()-Date.parse(e.quando)<60000)return json({ok:true,aguardando:true,continua:indice,esperaMs:60000});
+            if(["centros","centros_cc"].includes(e.plano.modo)&&Date.now()-Date.parse(e.quando)<60000)return json({ok:true,aguardando:true,continua:indice,esperaMs:60000});
             try{
-              if(!porId.has(String(plano.id)))throw new Error("Título ausente na leitura integral final.");
+              if(plano.modo!=="centros_cc"&&!porId.has(String(plano.id)))throw new Error("Título ausente na leitura integral final.");
               // Consulta pontual posterior também confere impostos/baixas,
               // campos que ListarContasPagar não devolve integralmente.
-              const depois=await omie("financas/contapagar","ConsultarContaPagar",{codigo_lancamento_omie:Number(plano.id)});
-              if(e.plano.modo==="centros")await gravarMeta(k+":consultaConferencia",{quando:agora(),depois});
-              const confirmado=e.plano.modo==="centros"?confirmarCentroAuditado(e.antes,e.esperado,depois):confirmarCorrecaoAuditada(e.antes,e.esperado,depois);
+              const depois=plano.modo==="centros_cc"?await omie("financas/contacorrentelancamentos","ConsultaLancCC",{nCodLanc:Number(plano.id)}):await omie("financas/contapagar","ConsultarContaPagar",{codigo_lancamento_omie:Number(plano.id)});
+              if(["centros","centros_cc"].includes(e.plano.modo))await gravarMeta(k+":consultaConferencia",{quando:agora(),depois});
+              const confirmado=e.plano.modo==="centros_cc"?confirmarCentroBancario(e.antes,e.esperado,depois):e.plano.modo==="centros"?confirmarCentroAuditado(e.antes,e.esperado,depois):confirmarCorrecaoAuditada(e.antes,e.esperado,depois);
               await gravarMeta(k,{...e,...confirmado,situacao:"concluida",erroConferencia:null,conferidaEm:quando});concluidas++;
             }catch(erro){
               const mensagem=String((erro as Error).message||erro);
@@ -445,10 +446,11 @@ Deno.serve(async (req) => {
           if(!fila?.autorizado||!Array.isArray(fila.itens)||!leitura?.completo)throw new Error("Plano autorizado ou fonte completa indisponível.");
           const indice=Number(body.indice);
           if(!Number.isInteger(indice)||indice<0||indice>=fila.itens.length)return json({error:"Índice inválido."},400);
-          const plano=fila.itens[indice],id=String(plano.id),antes=leitura.registros.find((x:any)=>String(x.codigo_lancamento_omie)===id);
+          const plano=fila.itens[indice],id=String(plano.id),antes=plano.modo==="centros_cc"?await lerUm("movbanco","banco-"+id):leitura.registros.find((x:any)=>String(x.codigo_lancamento_omie)===id);
           if(!antes)throw new Error("Título fora da fonte conferida.");
-          if(plano.modo==="centros"){
+          if(["centros","centros_cc"].includes(plano.modo)){
             const refs=await referenciasFinanceiras();
+            if(plano.distribuicaoAnterior&&(!Array.isArray(plano.distribuicaoAnterior)||plano.distribuicaoAnterior.some((p:any)=>refs.centros?.[String(p.cCodDep)]!==p.cDesDep)))throw new Error("Centro anterior não corresponde ao cadastro Omie.");
             if(!Array.isArray(plano.distribuicaoNova)||plano.distribuicaoNova.some((p:any)=>!refs.centros?.[String(p.cCodDep)]||refs.centros[String(p.cCodDep)]!==p.cDesDep))throw new Error("Centro não corresponde ao cadastro Omie conferido.");
           }
           const evidenciaChave=chave+":item:"+id,previa=await lerMeta(evidenciaChave);
@@ -458,7 +460,7 @@ Deno.serve(async (req) => {
           const {error:erroReserva}=await db.from("bsq_meta").insert({chave:evidenciaChave+":reserva",valor:{quando:agora(),por,plano},atualizado_em:agora()});
           if(erroReserva)throw new Error("Item já reservado para conferência; nenhuma nova alteração enviada.");
           try{
-            const enviar=plano.modo==="centros"?enviarCentroAuditado:enviarCorrecaoAuditada;
+            const enviar=plano.modo==="centros_cc"?enviarCentroBancario:plano.modo==="centros"?enviarCentroAuditado:enviarCorrecaoAuditada;
             const resultado=await enviar(omie,antes,plano,async(e:any)=>{
               await gravarMeta(evidenciaChave,{...e,quando:agora(),por,situacao:"enviando"});
             },AbortSignal.timeout(80000));

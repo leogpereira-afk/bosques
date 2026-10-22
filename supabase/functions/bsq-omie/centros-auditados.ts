@@ -16,17 +16,21 @@ function validarDestino(distrib:any,valor:number){
   const p=distrib[0];if(Object.keys(p).some(k=>!['cCodDep','cDesDep','nPerDep','nValDep'].includes(k))||!/^\d+$/.test(String(p.cCodDep))||!p.cDesDep||Number(p.nPerDep)!==100||Math.round(Number(p.nValDep)*100)!==Math.round(valor*100))throw Error('Destino, percentual ou valor do rateio inválido.');
 }
 export async function enviarCentroAuditado(omie:any,snapshot:any,plano:any,guardar:any,signal?:AbortSignal){
-  const permitidos=['modo','id','categoriaAnterior','observacaoAnterior','distribuicaoNova','evidencia'];
+  const permitidos=['modo','id','categoriaAnterior','observacaoAnterior','distribuicaoNova','distribuicaoAnterior','evidencia'];
   if(plano?.modo!=='centros'||Object.keys(plano).some(k=>!permitidos.includes(k))||!plano.evidencia)throw Error('Plano de centro inválido.');
   const id=String(plano.id);if(!/^\d+$/.test(id)||!Number.isSafeInteger(Number(id)))throw Error('ID inválido.');
   validar(snapshot,id);validarDestino(plano.distribuicaoNova,Number(snapshot.valor_documento));
-  if((snapshot.distribuicao||[]).length&&!same(partes(snapshot),partes({distribuicao:plano.distribuicaoNova})))throw Error('Rateio anterior existente; requer revisão.');
+  const anterior=plano.distribuicaoAnterior;
+  if(anterior!==undefined){validarDestino(anterior,Number(snapshot.valor_documento));if(anterior[0].cDesDep!=='Conferência')throw Error('Só permite retirar rateio provisório de Conferência.');}
+  const coincide=(r:any,d:any)=>same(partes(r),partes({distribuicao:d||[]}));
+  if((snapshot.distribuicao||[]).length&&!coincide(snapshot,plano.distribuicaoNova)&&!coincide(snapshot,anterior))throw Error('Rateio anterior existente; requer revisão.');
+  if(anterior&&!coincide(snapshot,anterior)&&!coincide(snapshot,plano.distribuicaoNova))throw Error('Rateio provisório não corresponde à fonte.');
   if(String(snapshot.codigo_categoria||'')!==plano.categoriaAnterior||String(snapshot.observacao||'')!==plano.observacaoAnterior)throw Error('Fonte do plano mudou.');
   const atual=await omie('financas/contapagar','ConsultarContaPagar',{codigo_lancamento_omie:Number(id)},signal);
   validar(atual,id);protegido(atual,snapshot);
   const esperado=clone(atual);esperado.distribuicao=clone(plano.distribuicaoNova);
   if(same(partes(atual),partes(esperado)))return {situacao:'aguardando_conferencia',idempotente:true,enviada:false,antes:clone(atual),esperado,resposta:null};
-  if((atual.distribuicao||[]).length)throw Error('Rateio concorrente; nenhuma alteração enviada.');
+  if(!coincide(atual,anterior))throw Error('Rateio concorrente; nenhuma alteração enviada.');
   const payload:any={};for(const[k,v]of Object.entries(esperado))if(!readonly.has(k)&&!controles.has(k))payload[k]=clone(v);
   payload.baixar_documento='N';payload.conciliar_documento='N';payload.aprendizado_rateio='N';
   await guardar({fase:'antes',id,plano:clone(plano),antes:clone(atual),payload:clone(payload)});

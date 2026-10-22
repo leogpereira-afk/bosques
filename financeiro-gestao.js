@@ -7,11 +7,12 @@ const FIN_GESTAO = (() => {
   const valida=v=>/^\d{4}-\d{2}-\d{2}$/.test(v||'')&&!Number.isNaN(Date.parse(v+'T12:00:00Z'))&&new Date(v+'T12:00:00Z').toISOString().slice(0,10)===v;
   const socio=nome=>/(?:pro[ -]?labore|distribui.*lucro|dividendo|socio|societari)/.test(texto(nome));
   function fatias(x,campo) {
-    const partes=x[campo]||[],v=cent(x.valor),nomeVazio=campo==='centros'?'Sem centro de custo':'Sem categoria';
+    const partes=x[campo]||[],v=cent(x.valor),provisorio=campo==='centros'&&x.entrada===false,nomeVazio=campo==='centros'?(provisorio?'Conferência':'Sem centro de custo'):'Sem categoria';
+    const pendencia=nome=>provisorio&&(nome===nomeVazio||x.centroPendenteOrigem)?{provisorio:true}:{};
     const codigo=p=>campo==='categorias'?{codigo:String(p||'').trim()}:{};
-    if(!partes.length)return [{nome:campo==='centros'?(x.centroCusto||nomeVazio):(x.categoria||nomeVazio),valor:rs(v),percentual:100,...codigo(x.categoriaCodigo||x.ref?.categoriaCodigo)}];
+    if(!partes.length)return [{nome:campo==='centros'?(x.centroCusto||nomeVazio):(x.categoria||nomeVazio),valor:rs(v),percentual:100,...pendencia(x.centroCusto||nomeVazio),...codigo(x.categoriaCodigo||x.ref?.categoriaCodigo)}];
     const somaP=partes.reduce((s,p)=>s+(Number(p.percentual)||0),0),somaV=partes.reduce((s,p)=>s+cent(p.valor),0);
-    if(partes.some(p=>Number(p.percentual)<0||Number(p.valor)<0)||somaP>100.01||(!somaP&&somaV>v))return [{nome:nomeVazio,valor:rs(v),percentual:100,...codigo('')}];
+    if(partes.some(p=>Number(p.percentual)<0||Number(p.valor)<0)||somaP>100.01||(!somaP&&somaV>v))return [{nome:nomeVazio,valor:rs(v),percentual:100,...pendencia(nomeVazio),...codigo('')}];
     let usado=0,percentualAcumulado=0;
     const out=partes.map((p,i)=>{
       percentualAcumulado+=Number(p.percentual)||0;
@@ -21,7 +22,7 @@ const FIN_GESTAO = (() => {
       if(i===partes.length-1&&Math.abs(somaP-100)<0.01)valor=Math.max(0,v-usado);
       usado+=valor;return {nome:p.nome||(p.codigo?'Código '+p.codigo:nomeVazio),valor:rs(valor),percentual:v?valor/v*100:0,...codigo(p.codigo)};
     }).filter(p=>p.valor>0);
-    if(usado<v)out.push({nome:nomeVazio,valor:rs(v-usado),percentual:(v-usado)/v*100,...codigo('')});return out;
+    if(usado<v)out.push({nome:nomeVazio,valor:rs(v-usado),percentual:(v-usado)/v*100,...pendencia(nomeVazio),...codigo('')});return out;
   }
   function montar(reg,hoje) {
     const titulos=new Map((reg.titulo||[]).filter(x=>!x.apagadoEm&&!x.ausenteOrigemOmie).map(t=>[t.grupo+'|'+t.titulo,t]));
@@ -37,9 +38,10 @@ const FIN_GESTAO = (() => {
       const categoria=ref.categoriaNome|| (ref.categoriaCodigo?'Categoria Omie '+ref.categoriaCodigo:'Sem categoria');
       const valor=pendente?Number(t.original?.resumo?.nValAberto)||0:Number(r.valor)||0;
       const dt=pendente?data(r.venc):data(r.data);
+      const gerencial=!entrada&&!pendente&&!ref.centros?.length&&r.centroGerencial?.fonte==='auditoria_autorizada'&&r.centroGerencial?.nome?r.centroGerencial:null;
       return {...r,valor,data:dt,entrada,pendente,ref,tituloOriginal:t,locais,vendaId:venda?.id,
         pessoa,pessoaCodigo:ref.pessoaCodigo||pessoa,descricao:ref.observacao||ref.documento||locais.find(l=>l.descricao&&!/^Título Omie/.test(l.descricao))?.descricao||(r.transferencia?'Transferência entre contas':r.titulo?'Título '+r.titulo:'Movimento '+r.id),
-        categoria,categorias:ref.categorias||[],centros:ref.centros||[],centroCusto:'',
+        categoria,categorias:ref.categorias||[],centros:ref.centros||[],centroCusto:gerencial?.nome||'',centroPendenteOrigem:!!gerencial,motivoCentroGerencial:gerencial?.motivo||'',
         conta:String(r.contaOmie||ref.contaCodigo||''),contaNome:ref.contaNome||conta.get(String(r.contaOmie||ref.contaCodigo))||'Conta Omie '+(r.contaOmie||ref.contaCodigo||'não informada'),
         situacao:pendente?(!valida(dt)?'Sem vencimento':dt<hoje?'Vencido':dt===hoje?'Vence hoje':'A vencer'):r.transferencia?'Transferência':!valida(dt)?'Sem data':dt>hoje?'Data futura na origem':'Realizado',
       };
@@ -55,7 +57,7 @@ const FIN_GESTAO = (() => {
   }
   function filtrar(lista,f={}) {return lista.filter(x=>(!f.ano||x.data.startsWith(f.ano))&&(!f.mes||x.data.slice(5,7)===f.mes)&&(!f.de||x.data>=f.de)&&(!f.ate||x.data<=f.ate)&&(!f.tipo||x.entrada===(f.tipo==='entrada'))&&(!f.conta||x.conta===f.conta)&&(!f.pessoa||x.pessoaCodigo===f.pessoa)&&(!f.situacao||x.situacao===f.situacao)&&(!f.q||texto([x.descricao,x.pessoa,x.ref?.documento,x.titulo,x.categoria,x.contaNome].join(' ')).includes(texto(f.q))));}
   function resumo(itens){const e=itens.filter(x=>x.entrada).reduce((s,x)=>s+cent(x.valor),0),s=itens.filter(x=>!x.entrada).reduce((s,x)=>s+cent(x.valor),0);return {entradas:rs(e),saidas:rs(s),resultado:rs(e-s),quantidade:itens.length};}
-  function agrupar(itens,campo){const grupos=new Map();for(const x of itens){const partes=['centros','categorias'].includes(campo)?fatias(x,campo):[{nome:campo==='pessoa'?x.pessoa:x[campo]||'Não informado',valor:x.valor}];for(const p of partes){const chave=campo==='pessoa'?x.pessoaCodigo:p.nome;const g=grupos.get(chave)||{chave,nome:p.nome,itens:[]};g.itens.push({...x,valor:p.valor,valorOriginal:x.valorOriginal||x.valor,parcial:x.parcial||Math.abs(cent(p.valor)-cent(x.valor))>0,...(campo==='categorias'?{categoria:p.nome,categorias:[]}:campo==='centros'?{centroCusto:p.nome,centros:[]}:{} )});grupos.set(chave,g);}}
+  function agrupar(itens,campo){const grupos=new Map();for(const x of itens){const partes=['centros','categorias'].includes(campo)?fatias(x,campo):[{nome:campo==='pessoa'?x.pessoa:x[campo]||'Não informado',valor:x.valor}];for(const p of partes){const chave=campo==='pessoa'?x.pessoaCodigo:p.nome;const g=grupos.get(chave)||{chave,nome:p.nome,itens:[]};g.itens.push({...x,valor:p.valor,valorOriginal:x.valorOriginal||x.valor,parcial:x.parcial||Math.abs(cent(p.valor)-cent(x.valor))>0,...(campo==='categorias'?{categoria:p.nome,categorias:[]}:campo==='centros'?{centroCusto:p.nome,centros:[],centroPendenteOrigem:!!p.provisorio||!!x.centroPendenteOrigem}:{} )});grupos.set(chave,g);}}
     return [...grupos.values()].map(g=>({...g,...resumo(g.itens)})).sort((a,b)=>b.saidas-a.saidas||b.entradas-a.entradas||a.nome.localeCompare(b.nome));}
   // Consulta por identidade do plano Omie. O chamador separa realizado e títulos
   // abertos; a categoria e seu rateio nunca criam uma segunda movimentação.
