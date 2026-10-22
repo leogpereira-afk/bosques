@@ -159,6 +159,27 @@ const FIN_GESTAO = (() => {
     if(minimo!==null){let saldoDia=cent(sr.ancora);const porDia=new Map();for(const x of futuros.filter(x=>x.data<=p.ate))porDia.set(x.data,(porDia.get(x.data)||0)+(x.entrada?1:-1)*cent(x.valor));for(const [d,net] of [...porDia].sort(([a],[b])=>a.localeCompare(b))){saldoDia+=net;if(saldoDia<cent(minimo)){minimo=saldoDia/100;dataMinimo=d;}}}
     return {periodo:p,linhas,itens:alvo,foraEscopo,anteriores,hoje:itens.filter(x=>x.data===b.hoje),vencidos:itens.filter(x=>valida(x.data)&&x.data<b.hoje),semData:itens.filter(x=>!valida(x.data)),resumo:resumo(alvo),saldoBase:baseValida?sr.ancora:null,quando:sr.quando,corte,parcial:true,semPagar:!futuros.some(x=>!x.entrada),minimo,dataMinimo,granularidade:gran};
   }
-  return {montar,filtrar,resumo,agrupar,meses,fatias,socio,valida,cent,data,numero,soma,dia,ultimo,deslocarMes,intervalo,recorte,sequencia,serie,carteira,contasDisponiveis,saldoResumo,historico,resumirCaixa,comparar,horizonte,projetar};
+  // Classificação gerencial conservadora: a categoria não comprova recorrência.
+  // Somente uma confirmação explícita pode compor custos fixos confirmados.
+  function custos(itens) {
+    const grupos={fixo:[],consumo:[],financeiro:[],retirada:[],variavel:[],pendente:[]};
+    for(const x of itens){
+      if(x.entrada||x.transferencia)continue;
+      for(const p of fatias(x,'categorias')){
+        const n=texto(p.nome), c=x.classificacaoCusto;
+        let grupo='pendente';
+        if(c?.confirmado===true&&c?.evidencia&&Object.hasOwn(grupos,c.grupo))grupo=c.grupo;
+        else if(socio(n)||/retirada/.test(n))grupo='retirada';
+        else if(/tarifa|juros|multa|despesa.*banc/.test(n))grupo='financeiro';
+        else if(/^(agua|energia eletrica|consumo de agua|consumo de energia)$/.test(n))grupo='consumo';
+        // Salários, administração e comissão podem conter erros históricos:
+        // continuam pendentes até revisão individual da origem.
+        grupos[grupo].push({...x,valor:p.valor,categoria:p.nome,categorias:[],valorOriginal:x.valor,parcial:p.percentual<99.999});
+      }
+    }
+    const totais=Object.fromEntries(Object.entries(grupos).map(([k,v])=>[k,soma(v)]));
+    return {grupos,totais,total:soma(Object.values(grupos).flat()),pendentes:grupos.pendente.length};
+  }
+  return {custos,montar,filtrar,resumo,agrupar,meses,fatias,socio,valida,cent,data,numero,soma,dia,ultimo,deslocarMes,intervalo,recorte,sequencia,serie,carteira,contasDisponiveis,saldoResumo,historico,resumirCaixa,comparar,horizonte,projetar};
 })();
 if(typeof module!=='undefined')module.exports=FIN_GESTAO;

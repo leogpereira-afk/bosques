@@ -7,6 +7,8 @@ const assert=require('node:assert/strict'),fs=require('node:fs'),vm=require('nod
  vm.runInContext(fs.readFileSync('ui.js','utf8'),ctx);
  vm.runInContext(fs.readFileSync('conciliacao.js','utf8'),ctx);
  const C=ctx.window.BSQ_CONCILIACAO;
+ assert.equal(C.pendenciasAuditoria(null),'');
+ assert.ok(C.pendenciasAuditoria({quando:'2026-01-01',itens:[{titulo:'<script>teste</script>',descricao:'Documento pendente',proximoPasso:'Conferir'}]}).includes('&lt;script&gt;'));
  const reg={venda:[{id:'v1',clienteId:'123',clienteNome:'Cliente fictício',quadra:1,lote:2,parcelas:[{tid:'t1',valor:90,venc:'2026-09-01'}],atualizadoEm:'v1a'},{id:'v2',clienteId:'123',quadra:1,lote:3,parcelas:[]}],titulo:[{id:'CONTA_A_RECEBER-t1',titulo:'t1',cpf:'123',grupo:'CONTA_A_RECEBER',valor:100,venc:'2026-09-01',atualizadoEm:'ta',original:{detalhes:{cNumTitulo:'Q01L02'},resumo:{nValAberto:100}}},{id:'CONTA_A_PAGAR-p1',titulo:'p1',grupo:'CONTA_A_PAGAR',valor:50,original:{resumo:{nValLiquido:50}}}],rec:[{id:'r1',valor:50,data:'2026-09-01',omie:{titulo:'t1',cpf:'123'}},{id:'r2',valor:20,data:'2026-09-01',atualizadoEm:'ra'},{id:'r3',valor:30,vendaId:'v1'}],cx:[{id:'c1',tipo:'saida',valor:50,data:'2026-09-01'}],cliente:[{id:'123',nome:'Cliente fictício'}]};
  let n=0;const teste=(nome,fn)=>{fn();n++;console.log('OK '+nome);};
  const saude={ok:true,sync:{pendencias:[{tipo:'possivel_duplicidade',titulo:'p1',candidatos:['c1'],valor:50},{tipo:'possivel_duplicidade',titulo:'p1',candidatos:['c1'],valor:50}]}};

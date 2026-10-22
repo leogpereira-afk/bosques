@@ -328,6 +328,7 @@ Deno.serve(async (req) => {
           .eq("id", true).maybeSingle();
         if (erroExecucao) console.error("saude: estado da rodada indisponível (migração 202610200001 aplicada?)", erroExecucao.message);
         return json({ ok: true, sync: body.resumida === true ? resumirSaudeOmie(meta) : meta || null,
+          auditoria: await lerMeta("auditoria_financeira"),
           corte: cfg.omie?.corteEntradas || null, automacao: await lerMeta("omie_automacao"),
           execucao: execucaoAtual || null, execucaoErro: erroExecucao ? erroExecucao.message : undefined, agora: agora() });
       }

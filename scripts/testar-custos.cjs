@@ -1,0 +1,6 @@
+const {test}=require('node:test'),a=require('node:assert/strict'),F=require('../financeiro-gestao.js');
+const x=(categoria,valor=10,extra={})=>({categoria,valor,entrada:false,...extra});
+test('salários e administração não presumem custo fixo',()=>{const c=F.custos([x('Salários'),x('Administração'),x('Comissões')]);a.equal(c.totais.fixo,0);a.equal(c.totais.pendente,30);});
+test('confirmação exige evidência',()=>{a.equal(F.custos([x('Outro',15,{classificacaoCusto:{grupo:'fixo',confirmado:true,evidencia:'Contrato conferido'}})]).totais.fixo,15);a.equal(F.custos([x('Outro',15,{classificacaoCusto:{grupo:'fixo',confirmado:true}})]).totais.pendente,15);});
+test('separa consumo financeiro retiradas e exclui transferências e entradas',()=>{const r=F.custos([x('Água'),x('Energia elétrica'),x('Tarifas bancárias'),x('Retiradas'),x('Outro',10,{entrada:true}),x('Outro',10,{transferencia:true})]);a.equal(r.total,40);a.equal(r.totais.consumo,20);a.equal(r.totais.financeiro,10);a.equal(r.totais.retirada,10);});
+test('rateio conserva os centavos e o total',()=>{const r=F.custos([x('Outro',10.01,{categorias:[{nome:'Água',percentual:33.33},{nome:'Tarifas bancárias',percentual:66.67}]})]);a.equal(r.total,10.01);a.equal(F.cent(r.totais.consumo)+F.cent(r.totais.financeiro),1001);});

@@ -1,7 +1,7 @@
 /* Leitura financeira: mesma base, mesmo período e detalhe para cada número. */
 const GESTAO_UI = (() => {
   const nomesMes=['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
-  const abas={visao:'Visão geral',fluxo:'Fluxo de caixa',contas:'Caixa e contas',receber:'A receber',pagar:'A pagar',lancamentos:'Lançamentos',retiradas:'Retiradas',conferencias:'Conciliação'};
+  const abas={visao:'Visão geral',fluxo:'Fluxo de caixa',fixos:'Custos fixos',contas:'Caixa e contas',receber:'A receber',pagar:'A pagar',lancamentos:'Lançamentos',retiradas:'Retiradas',conferencias:'Conciliação'};
   let acoes=[],ultimaFin=null,atualizando=false;
   const base=()=>FIN_GESTAO.montar(S.reg,hojeISO());
   const estado=()=>{const f=TELAS._gestao||(TELAS._gestao={ano:hojeISO().slice(0,4),mes:hojeISO().slice(5,7),conta:'',q:'',secao:'visao',escopo:'ano'});if(!/^\d{4}$/.test(f.ano||''))f.ano=hojeISO().slice(0,4);if(!f.escopo)f.escopo='ano';return f;};
@@ -249,12 +249,24 @@ const GESTAO_UI = (() => {
   }
 
   function adotarLegado(){const l=TELAS._fin,f=estado();if(l&&l!==ultimaFin){ultimaFin=l;f.secao=({recebimentos:'lancamentos',despesas:'lancamentos',pendencias:'conferencias',diferencas:'conferencias',centros:'centros'})[l.aba]||l.aba||'visao';f.tipo=l.aba==='recebimentos'?'entrada':l.aba==='despesas'?'saida':'';if(l.ano){f.ano=l.ano;f.escopo='ano';}else f.escopo='todos';f.mes=l.mes||'';f.q=l.q||'';}}
+  function custosFixos(b,itens){
+    const c=F.custos(itens),nomes={fixo:'Fixos confirmados',consumo:'Consumo recorrente',financeiro:'Despesas financeiras',retirada:'Retiradas',variavel:'Variáveis confirmados',pendente:'Classificação pendente'};
+    const p=F.intervalo(estado(),b.hoje,b.movimentos),series=p.valido?F.serie(itens,p.de,p.ate,'mes'):[];
+    return quadro('Custos fixos mês a mês','Realizado pela data de pagamento. Fixos exigem confirmação individual; salários e administração ainda não revisados ficam pendentes.',
+      '<div class="gf-cards">'+Object.entries(nomes).map(([k,n])=>indicador(n,c.grupos[k].length?c.totais[k]:null,c.grupos[k].length+' parcelas classificadas',()=>abrirLista(n,c.grupos[k]),'saida')).join('')+'</div>')+
+      aviso('Esta classificação gerencial não altera a categoria do Omie. Despesas futuras só entram no fluxo quando cadastradas como compromissos; nenhum mês é repetido automaticamente.')+
+      quadro('Conferência mensal','A soma das seis classificações deve corresponder às saídas do mesmo recorte. Meses sem movimentos não comprovam custo zero.',
+      '<div class="gf-tabela-scroll"><table class="gf-tabela"><thead><tr><th>Mês</th>'+Object.values(nomes).map(n=>'<th class="num">'+esc(n)+'</th>').join('')+'<th class="num">Total de saídas</th></tr></thead><tbody>'+series.map(l=>{const r=F.custos(l.itens);return '<tr><th>'+esc(l.chave)+'</th>'+Object.entries(nomes).map(([k,n])=>'<td class="num">'+(r.grupos[k].length?botao(valor(r.totais[k]),()=>abrirLista(n+' · '+l.chave,r.grupos[k]),'gf-link'):'—')+'</td>').join('')+'<td class="num">'+(l.itens.length?valor(r.total):'—')+'</td></tr>';}).join('')+'</tbody></table></div>')+
+      recolher('Lançamentos que precisam de classificação',listaHtml(c.grupos.pendente))+
+      botao('Abrir todas as pendências ('+c.pendentes+')',()=>abrirLista('Custos · classificação pendente',c.grupos.pendente));
+  }
   function financeiro(){
     adotarLegado();const f=estado();if(f.secao!=='lancamentos')f.tipo='';if(f.secao==='centros'){centros();return;}acoes=[];rendererAtual=financeiro;
     const b=base(),itens=selecionados(b),renderizar=financeiro;
     let html=nav()+(f.secao==='conferencias'?'':filtros(b,renderizar)+avisos(b));
     if(f.secao==='visao')html+=panorama(b,itens);
     else if(f.secao==='fluxo')html+=fluxoTela(b);
+    else if(f.secao==='fixos')html+=custosFixos(b,itens);
     else if(f.secao==='contas')html+=contasNova(b);
     else if(['receber','pagar'].includes(f.secao))html+=carteiraTela(b)+(f.secao==='pagar'?quadro('Cobertura do contas a pagar','Consulta independente de todos os vencimentos.',botao('Conferir contas a pagar no Omie',conferirPagar)+'<p id="gf-auditoria-pagar" role="status" class="gf-nota">'+esc(auditoriaPagar?auditoriaPagar.total+' títulos consultados · '+auditoriaPagar.abertos+' em aberto · '+fmt.brl(auditoriaPagar.valorAberto)+' · '+quando(auditoriaPagar.quando):'Leitura ainda não solicitada.')+'</p>')+recolher('Planejamento e obrigações locais',planejamento()):'');
     else if(f.secao==='lancamentos')html+=kpis(itens,'Lançamentos')+'<div class="gf-tipos">'+[['','Tudo'],['entrada','Só entradas'],['saida','Só saídas']].map(([v,n])=>botao(n,()=>{f.tipo=v;f.pagina=0;financeiro();},'btn '+(f.tipo===v?'primario':''))).join('')+'</div>'+listaTela(itens,f,'Lançamentos do período');
