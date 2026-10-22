@@ -2,6 +2,7 @@ import { planoRevisao } from "./revisao.ts";
 import { lerPagarIntegral } from "./auditoria-integral.ts";
 import { lerBaixasIntegral } from "./auditoria-baixas.ts";
 import { enviarCorrecaoAuditada, confirmarCorrecaoAuditada } from "./correcao-auditada.ts";
+import { enviarCentroAuditado, confirmarCentroAuditado } from "./centros-auditados.ts";
 // bsq-omie — a ponte com o ERP Omie (app.omie.com.br).
 //
 // O Omie é onde os boletos dos carnês vivem e onde os pagamentos caem
@@ -411,13 +412,17 @@ Deno.serve(async (req) => {
             if(!e||canonico(e.plano)!==canonico(plano)){pendentes++;continue;}
             if(e.situacao==="concluida"){concluidas++;continue;}
             if(e.situacao!=="aguardando_conferencia"){pendentes++;continue;}
+            // A consulta pontual do Omie pode devolver o estado anterior por 60s.
+            // Retomar somente a conferência; nunca reenviar a alteração.
+            if(e.plano.modo==="centros"&&Date.now()-Date.parse(e.quando)<60000)return json({ok:true,aguardando:true,continua:indice,esperaMs:60000});
             try{
               if(!porId.has(String(plano.id)))throw new Error("Título ausente na leitura integral final.");
               // Consulta pontual posterior também confere impostos/baixas,
               // campos que ListarContasPagar não devolve integralmente.
               const depois=await omie("financas/contapagar","ConsultarContaPagar",{codigo_lancamento_omie:Number(plano.id)});
-              const confirmado=confirmarCorrecaoAuditada(e.antes,e.esperado,depois);
-              await gravarMeta(k,{...e,...confirmado,situacao:"concluida",conferidaEm:quando});concluidas++;
+              if(e.plano.modo==="centros")await gravarMeta(k+":consultaConferencia",{quando:agora(),depois});
+              const confirmado=e.plano.modo==="centros"?confirmarCentroAuditado(e.antes,e.esperado,depois):confirmarCorrecaoAuditada(e.antes,e.esperado,depois);
+              await gravarMeta(k,{...e,...confirmado,situacao:"concluida",erroConferencia:null,conferidaEm:quando});concluidas++;
             }catch(erro){
               const mensagem=String((erro as Error).message||erro);
               if(/REDUNDANT/.test(mensagem))return json({ok:true,aguardando:true,continua:indice,esperaMs:60000});
@@ -442,6 +447,10 @@ Deno.serve(async (req) => {
           if(!Number.isInteger(indice)||indice<0||indice>=fila.itens.length)return json({error:"Índice inválido."},400);
           const plano=fila.itens[indice],id=String(plano.id),antes=leitura.registros.find((x:any)=>String(x.codigo_lancamento_omie)===id);
           if(!antes)throw new Error("Título fora da fonte conferida.");
+          if(plano.modo==="centros"){
+            const refs=await referenciasFinanceiras();
+            if(!Array.isArray(plano.distribuicaoNova)||plano.distribuicaoNova.some((p:any)=>!refs.centros?.[String(p.cCodDep)]||refs.centros[String(p.cCodDep)]!==p.cDesDep))throw new Error("Centro não corresponde ao cadastro Omie conferido.");
+          }
           const evidenciaChave=chave+":item:"+id,previa=await lerMeta(evidenciaChave);
           if(previa?.plano&&canonico(previa.plano)!==canonico(plano))throw new Error("O plano foi modificado; exige nova revisão.");
           if(previa?.situacao==="concluida"||previa?.situacao==="aguardando_conferencia")return json({ok:true,id,repetida:true,situacao:previa.situacao});
@@ -449,7 +458,8 @@ Deno.serve(async (req) => {
           const {error:erroReserva}=await db.from("bsq_meta").insert({chave:evidenciaChave+":reserva",valor:{quando:agora(),por,plano},atualizado_em:agora()});
           if(erroReserva)throw new Error("Item já reservado para conferência; nenhuma nova alteração enviada.");
           try{
-            const resultado=await enviarCorrecaoAuditada(omie,antes,plano,async(e:any)=>{
+            const enviar=plano.modo==="centros"?enviarCentroAuditado:enviarCorrecaoAuditada;
+            const resultado=await enviar(omie,antes,plano,async(e:any)=>{
               await gravarMeta(evidenciaChave,{...e,quando:agora(),por,situacao:"enviando"});
             },AbortSignal.timeout(80000));
             await gravarMeta(evidenciaChave,{...resultado,plano,quando:agora(),por});
@@ -665,7 +675,7 @@ Deno.serve(async (req) => {
 
         while (pagina < fim) {
           const r = await omie("financas/mf", "ListarMovimentos",
-            { nPagina: pagina, nRegPorPagina: 100, ...janela });
+            { nPagina: pagina, nRegPorPagina: 100, ...janela, cExibirDepartamentos: "S" });
           // Rodada retomada numa página que deixou de existir (a lista do Omie
           // encolheu entre uma chamada e outra): recomeça da página 1, mantendo
           // a rodada e a marca de completa, em vez de falhar para sempre ali.
