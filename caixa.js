@@ -15,7 +15,7 @@ const nomeMes = (m) => {
   const nomes = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'];
   return (nomes[Number(mm) - 1] || mm) + '/' + a;
 };
-const cxVivos = () => lista('cx').filter((c) => !c.anotacao);
+const cxVivos = () => lista('cx').filter((c) => !c.anotacao && !c.ausenteOrigemOmie);
 
 // Todos os movimentos de um mês, já com sinal e origem.
 /* ── A régua de inconsistência: o que faz um lançamento ficar ASSINALADO ────

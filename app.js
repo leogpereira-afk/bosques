@@ -385,7 +385,8 @@ TELAS.config = function () {
         'antes disso, o que vale é a planilha — recuar duplica se o mês já foi digitado') +
     '</div><div class="acoes-linha">' +
       '<button class="btn primario" id="cf-omie-sync">↻ Sincronizar agora</button>' +
-    '</div><div class="nota" id="cf-omie-saude" style="margin-top:8px">conferindo a última sincronização…</div></div>' +
+      (S.perfil==='direcao'?'<button class="btn" id="cf-auditoria-aplicar">Aplicar correções preparadas</button>':'')+
+    '</div><p class="nota" id="cf-auditoria-progresso" role="status"></p><div class="nota" id="cf-omie-saude" style="margin-top:8px">conferindo a última sincronização…</div></div>' +
 
     '<div class="cartao"><h2>Manutenção</h2><div class="acoes-linha">' +
       '<button class="btn" id="cf-backup">⬇ Baixar backup</button>' +
@@ -466,6 +467,17 @@ TELAS.config = function () {
   };
   // Mesma avaliação do Início; a consulta se renova sem recriar este formulário.
   statusOmieConfig(document.getElementById('cf-omie-saude'));
+  const auditoriaBotao=document.getElementById('cf-auditoria-aplicar');
+  if(auditoriaBotao)auditoriaBotao.onclick=async()=>{
+    const progresso=document.getElementById('cf-auditoria-progresso');
+    auditoriaBotao.disabled=true;
+    try{
+      const r=await aplicarCorrecoesPreparadas(p=>{progresso.textContent=p.atual+' de '+p.total+' itens processados; conferência final na origem ainda pendente.';});
+      progresso.textContent=r.concluidas+' correções conferidas na origem. '+r.pendentes+' pendências.';
+      await puxar();
+    }catch(e){progresso.textContent=e.message||'Conferência interrompida. Consulte o controle da auditoria.';}
+    finally{auditoriaBotao.disabled=false;}
+  };
   document.getElementById('cf-omie-sync').onclick = async () => {
     const b = document.getElementById('cf-omie-sync');
     b.disabled = true; b.textContent = 'sincronizando…';

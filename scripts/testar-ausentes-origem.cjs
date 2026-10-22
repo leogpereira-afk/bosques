@@ -1,0 +1,2 @@
+const {test}=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs'),vm=require('node:vm');
+test('ausente na leitura integral permanece no histórico sem somar no caixa',()=>{const a={id:'a',valor:30},b={id:'b',valor:20,ausenteOrigemOmie:{evidencia:'leitura completa'}},reg={cx:[a,b]};const ctx=vm.createContext({lista:c=>reg[c]||[],TELAS:{}});vm.runInContext(fs.readFileSync('caixa.js','utf8'),ctx);assert.equal(vm.runInContext('cxVivos().length',ctx),1);assert.equal(reg.cx.length,2);});

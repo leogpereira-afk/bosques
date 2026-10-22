@@ -11,6 +11,27 @@ const K_OMIE_VISTO = 'bsq_omie_visto';
 const apiOmie = (action, dados = {}, opts = {}) =>
   api(action, dados, Object.assign({ url: API_OMIE, prazoMs: 280000 }, opts));
 
+// Planos ficam privados no servidor. Cada item exige a sessão pessoal da direção.
+async function aplicarCorrecoesPreparadas(aoVivo) {
+  const consulta=await apiOmie('sincronizar',{consultarCorrecoesAuditadas:true});
+  if(!consulta.ok||!consulta.plano?.total)throw new Error(consulta.error||'Nenhum plano preparado para aplicar.');
+  const plano=consulta.plano;
+  for(let indice=0;indice<plano.total;indice++){
+    const r=await apiOmie('sincronizar',{correcoesAuditadas:plano.chave,indice});
+    if(!r.ok)throw new Error(r.error||'A conferência foi interrompida; os resultados anteriores foram preservados.');
+    if(aoVivo)aoVivo({atual:indice+1,total:plano.total,situacao:r.situacao||'aguardando_conferencia'});
+  }
+  let inicioConferencia=0;
+  for(let rodada=0;rodada<200;rodada++){
+    const final=await apiOmie('sincronizar',{confirmarCorrecoesAuditadas:plano.chave,inicioConferencia});
+    if(!final.ok)throw new Error(final.error||'Envios registrados; a confirmação da origem ainda está pendente.');
+    if(final.continua==null)return final;
+    inicioConferencia=final.continua;
+    if(final.aguardando)await new Promise(resolve=>setTimeout(resolve,Math.min(60000,final.esperaMs||60000)));
+  }
+  throw new Error('Os envios foram preservados. Retome a conferência da origem.');
+}
+
 // Sincroniza em rodadas (o servidor pagina para caber no tempo dele).
 // Devolve a última resposta, com as contagens somadas de todas as rodadas.
 async function sincronizarOmie(aoVivo) {

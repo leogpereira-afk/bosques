@@ -1,4 +1,6 @@
 import { planoRevisao } from "./revisao.ts";
+import { lerPagarIntegral } from "./auditoria-integral.ts";
+import { enviarCorrecaoAuditada, confirmarCorrecaoAuditada } from "./correcao-auditada.ts";
 // bsq-omie — a ponte com o ERP Omie (app.omie.com.br).
 //
 // O Omie é onde os boletos dos carnês vivem e onde os pagamentos caem
@@ -340,6 +342,97 @@ Deno.serve(async (req) => {
         if (perfil !== "direcao" && perfil !== "escritorio") {
           return json({ error: "Só direção e escritório sincronizam." }, 403);
         }
+        // Auditoria solicitada pela direção: fotografia independente, sem corte
+        // de datas e sem qualquer escrita no ERP ou alteração dos lançamentos.
+        // Reutiliza a autenticação da integração; nenhuma credencial é exposta.
+        if(body.consultarCorrecoesAuditadas){
+          if(automatico||perfil!=="direcao")return json({error:"Somente a direção consulta planos de correção."},403);
+          const ponteiro=await lerMeta("auditoria_plano_atual"),plano=ponteiro?.chave?await lerMeta(ponteiro.chave):null;
+          return json({ok:true,plano:plano?.autorizado?{chave:ponteiro.chave,total:plano.itens?.length||0}:null});
+        }
+        if(body.confirmarCorrecoesAuditadas){
+          if(automatico||perfil!=="direcao")return json({error:"Somente a direção autenticada confirma correções."},403);
+          const chave=String(body.confirmarCorrecoesAuditadas);
+          if(!/^auditoria_plano_ap:[a-zA-Z0-9_-]{8,60}$/.test(chave))return json({error:"Plano inválido."},400);
+          const fila=await lerMeta(chave);
+          if(!fila?.autorizado||!Array.isArray(fila.itens))throw new Error("Plano indisponível.");
+          const inicio=Number(body.inicioConferencia||0);
+          if(!Number.isInteger(inicio)||inicio<0||inicio>=fila.itens.length)return json({error:"Página de conferência inválida."},400);
+          let nova=await lerMeta(chave+":leituraFinal");
+          if(inicio===0){
+            const leitura=await lerPagarIntegral(omie,AbortSignal.timeout(80000));
+            nova={...leitura,quando:agora(),por,fonte:"Omie · conferência independente após correções"};
+            await gravarMeta("omie_auditoria_contaspagar_evidencia:"+nova.quando,nova);
+            await gravarMeta("omie_auditoria_contaspagar",nova);
+            await gravarMeta(chave+":leituraFinal",nova);
+          }
+          if(!nova?.completo)throw new Error("Leitura final integral não confirmada.");
+          const quando=agora(),leitura=nova;
+          const porId=new Map(leitura.registros.map((r:any)=>[String(r.codigo_lancamento_omie),r]));
+          let concluidas=0,pendentes=0;
+          for(const [indice,plano] of fila.itens.entries()){
+            if(indice<inicio||indice>=inicio+10)continue;
+            const k=chave+":item:"+plano.id,e=await lerMeta(k);
+            if(!e||canonico(e.plano)!==canonico(plano)){pendentes++;continue;}
+            if(e.situacao==="concluida"){concluidas++;continue;}
+            if(e.situacao!=="aguardando_conferencia"){pendentes++;continue;}
+            try{
+              if(!porId.has(String(plano.id)))throw new Error("Título ausente na leitura integral final.");
+              // Consulta pontual posterior também confere impostos/baixas,
+              // campos que ListarContasPagar não devolve integralmente.
+              const depois=await omie("financas/contapagar","ConsultarContaPagar",{codigo_lancamento_omie:Number(plano.id)});
+              const confirmado=confirmarCorrecaoAuditada(e.antes,e.esperado,depois);
+              await gravarMeta(k,{...e,...confirmado,situacao:"concluida",conferidaEm:quando});concluidas++;
+            }catch(erro){
+              const mensagem=String((erro as Error).message||erro);
+              if(/REDUNDANT/.test(mensagem))return json({ok:true,aguardando:true,continua:indice,esperaMs:60000});
+              await gravarMeta(k,{...e,erroConferencia:mensagem,conferidaEm:quando});pendentes++;
+            }
+          }
+          if(inicio+10<fila.itens.length)return json({ok:true,continua:inicio+10,concluidas,pendentes});
+          const {data:estados}=await db.from("bsq_meta").select("chave,valor").like("chave",chave+":item:%");
+          concluidas=(estados||[]).filter((x:any)=>x.valor?.situacao==="concluida").length;pendentes=fila.itens.length-concluidas;
+          await gravarMeta(chave+":resultado",{quando,por,concluidas,pendentes,total:fila.itens.length});
+          await marcarMudanca(["cfg","titulo","cx","movbanco"]);
+          return json({ok:true,concluidas,pendentes,quando});
+        }
+        if(body.correcoesAuditadas){
+          // A rotina automática só lê o ERP. Alterações exigem sessão pessoal.
+          if(automatico||perfil!=="direcao")return json({error:"Somente a direção autenticada aplica correções auditadas."},403);
+          const chave=String(body.correcoesAuditadas);
+          if(!/^auditoria_plano_ap:[a-zA-Z0-9_-]{8,60}$/.test(chave))return json({error:"Plano inválido."},400);
+          const fila=await lerMeta(chave),leitura=await lerMeta("omie_auditoria_contaspagar");
+          if(!fila?.autorizado||!Array.isArray(fila.itens)||!leitura?.completo)throw new Error("Plano autorizado ou fonte completa indisponível.");
+          const indice=Number(body.indice);
+          if(!Number.isInteger(indice)||indice<0||indice>=fila.itens.length)return json({error:"Índice inválido."},400);
+          const plano=fila.itens[indice],id=String(plano.id),antes=leitura.registros.find((x:any)=>String(x.codigo_lancamento_omie)===id);
+          if(!antes)throw new Error("Título fora da fonte conferida.");
+          const evidenciaChave=chave+":item:"+id,previa=await lerMeta(evidenciaChave);
+          if(previa?.plano&&canonico(previa.plano)!==canonico(plano))throw new Error("O plano foi modificado; exige nova revisão.");
+          if(previa?.situacao==="concluida"||previa?.situacao==="aguardando_conferencia")return json({ok:true,id,repetida:true,situacao:previa.situacao});
+          if(previa?.situacao==="inconclusiva"||previa?.situacao==="enviando")throw new Error("Item exige conferência antes de nova tentativa.");
+          const {error:erroReserva}=await db.from("bsq_meta").insert({chave:evidenciaChave+":reserva",valor:{quando:agora(),por,plano},atualizado_em:agora()});
+          if(erroReserva)throw new Error("Item já reservado para conferência; nenhuma nova alteração enviada.");
+          try{
+            const resultado=await enviarCorrecaoAuditada(omie,antes,plano,async(e:any)=>{
+              await gravarMeta(evidenciaChave,{...e,quando:agora(),por,situacao:"enviando"});
+            },AbortSignal.timeout(80000));
+            await gravarMeta(evidenciaChave,{...resultado,plano,quando:agora(),por});
+            return json({ok:true,id,alterado:resultado.alterado,idempotente:resultado.idempotente,situacao:resultado.situacao});
+          }catch(e){
+            const estado=await lerMeta(evidenciaChave);
+            await gravarMeta(evidenciaChave,{...(estado||{}),plano,quando:agora(),por,situacao:estado?.situacao==="enviando"?"inconclusiva":"recusada",erro:String((e as Error).message||e)});
+            throw e;
+          }
+        }
+        if(body.auditoriaPagarIntegral===true){
+          if(perfil!=="direcao")return json({error:"Somente a direção consulta a auditoria integral."},403);
+          const leitura=await lerPagarIntegral(omie,AbortSignal.timeout(80000));
+          const evidencia={...leitura,quando:agora(),por,fonte:"Omie · ListarContasPagar · todas as páginas · observações completas"};
+          await gravarMeta("omie_auditoria_contaspagar_evidencia:"+evidencia.quando,evidencia);
+          await gravarMeta("omie_auditoria_contaspagar",evidencia);
+          return json({ok:true,total:evidencia.total,paginas:evidencia.paginas,quando:evidencia.quando,completo:true});
+        }
         const meta = await lerMeta("omie_sync");
 
         // Primeira sincronização crava o corte: recebimento do Omie só vale
@@ -580,7 +673,7 @@ Deno.serve(async (req) => {
               gravar.push({colecao:"titulo",id:tituloId,registro:{ ...(anterior || {}), id:tituloId,
                 grupo, titulo:d.nCodTitulo, valor:Number(d.nValorTitulo)||0, venc:brParaISO(d.dDtVenc),
                 pago:Number(res.nValPago)||0, status:d.cStatus, cpf:soDigitos(d.cCPFCNPJCliente),
-                original, atualizadoEm:agora(), origem:"omie",
+                original, atualizadoEm:agora(), origem:"omie",ausenteOrigemOmie:null,
                 historico: mudou && anterior ? [...(anterior.historico || []), {em:agora(),por:"omie",original:anterior.original}] : anterior?.historico || [] }});
             }
 
@@ -737,7 +830,7 @@ Deno.serve(async (req) => {
               const registro: any = {
                 // Lançamento manual conciliado como o mesmo pagamento mantém
                 // origem, data e forma de quem lançou.
-                ...(jaCx || {}), id, apagadoEm:null, apagadoPor:null, origem: conciliado?.origem || "omie", tipo: "saida", valor,
+                ...(jaCx || {}), id, apagadoEm:null, apagadoPor:null, ausenteOrigemOmie:null, origem: conciliado?.origem || "omie", tipo: "saida", valor,
                 data: jaCx?.ajustes?.data || (conciliado?.data) || dataPagto,
                 contaOmie:d.nCodCC || null, forma: jaCx?.ajustes?.forma || conciliado?.forma || "Não informada", tipoDocumento:FORMA[d.cTipo] || d.cTipo || "",
                 categoria, descricao: jaCx?.descricao || "Título Omie " + d.nCodTitulo,

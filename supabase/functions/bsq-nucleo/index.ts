@@ -528,8 +528,12 @@ Deno.serve(async (req) => {
         }
         const {data:referenciasMeta}=await db.from("bsq_meta").select("valor").eq("chave","omie_referencias").maybeSingle();
         const referencias=referenciasMeta?.valor||{};
+        // A lista de movimentos não inclui as observações do contas a pagar.
+        // Usa a leitura integral documentada, estritamente pelo ID do título.
+        const {data:detalhesPagar}=await db.from("bsq_meta").select("valor").eq("chave","omie_auditoria_contaspagar").maybeSingle();
+        const contasPagar=new Map((detalhesPagar?.valor?.completo?detalhesPagar.valor.registros||[]:[]).map((x:any)=>[String(x.codigo_lancamento_omie),x]));
         registros=registros.map((r:any)=>{
-          const financeiroOmie=camposFinanceiros(r,referencias);
+          const financeiroOmie=camposFinanceiros(r,referencias,contasPagar.get(String(r.titulo||r.omie?.titulo||r.original?.detalhes?.nCodTitulo||'')));
           if(r._col==="titulo") {
             const {original,historico,...resumo}=r;
             return {...resumo, financeiroOmie, original:{resumo:original?.resumo||{},detalhes:{cNumTitulo:original?.detalhes?.cNumTitulo,dDtPagamento:original?.detalhes?.dDtPagamento,cTipo:original?.detalhes?.cTipo,nCodCC:original?.detalhes?.nCodCC}},temHistorico:!!historico?.length};

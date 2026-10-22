@@ -23,7 +23,7 @@ const FIN_GESTAO = (() => {
     if(usado<v)out.push({nome:nomeVazio,valor:rs(v-usado),percentual:(v-usado)/v*100});return out;
   }
   function montar(reg,hoje) {
-    const titulos=new Map((reg.titulo||[]).filter(x=>!x.apagadoEm).map(t=>[t.grupo+'|'+t.titulo,t]));
+    const titulos=new Map((reg.titulo||[]).filter(x=>!x.apagadoEm&&!x.ausenteOrigemOmie).map(t=>[t.grupo+'|'+t.titulo,t]));
     const vinculados=new Map(),vendas=new Map((reg.venda||[]).map(v=>[v.id,v]));
     for(const [col,lista] of [['rec',reg.rec||[]],['cx',reg.cx||[]]])for(const r of lista)if(!r.apagadoEm&&r.omie?.titulo){const k=(col==='rec'?'CONTA_A_RECEBER':'CONTA_A_PAGAR')+'|'+r.omie.titulo;if(!vinculados.has(k))vinculados.set(k,[]);vinculados.get(k).push({...r,col});}
     const conta=new Map((reg.conta||[]).map(c=>[String(c.omieId),c.nome]));
