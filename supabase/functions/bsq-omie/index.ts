@@ -1,5 +1,6 @@
 import { planoRevisao } from "./revisao.ts";
 import { lerPagarIntegral } from "./auditoria-integral.ts";
+import { lerBaixasIntegral } from "./auditoria-baixas.ts";
 import { enviarCorrecaoAuditada, confirmarCorrecaoAuditada } from "./correcao-auditada.ts";
 // bsq-omie — a ponte com o ERP Omie (app.omie.com.br).
 //
@@ -318,7 +319,7 @@ Deno.serve(async (req) => {
   const por = (quem.proprio && quem.nome) || "—";
 
   const { action } = body;
-  const pedidoAuditoria=!!(body.auditoriaPagarIntegral||body.auditoriaCadastros||body.correcoesAuditadas||body.consultarCorrecoesAuditadas||body.confirmarCorrecoesAuditadas);
+  const pedidoAuditoria=!!(body.auditoriaPagarIntegral||body.auditoriaBaixasIntegral||body.auditoriaCadastros||body.correcoesAuditadas||body.consultarCorrecoesAuditadas||body.confirmarCorrecoesAuditadas);
   let execucao: any = null;
 
   try {
@@ -360,6 +361,16 @@ Deno.serve(async (req) => {
         // Auditoria solicitada pela direção: fotografia independente, sem corte
         // de datas e sem qualquer escrita no ERP ou alteração dos lançamentos.
         // Reutiliza a autenticação da integração; nenhuma credencial é exposta.
+        if(body.auditoriaBaixasIntegral===true){
+          if(perfil!=="direcao")return json({error:"Somente a direção consulta baixas integrais."},403);
+          const inicio=agora();
+          const leitura=await lerBaixasIntegral(omie,AbortSignal.timeout(80000));
+          const evidencia={...leitura,inicio,quando:agora(),por,fonte:"Omie · ListarMovimentos BXCP · todas as páginas · sem corte de datas"};
+          await gravarMeta("omie_auditoria_baixas_evidencia:"+evidencia.quando,evidencia);
+          await gravarMeta("omie_auditoria_baixas",evidencia);
+          return json({ok:true,total:evidencia.total,totalTitulos:evidencia.totalTitulos,paginas:evidencia.paginas,
+            quando:evidencia.quando,completo:true,diagnostico:evidencia.diagnostico});
+        }
         if(body.auditoriaCadastros===true){
           if(perfil!=="direcao")return json({error:"Somente a direção consulta cadastros integrais."},403);
           const clientes=await clientesDoOmie(),ids=clientes.map((c:any)=>String(c.codigo_cliente_omie||''));
