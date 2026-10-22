@@ -304,6 +304,7 @@ Deno.serve(async (req) => {
   const por = (quem.proprio && quem.nome) || "—";
 
   const { action } = body;
+  const pedidoAuditoria=!!(body.auditoriaPagarIntegral||body.auditoriaCadastros||body.correcoesAuditadas||body.consultarCorrecoesAuditadas||body.confirmarCorrecoesAuditadas);
   let execucao: any = null;
 
   try {
@@ -345,6 +346,15 @@ Deno.serve(async (req) => {
         // Auditoria solicitada pela direção: fotografia independente, sem corte
         // de datas e sem qualquer escrita no ERP ou alteração dos lançamentos.
         // Reutiliza a autenticação da integração; nenhuma credencial é exposta.
+        if(body.auditoriaCadastros===true){
+          if(perfil!=="direcao")return json({error:"Somente a direção consulta cadastros integrais."},403);
+          const clientes=await clientesDoOmie(),ids=clientes.map((c:any)=>String(c.codigo_cliente_omie||''));
+          if(ids.some((id:string)=>!/^\d+$/.test(id))||new Set(ids).size!==ids.length)throw new Error("Cadastro incompleto ou duplicado na origem.");
+          const leitura={quando:agora(),por,completo:true,total:clientes.length,clientes};
+          await gravarMeta("omie_auditoria_clientes_evidencia:"+leitura.quando,leitura);
+          await gravarMeta("omie_auditoria_clientes",leitura);
+          return json({ok:true,total:leitura.total,quando:leitura.quando});
+        }
         if(body.consultarCorrecoesAuditadas){
           if(automatico||perfil!=="direcao")return json({error:"Somente a direção consulta planos de correção."},403);
           const ponteiro=await lerMeta("auditoria_plano_atual"),plano=ponteiro?.chave?await lerMeta(ponteiro.chave):null;
@@ -1179,7 +1189,7 @@ Deno.serve(async (req) => {
       await db.rpc("bsq_omie_finalizar", {p_lease:execucao.lease,p_pagina:execucao.pagina,
         p_parcial:execucao.parcial,p_completa:execucao.completa,p_erro:String((e as Error).message || e)});
     }
-    if (action === "sincronizar") {
+    if (action === "sincronizar"&&!pedidoAuditoria) {
       const anterior = await lerMeta("omie_sync");
       await gravarMeta("omie_sync", {...(anterior || {}),status:"falhou",termino:agora(),erro:String((e as Error).message || e)});
     }
