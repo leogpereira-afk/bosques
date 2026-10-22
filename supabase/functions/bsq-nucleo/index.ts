@@ -543,7 +543,7 @@ Deno.serve(async (req) => {
           return r;
         });
         const cfgSaida = cfgSemSegredo(cfg);
-        if(["direcao","escritorio"].includes(perfilDe(quem)))cfgSaida.financeiroReferencias={quando:referencias.quando||null,centros:referencias.centros||{}};
+        if(["direcao","escritorio"].includes(perfilDe(quem)))cfgSaida.financeiroReferencias={quando:referencias.quando||null,centros:referencias.centros||{},categorias:referencias.categorias||{}};
         if (perfilDe(quem) === "corretor") cfgSaida.usuarios = [];
         return json({
           ok: true, cfg: cfgSaida, registros, em: agora(),

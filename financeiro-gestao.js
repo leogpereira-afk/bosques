@@ -8,9 +8,10 @@ const FIN_GESTAO = (() => {
   const socio=nome=>/(?:pro[ -]?labore|distribui.*lucro|dividendo|socio|societari)/.test(texto(nome));
   function fatias(x,campo) {
     const partes=x[campo]||[],v=cent(x.valor),nomeVazio=campo==='centros'?'Sem centro de custo':'Sem categoria';
-    if(!partes.length)return [{nome:campo==='centros'?(x.centroCusto||nomeVazio):(x.categoria||nomeVazio),valor:rs(v),percentual:100}];
+    const codigo=p=>campo==='categorias'?{codigo:String(p||'').trim()}:{};
+    if(!partes.length)return [{nome:campo==='centros'?(x.centroCusto||nomeVazio):(x.categoria||nomeVazio),valor:rs(v),percentual:100,...codigo(x.categoriaCodigo||x.ref?.categoriaCodigo)}];
     const somaP=partes.reduce((s,p)=>s+(Number(p.percentual)||0),0),somaV=partes.reduce((s,p)=>s+cent(p.valor),0);
-    if(partes.some(p=>Number(p.percentual)<0||Number(p.valor)<0)||somaP>100.01||(!somaP&&somaV>v))return [{nome:nomeVazio,valor:rs(v),percentual:100}];
+    if(partes.some(p=>Number(p.percentual)<0||Number(p.valor)<0)||somaP>100.01||(!somaP&&somaV>v))return [{nome:nomeVazio,valor:rs(v),percentual:100,...codigo('')}];
     let usado=0,percentualAcumulado=0;
     const out=partes.map((p,i)=>{
       percentualAcumulado+=Number(p.percentual)||0;
@@ -18,9 +19,9 @@ const FIN_GESTAO = (() => {
       // centavos nem produz uma última fatia negativa para compensá-los.
       let valor=somaP?Math.max(0,Math.min(v,Math.round(v*percentualAcumulado/100))-usado):somaV?cent(p.valor):partes.length===1?v:0;
       if(i===partes.length-1&&Math.abs(somaP-100)<0.01)valor=Math.max(0,v-usado);
-      usado+=valor;return {nome:p.nome||(p.codigo?'Código '+p.codigo:nomeVazio),valor:rs(valor),percentual:v?valor/v*100:0};
+      usado+=valor;return {nome:p.nome||(p.codigo?'Código '+p.codigo:nomeVazio),valor:rs(valor),percentual:v?valor/v*100:0,...codigo(p.codigo)};
     }).filter(p=>p.valor>0);
-    if(usado<v)out.push({nome:nomeVazio,valor:rs(v-usado),percentual:(v-usado)/v*100});return out;
+    if(usado<v)out.push({nome:nomeVazio,valor:rs(v-usado),percentual:(v-usado)/v*100,...codigo('')});return out;
   }
   function montar(reg,hoje) {
     const titulos=new Map((reg.titulo||[]).filter(x=>!x.apagadoEm&&!x.ausenteOrigemOmie).map(t=>[t.grupo+'|'+t.titulo,t]));
@@ -56,6 +57,28 @@ const FIN_GESTAO = (() => {
   function resumo(itens){const e=itens.filter(x=>x.entrada).reduce((s,x)=>s+cent(x.valor),0),s=itens.filter(x=>!x.entrada).reduce((s,x)=>s+cent(x.valor),0);return {entradas:rs(e),saidas:rs(s),resultado:rs(e-s),quantidade:itens.length};}
   function agrupar(itens,campo){const grupos=new Map();for(const x of itens){const partes=['centros','categorias'].includes(campo)?fatias(x,campo):[{nome:campo==='pessoa'?x.pessoa:x[campo]||'Não informado',valor:x.valor}];for(const p of partes){const chave=campo==='pessoa'?x.pessoaCodigo:p.nome;const g=grupos.get(chave)||{chave,nome:p.nome,itens:[]};g.itens.push({...x,valor:p.valor,valorOriginal:x.valorOriginal||x.valor,parcial:x.parcial||Math.abs(cent(p.valor)-cent(x.valor))>0,...(campo==='categorias'?{categoria:p.nome,categorias:[]}:campo==='centros'?{centroCusto:p.nome,centros:[]}:{} )});grupos.set(chave,g);}}
     return [...grupos.values()].map(g=>({...g,...resumo(g.itens)})).sort((a,b)=>b.saidas-a.saidas||b.entradas-a.entradas||a.nome.localeCompare(b.nome));}
+  // Consulta por identidade do plano Omie. O chamador separa realizado e títulos
+  // abertos; a categoria e seu rateio nunca criam uma segunda movimentação.
+  function planoContas(itens,referencias={},incluirSemMovimento=false) {
+    const grupos=new Map(),semCodigo=[],totais=resumo(itens);
+    const nomeCatalogo=codigo=>Object.hasOwn(referencias,codigo)&&typeof referencias[codigo]==='string'?referencias[codigo].trim():'';
+    for(const x of itens)for(const p of fatias(x,'categorias')){
+      const codigo=String(p.codigo||'').trim(),nome=nomeCatalogo(codigo)||p.nome||'Sem categoria',chave=codigo?'codigo:'+codigo:'nome:'+nome;
+      const g=grupos.get(chave)||{chave,codigo,nome,itens:[]};g.nome=nome;
+      const parcial=!!x.parcial||cent(p.valor)!==cent(x.valor);
+      // A origem informa dois rateios independentes; uma parcela da categoria
+      // não comprova qual parcela pertence a cada centro de custo.
+      const detalhe={...x,valor:p.valor,valorOriginal:x.valorOriginal??x.valor,parcial,categoria:nome,categoriaCodigo:codigo,categorias:[],...(parcial?{centros:[],centroCusto:'Não detalhado por categoria'}:{}),ref:{...x.ref,categoriaCodigo:codigo,categoriaNome:nome,categorias:[],...(parcial?{centros:[]}: {})}};
+      g.itens.push(detalhe);grupos.set(chave,g);if(!codigo)semCodigo.push(detalhe);
+    }
+    if(incluirSemMovimento)for(const [c,n] of Object.entries(referencias)){
+      const codigo=c.trim(),chave='codigo:'+codigo;
+      if(codigo&&!grupos.has(chave))grupos.set(chave,{chave,codigo,nome:typeof n==='string'&&n.trim()?n.trim():'Categoria Omie '+codigo,itens:[]});
+    }
+    const linhas=[...grupos.values()].map(g=>{const r=resumo(g.itens);return {...g,...r,participacaoEntradas:totais.entradas?r.entradas/totais.entradas*100:0,participacaoSaidas:totais.saidas?r.saidas/totais.saidas*100:0};})
+      .sort((a,b)=>a.codigo&&b.codigo?a.codigo.localeCompare(b.codigo,'pt-BR',{numeric:true}):a.codigo?-1:b.codigo?1:a.nome.localeCompare(b.nome,'pt-BR'));
+    return {linhas,totais,semCodigo};
+  }
   function meses(itens,ano){return Array.from({length:12},(_,i)=>{const mes=String(i+1).padStart(2,'0'),ls=filtrar(itens,{ano,mes});return {mes:ano+'-'+mes,itens:ls,...resumo(ls)};});}
   // Consultas gerenciais. Nulos são ausência de confirmação, nunca zero.
   const numero=v=>v==null||!['number','string'].includes(typeof v)||String(v).trim()===''||typeof v==='boolean'||!Number.isFinite(Number(v))?null:Number(v);
@@ -180,6 +203,6 @@ const FIN_GESTAO = (() => {
     const totais=Object.fromEntries(Object.entries(grupos).map(([k,v])=>[k,soma(v)]));
     return {grupos,totais,total:soma(Object.values(grupos).flat()),pendentes:grupos.pendente.length};
   }
-  return {custos,montar,filtrar,resumo,agrupar,meses,fatias,socio,valida,cent,data,numero,soma,dia,ultimo,deslocarMes,intervalo,recorte,sequencia,serie,carteira,contasDisponiveis,saldoResumo,historico,resumirCaixa,comparar,horizonte,projetar};
+  return {custos,montar,filtrar,resumo,agrupar,planoContas,meses,fatias,socio,valida,cent,data,numero,soma,dia,ultimo,deslocarMes,intervalo,recorte,sequencia,serie,carteira,contasDisponiveis,saldoResumo,historico,resumirCaixa,comparar,horizonte,projetar};
 })();
 if(typeof module!=='undefined')module.exports=FIN_GESTAO;

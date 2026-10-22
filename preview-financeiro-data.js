@@ -24,6 +24,10 @@ if(!window.BOSQUES_PREVIA||!['localhost','127.0.0.1'].includes(location.hostname
  }
  titulo(F.dia(hoje,4),2800);titulo(F.dia(hoje,8),3600,false);titulo('',780);
  registrosDemo.push({_col:'prev',id:prefixo+'plano',descricao:'Etapa de pavimentação · exemplo',valor:18000,data:F.deslocarMes(hoje,2).slice(0,7),recorrencia:'unica',categoria:'Obra / infraestrutura',obs:'Planejamento fictício; verificar correspondência com Omie'});
+ const categoriasDemo={'1.01.01':'Recebimento de lotes','2.01.01':'Infraestrutura','2.01.02':'Materiais','2.03.01':'Pró-labore','2.04.01':'Administrativo','2.04.99':'Formação sem movimento · exemplo','0.01.01':'Transferência'};
+ configDemo.financeiroReferencias={quando:criado,categorias:categoriasDemo,centros:{}};
+ const codigoDemo=nome=>({'Recebimento de lotes':'1.01.01','Venda de lotes':'1.01.01','Infraestrutura':'2.01.01','Obra / infraestrutura':'2.01.01','Materiais':'2.01.02','Pró-labore':'2.03.01','Administrativo':'2.04.01','Transferência':'0.01.01'})[nome]||'';
+ for(const r of registrosDemo)if(r.financeiroOmie){r.financeiroOmie.categoriaCodigo=codigoDemo(r.financeiroOmie.categoriaNome);}
  guardarDemo();
  const inicio=c=>c==='501'?35000:c==='502'?3000:22000;
  const saldoAte=(c,d)=>inicio(c)+movimentos.filter(x=>x.contaOmie===c&&x.data<=d).reduce((s,x)=>s+(x.entrada?1:-1)*F.cent(x.valor),0)/100;
@@ -38,5 +42,5 @@ if(!window.BOSQUES_PREVIA||!['localhost','127.0.0.1'].includes(location.hostname
   return anterior(action,dados,opts);
  };
  localStorage.removeItem('bsq_omie_saldos');
- TELAS._gestao={ano:String(ano),mes:'',conta:'',escopo:'ano',secao:'visao',q:''};
+ TELAS._gestao={ano:String(ano),mes:'',conta:'',escopo:'ano',secao:new URLSearchParams(location.search).has('plano')?'plano':'visao',q:''};
 })();
