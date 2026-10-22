@@ -75,6 +75,12 @@ export async function enviarCorrecaoAuditada(
   if(!evidencia||typeof evidencia==='string'&&!evidencia.trim()||typeof evidencia!=='string'&&(typeof evidencia!=='object'||Array.isArray(evidencia)||!Object.keys(evidencia).length))throw new Error('Evidência da correção é obrigatória.');
   if(typeof consultarOmie!=='function'||typeof guardarEvidencia!=='function')throw new Error('Consulta e gravação de evidência são obrigatórias.');
   validarRegistro(antesSnapshot,id);
+  // Evidência real de 22/10: AlterarContaPagar acrescenta uma observação
+  // diferente à anterior, separada por pipe. Não serve para substituir texto.
+  // A revisão de grafia exige edição na origem; nunca reenviar para tentar limpar.
+  if(String(antesSnapshot.status_titulo||'')==='CANCELADO')throw new Error('Título cancelado preservado; nenhuma alteração será enviada.');
+  if(plano.observacaoNova!==undefined&&plano.observacaoNova!==obs(antesSnapshot))
+    throw new Error('O Omie acrescenta observações em vez de substituir. Revisão de texto pendente na origem; nenhuma alteração enviada.');
   if(String(antesSnapshot.codigo_categoria??'')!==plano.categoriaAnterior||obs(antesSnapshot)!==plano.observacaoAnterior)throw new Error('Categoria/observação anterior divergem do snapshot.');
   const snapshot=copiar(antesSnapshot),desejadoSnapshot=estadoDesejado(snapshot,plano);
   const atual=await consultarOmie('financas/contapagar','ConsultarContaPagar',{codigo_lancamento_omie:Number(id)},signal);

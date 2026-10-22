@@ -148,6 +148,20 @@ function categoriaLocal(codOmie: string): string {
   return "Outros";
 }
 
+// Só o cache puramente importado acompanha uma reclassificação na origem.
+// editadoAMao é conservador: o editor antigo não distinguia edição de categoria
+// das demais edições; sobrescrever esses casos apagaria uma decisão humana.
+function categoriaDespesaSincronizada(anterior:any,categoriaDaOrigem:string,conciliado=false):string {
+  if(!anterior)return categoriaDaOrigem;
+  const ajuste=anterior.ajustes?.categoria;
+  if(typeof ajuste==='string'&&ajuste.trim())return ajuste;
+  const importado=anterior.origem==='omie'&&String(anterior.id||'').startsWith('cxomie-');
+  const protegido=!importado||!!anterior.editadoAMao||!!anterior.vinculoOmieConfirmado||conciliado||
+    Object.prototype.hasOwnProperty.call(anterior.ajustes||{},'categoria')||
+    Array.isArray(anterior.rateio)&&anterior.rateio.length>0;
+  return protegido&&typeof anterior.categoria==='string'?anterior.categoria:categoriaDaOrigem;
+}
+
 async function lerMeta(chave: string): Promise<any | null> {
   const { data } = await db.from("bsq_meta").select("valor").eq("chave", chave).maybeSingle();
   return data ? data.valor : null;
@@ -829,7 +843,7 @@ Deno.serve(async (req) => {
                 }
                 soma("cxNaLixeira"); continue;
               }
-              const categoria = jaCx?.categoria || categoriaLocal(d.cCodCateg || "");
+              const categoria = categoriaDespesaSincronizada(jaCx,categoriaLocal(d.cCodCateg || ""),!!conciliado);
               const fornecedorCpf = soDigitos(d.cCPFCNPJCliente);
               const parecidas = cxs.filter((c:any)=>!c.apagadoEm && c.tipo==="saida" && !String(c.id).startsWith("cxomie-") && centavos(c.valor)===centavos(valor) && c.data===dataPagto);
               const tituloOriginal=titulosPorId.get("CONTA_A_PAGAR-"+d.nCodTitulo);

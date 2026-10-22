@@ -1,0 +1,18 @@
+// Regressões da política de atualização do cache legado: dados fictícios.
+const {test}=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs'),vm=require('node:vm'),ts=require('typescript');
+const fonte=fs.readFileSync('supabase/functions/bsq-omie/index.ts','utf8'),inicio=fonte.indexOf('function categoriaDespesaSincronizada('),fim=fonte.indexOf('\n}',inicio)+2;
+const trecho=inicio>=0?fonte.slice(inicio,fim):'function categoriaDespesaSincronizada(antes,nova){return antes?.categoria||nova;}';
+const ctx={exports:{}};vm.runInNewContext(ts.transpileModule(trecho+'\nexports.categoriaDespesaSincronizada=categoriaDespesaSincronizada;',{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.CommonJS}}).outputText,ctx);
+const categoria=ctx.exports.categoriaDespesaSincronizada;
+const copia=x=>JSON.parse(JSON.stringify(x));
+const importado=extra=>({id:'cxomie-101',origem:'omie',tipo:'saida',categoria:'Comissão',valor:123,data:'2026-01-02',descricao:'Documento fictício',omie:{titulo:101,categoria:'2.02.01'},...extra});
+test('correção comprovada no ERP atualiza categoria obsoleta do cache puramente importado',()=>{const c=importado();assert.equal(categoria(c,'Obra / infraestrutura'),'Obra / infraestrutura');assert.equal(categoria(c,'Administrativo'),'Administrativo');assert.equal(categoria(c,'Outros'),'Outros');});
+test('novo lançamento recebe categoria mapeada da origem',()=>{assert.equal(categoria(null,'Comissão'),'Comissão');});
+test('marca histórica editadoAMao protege a categoria escolhida no painel',()=>{assert.equal(categoria(importado({editadoAMao:true}),'Administrativo'),'Comissão');});
+test('vínculo conciliado preserva classificação manual, inclusive origem planilha',()=>{assert.equal(categoria(importado({vinculoOmieConfirmado:true}),'Administrativo'),'Comissão');assert.equal(categoria(importado(),'Administrativo',true),'Comissão');assert.equal(categoria(importado({id:'manual-101',origem:'planilha',vinculoOmieConfirmado:true}),'Administrativo'),'Comissão');});
+test('registro manual, origem desconhecida e ID não importado são preservados',()=>{for(const c of [importado({origem:'manual'}),importado({origem:undefined}),importado({id:'manual-101'})])assert.equal(categoria(c,'Administrativo'),'Comissão');});
+test('ajuste explícito da categoria tem precedência e não é apagado pela origem',()=>{assert.equal(categoria(importado({ajustes:{categoria:'Classificação confirmada'}}),'Administrativo'),'Classificação confirmada');assert.equal(categoria(importado({ajustes:{categoria:null}}),'Administrativo'),'Comissão');});
+test('ajustes apenas de data e forma não congelam categoria sem marca de edição manual',()=>{assert.equal(categoria(importado({ajustes:{data:'2026-01-03',forma:'PIX'}}),'Administrativo'),'Administrativo');});
+test('rateio manual preservado continua protegendo a categoria',()=>{assert.equal(categoria(importado({rateio:[{corretorId:'pessoa-ficticia',valor:123}]}),'Administrativo'),'Comissão');});
+test('classificação manual em branco é preservada; categoria ausente admite preenchimento',()=>{assert.equal(categoria(importado({editadoAMao:true,categoria:''}),'Administrativo'),'');assert.equal(categoria(importado({editadoAMao:true,categoria:undefined}),'Administrativo'),'Administrativo');});
+test('decisão é pura e mantém valores, datas, fonte, vínculos e histórico sem mutação',()=>{const c=importado({historico:[{por:'omie',acao:'Importado'}],corretorId:'pessoa-ficticia'}),antes=copia(c);assert.equal(categoria(c,'Obra / infraestrutura'),'Obra / infraestrutura');assert.deepEqual(c,antes);assert.equal(c.omie.categoria,'2.02.01');});
