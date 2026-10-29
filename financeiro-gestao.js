@@ -1,6 +1,7 @@
 /* Base única dos painéis: movimentos bancários Omie. Títulos são compromissos,
    nunca uma segunda soma do mesmo pagamento. Nenhuma escrita neste módulo. */
 const FIN_GESTAO = (() => {
+  const regras=typeof FINANCEIRO!=='undefined'?FINANCEIRO:require('./financeiro-core.js');
   const cent=v=>Math.round((Number(v)||0)*100),rs=v=>v/100;
   const texto=v=>String(v||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase();
   const data=v=>/^\d{2}\/\d{2}\/\d{4}$/.test(v||'')?v.slice(6)+'-'+v.slice(3,5)+'-'+v.slice(0,2):String(v||'').slice(0,10);
@@ -49,7 +50,7 @@ const FIN_GESTAO = (() => {
     const vistos=new Set();const bancos=(reg.movbanco||[]).filter(r=>!r.apagadoEm&&!r.omitidoOmie&&r.origem==='omie'&&!vistos.has(r.id)&&vistos.add(r.id)).map(r=>enriquecer(r));
     const movimentos=bancos.filter(x=>!x.transferencia&&valida(x.data)&&x.data<=hoje&&x.valor>0);
     const excluidos=bancos.filter(x=>!x.transferencia&&(!valida(x.data)||x.data>hoje||x.valor<=0));
-    const abertos=[...titulos.values()].filter(t=>t.status!=='CANCELADO'&&Number(t.original?.resumo?.nValAberto)>0&&['CONTA_A_RECEBER','CONTA_A_PAGAR'].includes(t.grupo)).map(t=>enriquecer(t,true));
+    const abertos=[...titulos.values()].filter(t=>regras.tituloDisponivel(t)&&cent(t.original?.resumo?.nValAberto)>0&&['CONTA_A_RECEBER','CONTA_A_PAGAR'].includes(t.grupo)).map(t=>enriquecer(t,true));
     const retiradas=movimentos.flatMap(x=>fatias(x,'categorias').filter(p=>socio(p.nome)).map(p=>({...x,valor:p.valor,valorOriginal:x.valor,categoria:p.nome,categorias:[],centros:[],centroCusto:'Não detalhado por categoria',parcial:p.percentual<99.999})));
     const possiveis=movimentos.filter(x=>!retiradas.some(r=>r.id===x.id)&&socio(x.descricao));
     const locais=[...(reg.rec||[]),...(reg.cx||[])].filter(x=>!x.apagadoEm&&!x.anotacao&&!x.omie?.titulo);

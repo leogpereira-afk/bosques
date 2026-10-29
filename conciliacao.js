@@ -3,31 +3,53 @@
 (() => {
   'use strict';
   const cent=v=>Math.round((Number(v)||0)*100),doc=v=>String(v||'').replace(/\D/g,''),vivo=x=>x&&!x.apagadoEm;
-  const ativa=v=>vivo(v)&&(!v.situacao||['ativa','conferir','quitada'].includes(v.situacao));
+  const ativa=v=>FINANCEIRO.vendaAtiva(v);
   const registros=reg=>Object.fromEntries(['venda','rec','titulo','cliente','cx'].map(k=>[k,(reg?.[k]||[]).filter(vivo)]));
   const chaveTitulo=t=>String(t?.titulo??'');
-  function montarFilas(reg,saude) {
+  function parcelaDivergente(p,t) {
+    if(!t)return false;
+    const c=p.conciliacao,igualOrigem=cent(p.valor)===cent(t.valor)&&String(p.venc||'')===String(t.venc||'');
+    const localConferido=c?.politica==='local'&&cent(c.valorOrigem)===cent(t.valor)&&String(c.vencOrigem||'')===String(t.venc||'')&&cent(c.valorLocalAntes)===cent(p.valor)&&String(c.vencLocalAntes||'')===String(p.venc||'');
+    return !igualOrigem&&!localConferido;
+  }
+  function montarFilas(reg,saude,corte='',hoje) {
     const rs=registros(reg),vs=rs.venda.filter(ativa),porVenda=new Map(vs.map(v=>[v.id,v])),porTitulo=new Map(rs.titulo.filter(t=>t.grupo==='CONTA_A_RECEBER').map(t=>[chaveTitulo(t),t])),porTituloPagar=new Map(rs.titulo.filter(t=>t.grupo==='CONTA_A_PAGAR').map(t=>[chaveTitulo(t),t])),porCx=new Map(rs.cx.map(c=>[c.id,c])),porParcela=new Map();
-    for(const venda of vs)for(const parcela of venda.parcelas||[])if(parcela&&!parcela.cancelado){const tid=String(parcela.tid),links=porParcela.get(tid)||[];links.push({venda,parcela});porParcela.set(tid,links);}
+    for(const venda of vs)for(const parcela of venda.parcelas||[])if(vivo(parcela)&&!parcela.cancelado&&!parcela._remover){const tid=String(parcela.tid),links=porParcela.get(tid)||[];links.push({venda,parcela});porParcela.set(tid,links);}
     const faltaDistribuir=r=>r.conferir&&!r.omie?.titulo&&(r.alocacoes||[]).reduce((s,a)=>s+cent(a.valor),0)<cent(r.valor);
     const recebimentos=rs.rec.filter(r=>!porVenda.has(r.vendaId)||faltaDistribuir(r)).map(r=>({chave:'recebimento-'+r.id,tipo:r.omie?.titulo?'titulo':'recebimento',grupo:'recebimentos',subtipo:porVenda.has(r.vendaId)?'alocacao':'semcontrato',rec:r,titulo:porTitulo.get(String(r.omie?.titulo)),data:r.data,valor:Number(r.valor)||0,motivo:porVenda.has(r.vendaId)?'Contrato confirmado; distribuição nas parcelas ainda pendente':r.vendaId?'Contrato indisponível ou distratado':'Recebimento sem contrato confirmado'}));
-    for(const i of recebimentos)if(i.titulo)i.vinculos=porParcela.get(chaveTitulo(i.titulo))||[];
+    for(const i of recebimentos)if(i.titulo){i.vinculos=porParcela.get(chaveTitulo(i.titulo))||[];if(!FINANCEIRO.tituloDisponivel(i.titulo))i.titulo=undefined;}
     const parcelas=[];
     for(const t of porTitulo.values()) {
-      if(t.status==='CANCELADO'||t.cancelado)continue;
+      if(!FINANCEIRO.tituloDisponivel(t))continue;
       const vinculos=porParcela.get(chaveTitulo(t))||[];
-      const incerto=!vinculos.length||vinculos.some(x=>x.parcela.conferir&&!x.parcela.vinculoConfirmado)||vinculos.length>1;
-      const valoresPendentes=vinculos.some(x=>x.parcela.conferir&&x.parcela.vinculoConfirmado);
-      const divergente=vinculos.some(x=>{const p=x.parcela,c=p.conciliacao,igualOrigem=cent(p.valor)===cent(t.valor)&&String(p.venc||'')===String(t.venc||'');const localConferido=c?.politica==='local'&&cent(c.valorOrigem)===cent(t.valor)&&String(c.vencOrigem||'')===String(t.venc||'')&&cent(c.valorLocalAntes)===cent(p.valor)&&String(c.vencLocalAntes||'')===String(p.venc||'');return !igualOrigem&&!localConferido;});
+      const estado=FINANCEIRO.classificarVinculos(vinculos),incerto=!estado.confirmado,valoresPendentes=estado.valoresPendentes;
+      const divergente=vinculos.some(x=>parcelaDivergente(x.parcela,t));
       if(!incerto&&!divergente&&!valoresPendentes)continue;
-      parcelas.push({chave:'titulo-'+chaveTitulo(t),tipo:'titulo',grupo:'parcelas',subtipo:incerto?'vinculo':valoresPendentes?'valorespendentes':'divergencia',titulo:t,vinculos,data:t.venc,valor:Number(t.valor)||0,motivo:(incerto?(vinculos.length>1?'Título aparece em mais de um contrato':vinculos.length?'Vínculo da parcela ainda não confirmado':'Título sem contrato confirmado'):valoresPendentes?'Contrato confirmado; valor e vencimento ainda a conferir':'Valor ou vencimento local diferente da origem Omie')+((incerto||valoresPendentes)&&divergente?' · Valor ou vencimento local diferente da origem Omie':''),divergente});
+      const motivoVinculo=estado.situacao==='multiplo'?(new Set(vinculos.map(x=>x.venda.id)).size>1?'Título aparece em mais de um contrato':'Título repetido em parcelas do mesmo contrato'):estado.situacao==='semvinculo'?'Título sem contrato confirmado':'Vínculo da parcela ainda não confirmado';
+      parcelas.push({chave:'titulo-'+chaveTitulo(t),tipo:'titulo',grupo:'parcelas',subtipo:incerto?'vinculo':valoresPendentes?'valorespendentes':'divergencia',titulo:t,vinculos,data:t.venc,valor:Number(t.valor)||0,motivo:(incerto?motivoVinculo:valoresPendentes?'Contrato confirmado; valor e vencimento ainda a conferir':'Valor ou vencimento local diferente da origem Omie')+((incerto||valoresPendentes)&&divergente?' · Valor ou vencimento local diferente da origem Omie':''),divergente});
     }
-    for(const v of vs)for(const [i,p] of (v.parcelas||[]).entries())if(p&&!p.cancelado&&p.conferir&&!porTitulo.has(String(p.tid)))parcelas.push({chave:'semorigem-'+v.id+'-'+(p.tid||i),tipo:'titulo',grupo:'parcelas',subtipo:'semorigem',vinculos:[{venda:v,parcela:p}],data:p.venc,valor:Number(p.valor)||0,motivo:'Parcela sem título na leitura disponível; atualizar a origem antes de vincular'});
+    const indisponiveis=new Set((reg?.titulo||[]).filter(t=>t.grupo==='CONTA_A_RECEBER'&&!FINANCEIRO.tituloDisponivel(t)).map(t=>String(t.titulo)));
+    for(const v of vs)for(const [i,p] of (v.parcelas||[]).entries())if(vivo(p)&&!p.cancelado&&!p._remover&&(indisponiveis.has(String(p.tid))||p.conferir&&!porTitulo.has(String(p.tid))))parcelas.push({chave:'semorigem-'+v.id+'-'+(p.tid||i),tipo:'titulo',grupo:'parcelas',subtipo:'semorigem',vinculos:[{venda:v,parcela:p}],data:p.venc,valor:Number(p.valor)||0,motivo:'Origem da parcela indisponível; atualizar e conferir antes de vincular ou cobrar'});
+    {
+      const estados=new Map([...porParcela].map(([tid,links])=>[tid,FINANCEIRO.classificarVinculos(links)]));
+      const indice=FINANCEIRO.indiceHistoricoAntesCorte({titulos:reg?.titulo||[],recebimentos:reg?.rec||[]});
+      const filaPorTitulo=new Map(parcelas.map(i=>[String(i.titulo?.titulo??i.vinculos?.[0]?.parcela?.tid),i]));
+      for(const venda of vs){
+        const historico=FINANCEIRO.historicoAntesCorte(venda,{indice,corte,hoje,vinculos:estados});
+        for(const h of historico.conferencias){
+          const existente=filaPorTitulo.get(String(h.tid));
+          if(existente){if(!existente.motivo.includes(h.motivo))existente.motivo+=' · Pagamento histórico: '+h.motivo;continue;}
+          const parcela=(venda.parcelas||[]).find(p=>p&&String(p.tid)===String(h.tid));
+          const item={chave:'historico-'+venda.id+'-'+h.tid,tipo:'historico',subtipo:'historico',grupo:'parcelas',titulo:porTitulo.get(String(h.tid)),vinculos:[{venda,parcela}],data:h.dataPagamento||parcela?.venc,valor:h.valorOrigem||0,motivo:'Pagamento histórico a conferir: '+h.motivo,corte:h.corte};
+          parcelas.push(item);filaPorTitulo.set(String(h.tid),item);
+        }
+      }
+    }
     const duplicidades=[],vistos=new Set();
     for(const p of saude?.sync?.pendencias||[]) {
       if(p.tipo!=='possivel_duplicidade'||vistos.has(String(p.titulo)))continue;
       const t=porTituloPagar.get(String(p.titulo));
-      if(!t||t.decisaoDuplicidade||t.status==='CANCELADO')continue;
+      if(!FINANCEIRO.tituloDisponivel(t)||t.decisaoDuplicidade)continue;
       vistos.add(String(p.titulo));duplicidades.push({chave:'duplicidade-'+p.titulo,tipo:'duplicidade',grupo:'duplicidades',subtipo:'duplicidade',titulo:t,candidatos:[...new Set(p.candidatos||[])].map(id=>porCx.get(id)).filter(c=>c?.tipo==='saida'),data:p.data||t.financeiroOmie?.dataPagamento||t.venc,valor:Number(p.valor??t.original?.resumo?.nValLiquido??t.valor)||0,motivo:'Coincidência de valor e data; conferir se é o mesmo pagamento'});
     }
     return {recebimentos,parcelas,duplicidades};
@@ -35,7 +57,7 @@
   function origem(item,reg) {
     const t=item.titulo||{},r=item.rec||{},f=t.financeiroOmie||r.financeiroOmie||{},atual=(reg?.venda||[]).find(v=>v.id===r.vendaId)||item.vinculos?.[0]?.venda;
     const cpf=doc(t.cpf||r.cpf||r.clienteId||r.omie?.cpf||atual?.clienteId),cliente=(reg?.cliente||[]).find(c=>doc(c.cpf||c.id)===cpf);
-    return {cpf,nome:f.pessoaNome||cliente?.nome||r.clienteNome||atual?.clienteNome||'',documento:f.documento||t.original?.detalhes?.cNumTitulo||r.codigo||'',conta:f.contaNome||((reg?.conta||[]).find(c=>c.id===r.contaId)?.nome)||'',contaId:String(f.contaCodigo||r.contaId||''),observacao:f.observacao||r.obs||'',titulo:chaveTitulo(t)||String(r.omie?.titulo||''),data:item.data,valor:item.valor};
+    return {cpf,nome:f.pessoaNome||cliente?.nome||r.clienteNome||atual?.clienteNome||'',documento:f.documento||t.original?.detalhes?.cNumTitulo||r.codigo||'',conta:f.contaNome||((reg?.conta||[]).find(c=>c.id===r.contaId)?.nome)||'',contaId:FINANCEIRO.identidadeConta(f.contaCodigo||r.contaId,reg?.conta||[]),observacao:f.observacao||r.obs||'',titulo:chaveTitulo(t)||String(r.omie?.titulo||''),data:item.data,valor:item.valor};
   }
   function sugestoes(item,reg) {
     const o=origem(item,reg),normal=String(o.documento||'').toUpperCase().replace(/[\s-]/g,''),exato=normal.match(/^Q0*(\d+)L0*(\d+)$/);
@@ -50,6 +72,7 @@
     }).sort((a,b)=>b.pontos-a.pontos||rotuloVenda(a.venda).localeCompare(rotuloVenda(b.venda)));
   }
   function prepararPayload(item,campos,reg,operacao) {
+    if(item.tipo==='historico')throw Error('Pagamento histórico exige conferência dos comprovantes; confirmar vínculo não registra quitação.');
     const motivo=String(campos.motivo||'').trim();if(motivo.length<3)throw Error('Informe o motivo ou documento conferido (mínimo de 3 caracteres).');
     const p={tipo:item.tipo,id:item.tipo==='recebimento'?item.rec?.id:chaveTitulo(item.titulo),motivo,operacao,esperado:{}};
     if(!p.id)throw Error('Título não disponível. Atualize a origem antes de confirmar.');
@@ -69,7 +92,7 @@
   }
   function rotuloVenda(v){return [v.codigo,v.clienteNome||'Cliente não informado','Q'+v.quadra+' · L'+v.lote].filter(Boolean).join(' · ');}
   const grupos={recebimentos:'Recebimentos e distribuição',parcelas:'Parcelas e títulos a conferir',duplicidades:'Possíveis duplicidades'};
-  const subtipos={semcontrato:'Sem contrato',alocacao:'Distribuição pendente',vinculo:'Vínculo incerto',valorespendentes:'Valores a conferir',divergencia:'Valor / vencimento',semorigem:'Origem não disponível',duplicidade:'Conferir pagamento'};
+  const subtipos={semcontrato:'Sem contrato',alocacao:'Distribuição pendente',vinculo:'Vínculo incerto',valorespendentes:'Valores a conferir',divergencia:'Valor / vencimento',semorigem:'Origem não disponível',historico:'Pagamento histórico',duplicidade:'Conferir pagamento'};
   let alvo=null,saude=null,consultadaEm='',erroSaude='',carregando=null;
   const estado=()=>TELAS._conciliacao||(TELAS._conciliacao={grupo:'recebimentos',subtipo:'',q:'',conta:'',de:'',ate:'',pagina:0});
   const data=d=>/^\d{2}\/\d{2}\/\d{4}$/.test(d||'')?d.slice(6)+'-'+d.slice(3,5)+'-'+d.slice(0,2):String(d||'').slice(0,10);
@@ -88,11 +111,11 @@
   }
   function pendenciasAuditoria(a) {
     if(!a||!Array.isArray(a.itens)||!a.itens.length)return '';
-    const itens=a.itens,abertas=itens.filter(i=>i.situacao!=='corrigida').length;
-    return '<details class="cq-aviso"><summary><b>Pendências da auditoria · '+abertas+' abertas</b></summary><p class="cq-nota">Conferência registrada em '+esc(fmt.dataHora(a.quando)||'data não informada')+'. Estes apontamentos não alteram saldos nem comprovam pagamentos.</p>'+itens.map(i=>'<article class="cq-sugestoes"><b>'+esc(i.titulo||'Conferência')+'</b><p>'+esc(i.descricao||'')+'</p><small>'+esc(i.situacao||'aberta')+' · '+esc(i.responsavel||'Responsável a definir')+'</small><p><strong>Próximo passo:</strong> '+esc(i.proximoPasso||'Conferir documentação.')+'</p></article>').join('')+'</details>';
+    const itens=a.itens;
+    return '<details class="cq-auditoria"><summary><b>Auditoria registrada · '+itens.length+' '+(itens.length===1?'apontamento':'apontamentos')+'</b></summary><p class="cq-nota">Conferência registrada em '+esc(fmt.dataHora(a.quando)||'data não informada')+'. Registro histórico; não representa a fila atual de conciliação. As situações abaixo são as registradas naquela auditoria. Estes apontamentos não alteram saldos nem comprovam pagamentos.</p>'+itens.map(i=>'<article class="cq-sugestoes"><b>'+esc(i.titulo||'Conferência')+'</b><p>'+esc(i.descricao||'')+'</p><small>'+esc(i.situacao||'Situação não informada no registro')+' · '+esc(i.responsavel||'Responsável a definir')+'</small>'+(i.proximoPasso?'<p><strong>Próximo passo registrado:</strong> '+esc(i.proximoPasso)+'</p>':'')+'</article>').join('')+'</details>';
   }
   function pintar() {
-    if(!alvo)return;const f=estado(),filas=montarFilas(S.reg,saude),todos=filas[f.grupo]||[],itens=filtrar(todos,f,S.reg),pagina=Math.max(0,Math.min(f.pagina,Math.ceil(itens.length/40)-1));f.pagina=pagina;
+    if(!alvo)return;const f=estado(),filas=montarFilas(S.reg,saude,S.cfg?.omie?.corteEntradas,hojeISO()),todos=filas[f.grupo]||[],itens=filtrar(todos,f,S.reg),pagina=Math.max(0,Math.min(f.pagina,Math.ceil(itens.length/40)-1));f.pagina=pagina;
     const vis=itens.slice(pagina*40,pagina*40+40),tipos=[...new Set([...todos.map(i=>i.subtipo),...(todos.some(i=>i.divergente===true)?['divergencia']:[])])],contas=[...new Map(todos.map(i=>origem(i,S.reg)).filter(o=>o.contaId).map(o=>[o.contaId,o.conta||o.contaId])).entries()];
     alvo.innerHTML=pendenciasAuditoria(saude?.auditoria)+'<section class="cq" aria-label="Conciliação financeira"><div class="cq-cabecalho"><div><span class="cq-sobre">CONFERIR · VINCULAR · REGISTRAR</span><h3>Escolha o que conferir</h3><p>Escolha o contrato correto e registre a conferência. Os valores originais são preservados.</p></div><button type="button" class="btn" data-cq-atualizar '+(carregando?'disabled':'')+'>'+(carregando?'Consultando…':'Atualizar conferências')+'</button></div><nav class="cq-filas" aria-label="Filas de conciliação">'+Object.entries(grupos).map(([k,n])=>'<button type="button" data-cq-grupo="'+k+'" aria-pressed="'+(f.grupo===k)+'"><span>'+esc(n)+'</span><b>'+filas[k].length+'</b></button>').join('')+'</nav><p class="cq-nota">Um registro pode aparecer em mais de uma fila. As quantidades não representam dívida adicional.</p><div class="cq-filtros"><label>Buscar cliente, CPF, lote ou documento<input type="search" data-cq-busca value="'+esc(f.q)+'" placeholder="Nome, CPF, título ou Q01 L02"></label><label>Situação<select data-cq-subtipo><option value="">Todas as situações</option>'+tipos.map(t=>'<option value="'+t+'" '+(f.subtipo===t?'selected':'')+'>'+esc(subtipos[t])+'</option>').join('')+'</select></label><label>Conta<select data-cq-conta><option value="">Todas as contas</option>'+contas.map(([id,nome])=>'<option value="'+esc(id)+'" '+(f.conta===id?'selected':'')+'>'+esc(nome)+'</option>').join('')+'</select></label><label>De<input type="date" data-cq-de value="'+esc(f.de)+'"></label><label>Até<input type="date" data-cq-ate value="'+esc(f.ate)+'"></label><button type="button" class="btn" data-cq-limpar>Todo o histórico</button></div><div class="cq-leitura" role="status">'+(erroSaude?'<b>Não foi possível atualizar as duplicidades.</b> '+esc(erroSaude)+(consultadaEm?' Última consulta preservada: '+esc(fmt.dataHora(consultadaEm))+'.':' Nenhuma lista completa confirmada nesta sessão.'):carregando?'Consultando a lista completa de duplicidades…':consultadaEm?'Duplicidades consultadas em '+esc(fmt.dataHora(consultadaEm))+'. Origem Omie: '+esc(fmt.dataHora(saude?.sync?.quando)||'data não informada')+'.':'A lista de duplicidades ainda não foi consultada.')+'</div><div class="cq-lista-titulo"><b>'+itens.length+' '+(itens.length===1?'conferência':'conferências')+' no filtro</b><span>'+(f.de||f.ate?'Período selecionado':'Todo o histórico disponível')+'</span></div><div class="cq-lista">'+(vis.length?vis.map(i=>{const o=origem(i,S.reg);return '<button type="button" class="cq-linha" data-cq-id="'+esc(i.chave)+'"><span><b>'+esc(o.nome||'Pessoa não identificada')+'</b><small>'+esc([o.documento,o.titulo?'Título '+o.titulo:'',data(i.data)?fmt.data(data(i.data)):'Sem data'].filter(Boolean).join(' · '))+'</small></span><span class="cq-situacao">'+esc(subtipos[i.subtipo])+'<small>'+esc(i.motivo)+'</small></span><strong>'+esc(fmt.brl(i.valor))+'</strong><span class="cq-abrir">Conferir →</span></button>';}).join(''):'<div class="cq-vazio">Nenhuma conferência neste filtro.'+(f.grupo==='duplicidades'&&!consultadaEm?' Aguarde ou atualize a consulta completa.':'')+'</div>')+'</div><div class="cq-paginas"><button type="button" class="btn" data-cq-anterior '+(pagina?'':'disabled')+'>Anterior</button><span>Página '+(pagina+1)+' de '+Math.max(1,Math.ceil(itens.length/40))+'</span><button type="button" class="btn" data-cq-proxima '+((pagina+1)*40<itens.length?'':'disabled')+'>Próxima</button></div></section>';
     alvo.querySelectorAll('[data-cq-grupo]').forEach(b=>b.onclick=()=>{f.grupo=b.dataset.cqGrupo;f.subtipo='';f.pagina=0;pintar();});
@@ -107,13 +130,18 @@
   function comparacao(item) {
     const o=origem(item,S.reg),t=item.titulo||{},r=t.original?.resumo||{};
     const fonte=item.titulo?ficha('Origem Omie', [['Pessoa',o.nome],['CPF / CNPJ',o.cpf?fmt.doc(o.cpf):''],['Título / documento',[o.titulo,o.documento].filter(Boolean).join(' · ')],['Valor do título',fmt.brl(t.valor)],['Vencimento',fmt.data(t.venc)],['Liquidado',r.nValLiquido==null?'Não informado':fmt.brl(r.nValLiquido)],['Conta',o.conta],['Observação',o.observacao]]):item.rec?ficha('Recebimento local', [['Pessoa',o.nome],['CPF / CNPJ',o.cpf?fmt.doc(o.cpf):''],['Código / documento',o.documento||item.rec.id],['Valor recebido',fmt.brl(item.rec.valor)],['Data do recebimento',fmt.data(item.rec.data)],['Conta',o.conta],['Observação',o.observacao]]):ficha('Origem não disponível', [['Orientação','Atualize a origem antes de confirmar o vínculo.']]);
-    let local=(item.vinculos||[]).map(x=>ficha(rotuloVenda(x.venda),[['Valor local',fmt.brl(x.parcela.valor)],['Vencimento local',fmt.data(x.parcela.venc)],['Conferência',x.parcela.conferir?'Ainda não confirmada':'Vínculo confirmado'],['Alteração manual',x.parcela.trava?'Sim, protegida na sincronização':'Não protegida']])).join('');
+    const estado=FINANCEIRO.classificarVinculos(item.vinculos||[]),situacaoVinculo=estado.confirmado?'Contrato confirmado':estado.situacao==='multiplo'?'Vínculo ambíguo':'Contrato ainda não confirmado';
+    let local=(item.vinculos||[]).map(x=>ficha(rotuloVenda(x.venda),[['Valor local',fmt.brl(x.parcela.valor)],['Vencimento local',fmt.data(x.parcela.venc)],['Vínculo',situacaoVinculo],['Valor e vencimento',!item.titulo?'Origem indisponível':x.parcela.conferir?'Ainda a conferir':parcelaDivergente(x.parcela,item.titulo)?'Diferentes da origem; conferir':'Sem pendência nesta leitura'],['Alteração manual',x.parcela.trava?'Sim, protegida na sincronização':'Não protegida']])).join('');
     if(item.rec)local+=ficha('Recebimento preservado', [['Código',item.rec.codigo||item.rec.id],['Valor recebido',fmt.brl(item.rec.valor)],['Data do recebimento',fmt.data(item.rec.data)],['Contrato atual',(S.reg.venda||[]).find(v=>v.id===item.rec.vendaId)?.codigo||'Sem contrato confirmado']]);
     if(item.tipo==='duplicidade')local=item.candidatos.map(c=>ficha('Lançamento manual · '+(c.codigo||c.id),[['Descrição',c.descricao],['Favorecido',c.financeiroOmie?.pessoaNome||c.favorecido],['Valor',fmt.brl(c.valor)],['Data',fmt.data(c.data)],['Conta',c.financeiroOmie?.contaNome||c.contaId],['Documento',c.financeiroOmie?.documento||c.documento]])).join('');
     return '<div class="cq-comparacao">'+fonte+'<div>'+(local||'<p class="cq-vazio">Nenhum vínculo local confirmado.</p>')+'</div></div>';
   }
   function abrir(item) {
-    if(!item)return;const regConferido={...S.reg,venda:(S.reg.venda||[]).map(v=>({...v})),cx:(S.reg.cx||[]).map(c=>({...c}))},candidatos=sugestoes(item,regConferido),bloqueado=item.tipo==='titulo'&&(!item.titulo||!doc(item.titulo.cpf)||item.titulo.status==='CANCELADO');
+    if(item?.tipo==='historico'){
+      const venda=item.vinculos?.[0]?.venda;
+      abrirModal({titulo:'Conferir pagamento histórico',largo:true,corpo:'<p>'+esc(item.motivo)+'</p>'+comparacao(item)+'<p class="cq-aviso">Confira o recibo ou a planilha anterior a '+esc(fmt.data(item.corte))+'. Confirmar um vínculo não comprova pagamento. Nenhuma baixa foi criada e este valor não será cobrado automaticamente.</p>',acoes:[{texto:'Voltar à fila',aoClicar:fecharModal},...(venda?[{texto:'Abrir contrato',aoClicar:()=>{fecharModal();location.hash='#/venda/'+venda.id;}}]:[])]});return;
+    }
+    if(!item)return;const regConferido={...S.reg,venda:(S.reg.venda||[]).map(v=>({...v})),cx:(S.reg.cx||[]).map(c=>({...c}))},candidatos=sugestoes(item,regConferido),bloqueado=item.tipo==='titulo'&&(!FINANCEIRO.tituloDisponivel(item.titulo)||!doc(item.titulo.cpf));
     const relacionados=item.tipo==='titulo'?(S.reg.rec||[]).filter(r=>vivo(r)&&String(r.omie?.titulo)===chaveTitulo(item.titulo)):[];
     let corpo='<p class="cq-modal-nota">'+esc(item.motivo)+'. Confira os documentos antes de confirmar.</p>'+comparacao(item)+(relacionados.length?'<p class="cq-nota">A confirmação deste título vincula '+relacionados.length+' recebimento(s) associado(s), preservando o valor recebido e a data de cada um.</p>':'');
     if(item.subtipo==='alocacao'){const v=(S.reg.venda||[]).find(v=>v.id===item.rec.vendaId),espelho=v?.parcelas?.some(p=>p&&!p.cancelado);corpo+='<p class="cq-aviso">O contrato já está vinculado. Falta destinar o valor às parcelas'+(!espelho?'; confira primeiro o plano na ficha da venda. O editor legado permite consultar os metadados, sem comprovar distribuição':'')+'. O valor recebido permanece preservado.</p><button type="button" class="btn primario" data-cq-distribuir>'+ (espelho?'Distribuir nas parcelas':'Conferir recebimento legado')+'</button> <button type="button" class="btn" data-cq-venda>Abrir contrato</button>';}
@@ -136,7 +164,7 @@
     async function enviar(proximo) {
       if(ocupado)return;const erro=m.querySelector('[data-cq-erro]');erro.hidden=true;
       try {
-        const fAntes=estado(),filaAntes=filtrar(montarFilas(S.reg,saude)[fAntes.grupo]||[],fAntes,S.reg),posAntes=filaAntes.findIndex(x=>x.chave===item.chave);
+        const fAntes=estado(),filaAntes=filtrar(montarFilas(S.reg,saude,S.cfg?.omie?.corteEntradas,hojeISO())[fAntes.grupo]||[],fAntes,S.reg),posAntes=filaAntes.findIndex(x=>x.chave===item.chave);
         const c=lerCampos(m),p=prepararPayload(item,c,regConferido,operacao),novaAssinatura=JSON.stringify({...p,operacao:''});
         if(assinatura&&novaAssinatura!==assinatura){operacao=crypto.randomUUID();p.operacao=operacao;}assinatura=novaAssinatura;
         ocupado=true;m.querySelectorAll('[data-cq-salvar],[data-cq-proximo]').forEach(b=>b.disabled=true);
@@ -144,7 +172,7 @@
         await relerConfirmado();
         const f=estado(),pos=posAntes;
         fecharModal();pintar();toast('Conferência confirmada e dados atualizados.');
-        if(proximo){const fila=filtrar(montarFilas(S.reg,saude)[f.grupo]||[],f,S.reg),seguinte=fila.find((x,i)=>x.chave!==item.chave&&i>=Math.max(0,pos))||fila.find(x=>x.chave!==item.chave);if(seguinte)abrir(seguinte);else toast('Nenhuma outra conferência neste filtro.');}
+        if(proximo){const fila=filtrar(montarFilas(S.reg,saude,S.cfg?.omie?.corteEntradas,hojeISO())[f.grupo]||[],f,S.reg),seguinte=fila.find((x,i)=>x.chave!==item.chave&&i>=Math.max(0,pos))||fila.find(x=>x.chave!==item.chave);if(seguinte)abrir(seguinte);else toast('Nenhuma outra conferência neste filtro.');}
       } catch(e) {
         erro.hidden=false;erro.textContent=e.status===409?'Este registro mudou depois da leitura. Recarregue as conferências e compare novamente antes de confirmar. Seu formulário foi mantido.':confirmado?'Vínculo confirmado no servidor. Não foi possível atualizar a leitura: '+e.message+'. Tente novamente para apenas recarregar, sem repetir a gravação.':e.message||'Não foi possível confirmar. O formulário foi mantido.';
         if(e.status===409)recarregar.hidden=false;

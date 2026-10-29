@@ -458,6 +458,16 @@ function abrirFilaCobranca() {
   pinta(fundo);
 }
 
+function notaHistoricoPagamentoVenda(r) {
+  const pagamentos=r.pagamentosAntesCorte||[],pendencias=r.conferenciasHistoricas||[];
+  return (pagamentos.length?'<p class="nota">Do total pago, '+fmt.brl(r.valorPagoAntesCorte)+' têm liquidação comprovada no Omie antes do corte de '+
+    esc(fmt.data(r.corteEntradas))+'. Este histórico reduz o saldo do contrato e não cria recebimento no caixa.</p>'+
+    '<details class="nota"><summary>Ver '+pagamentos.length+' pagamento(s) anterior(es) ao corte</summary><p>'+
+    pagamentos.map(p=>esc(fmt.data(p.data))+' · '+fmt.brl(p.valor)).join('<br>')+'</p></details>':'')+
+    (pendencias.length?'<p class="nota">'+pendencias.length+' parcela(s) com histórico de pagamento a conferir. A cobrança dessas parcelas está suspensa neste cálculo; os valores e recibos registrados foram preservados. '+
+      pendencias.map(p=>esc(p.motivo)).filter((p,i,ps)=>ps.indexOf(p)===i).join(' ')+'</p>':'');
+}
+
 /* ── Tela: ficha da venda (o carnê) ────────────────────────────────────────── */
 TELAS.venda = function (id) {
   const app = document.getElementById('app');
@@ -496,6 +506,7 @@ TELAS.venda = function (id) {
       '<div class="painel clicavel" data-rola="carne"><div class="rot">Em atraso</div><div class="num' + (r.qtdAtraso ? ' neg' : ' pos') + '">' +
         (r.qtdAtraso ? fmt.brl(r.emAtraso) : 'R$ 0,00') + '</div><div class="sub">' + r.qtdAtraso + ' parcela(s)</div></div>' +
     '</div>' +
+    notaHistoricoPagamentoVenda(r) +
     '<div class="acoes-linha">' +
       (viva ? '<button class="btn primario" id="bt-baixa">💰 Dar baixa</button>' : '') +
       (viva ? '<button class="btn" id="bt-editar-venda">✏ Editar venda</button>' : '') +

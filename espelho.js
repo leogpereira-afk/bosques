@@ -36,7 +36,45 @@ function resumoVenda(v) {
     r.qtdAtraso = 0; r.emAtraso = 0; r.semEspelho = true;
     return r;
   }
-  return FINANCEIRO.resumo(v, recsDaVenda(v.id), hojeISO());
+  // A mesma identidade em mais de uma parcela não autoriza cobrar nenhuma
+  // delas. A marca só existe neste cálculo; valores, recibos e vínculos salvos
+  // continuam intactos até a conferência escolher o contrato correto.
+  const vinculos=classificacoesVinculosTitulosOmie(new Set(ps.filter(p=>p.tid).map(p=>String(p.tid))),v);
+  const ambiguos=new Set([...vinculos].filter(([,r])=>r.situacao==='multiplo').map(([tid])=>tid));
+  const indiceHistorico=indiceHistoricoPagamentosOmie(),conferenciasOrigem=[];
+  // Só uma fonte explicitamente indisponível suspende a cobrança. A ausência
+  // de título, por si só, não invalida uma parcela manual. O índice inclui a
+  // lixeira para não confundir título apagado com parcela sem origem Omie.
+  for(const tid of new Set(ps.filter(p=>p.tid&&!p.cancelado&&!p.apagadoEm&&!p._remover).map(p=>String(p.tid)))){
+    const fonte=(indiceHistorico.porTitulo.get(tid)||[]).find(t=>!FINANCEIRO.tituloDisponivel(t));
+    if(fonte)conferenciasOrigem.push({tid,motivo:fonte.apagadoEm?'Título apagado do acervo; conferir a origem antes de cobrar.':
+      fonte.cancelado||fonte.status==='CANCELADO'?'Título cancelado na origem; conferir antes de cobrar.':
+      'Título ausente na última leitura da origem; conferir antes de cobrar.'});
+  }
+  const historico=FINANCEIRO.historicoAntesCorte(v,{indice:indiceHistorico,corte:S.cfg?.omie?.corteEntradas||'',vinculos,hoje:hojeISO()});
+  const conferir=new Set([...ambiguos,...historico.conferencias.map(x=>x.tid),...conferenciasOrigem.map(x=>x.tid)]);
+  const conferida=conferir.size?{...v,parcelas:v.parcelas.map(p=>p&&conferir.has(String(p.tid))?{...p,conferir:true}:p)}:v;
+  // Estes eventos só existem durante o cálculo. Não entram em S.reg, caixa,
+  // recibos, DRE ou salvamentos; a ficha identifica a prova anterior ao corte.
+  const eventos=historico.pagamentos.map(p=>({id:'calculo-anterior-corte-'+p.tid,vendaId:v.id,valor:p.valor,data:p.data,
+    alocacoes:[{tid:p.tid,valor:p.valor}]}));
+  return {...FINANCEIRO.resumo(conferida, [...recsDaVenda(v.id),...eventos], hojeISO()),
+    conferenciasOrigem,conferenciasHistoricas:historico.conferencias,pagamentosAntesCorte:historico.pagamentos,corteEntradas:historico.corte,
+    valorPagoAntesCorte:historico.pagamentos.reduce((s,p)=>s+FINANCEIRO.cent(p.valor),0)/100};
+}
+
+let _indiceHistoricoPagamentosOmie=null;
+function indiceHistoricoPagamentosOmie() {
+  const titulos=S.reg.titulo||[],recebimentos=S.reg.rec||[],anterior=_indiceHistoricoPagamentosOmie;
+  // Reutiliza apenas a rodada síncrona. A próxima microtask relê mudanças de
+  // identidade no mesmo objeto; troca de coleção ou tamanho invalida já.
+  if(anterior&&anterior.titulos===titulos&&anterior.recebimentos===recebimentos&&
+    anterior.qtdTitulos===titulos.length&&anterior.qtdRecebimentos===recebimentos.length)return anterior.indice;
+  const cache={titulos,recebimentos,qtdTitulos:titulos.length,qtdRecebimentos:recebimentos.length,
+    indice:FINANCEIRO.indiceHistoricoAntesCorte({titulos,recebimentos})};
+  _indiceHistoricoPagamentosOmie=cache;
+  Promise.resolve().then(()=>{if(_indiceHistoricoPagamentosOmie===cache)_indiceHistoricoPagamentosOmie=null;});
+  return cache.indice;
 }
 
 // O valor do plano (VGV): pagando sempre em dia — entrada + parcelas com desconto.
@@ -63,25 +101,57 @@ function resumoComercial(){
 function titulosAbertosOmie(grupo) {
   const unicos=new Map();
   for(const t of lista('titulo')) if(t.grupo===grupo) unicos.set(String(t.titulo||t.id),t);
-  return [...unicos.values()].filter(t=>t.status!=='CANCELADO'&&FINANCEIRO.cent(t.original?.resumo?.nValAberto)>0);
+  return [...unicos.values()].filter(t=>FINANCEIRO.tituloDisponivel(t)&&FINANCEIRO.cent(t.original?.resumo?.nValAberto)>0);
+}
+let _indiceVinculosTitulosOmie=null;
+function indiceVinculosTitulosOmie() {
+  const vendas=lista('venda'),anterior=_indiceVinculosTitulosOmie;
+  // Cache só da rodada síncrona de render: a fila/snapshot substitui registros
+  // e arrays. Mutação direta de tid/slot no mesmo array é relida na microtask
+  // seguinte; por isso o índice nunca permanece entre eventos da interface.
+  if(anterior&&vendas.length===anterior.retratos.length&&anterior.retratos.every((r,i)=>
+    r.venda===vendas[i]&&r.parcelas===vendas[i].parcelas&&r.tamanho===(vendas[i].parcelas||[]).length))return anterior;
+  const mapa=new Map();
+  for(const venda of vendas) for(const parcela of venda.parcelas||[]) {
+    if(!parcela?.tid)continue;
+    const k=String(parcela.tid);if(!mapa.has(k))mapa.set(k,[]);mapa.get(k).push({venda,parcela});
+  }
+  const indice={mapa,retratos:vendas.map(venda=>({venda,parcelas:venda.parcelas,tamanho:(venda.parcelas||[]).length}))};
+  _indiceVinculosTitulosOmie=indice;
+  Promise.resolve().then(()=>{if(_indiceVinculosTitulosOmie===indice)_indiceVinculosTitulosOmie=null;});
+  return indice;
+}
+function classificacoesVinculosTitulosOmie(titulos,vendaConsulta) {
+  const indice=indiceVinculosTitulosOmie(),substituir=vendaConsulta&&!indice.retratos.some(r=>r.venda===vendaConsulta);
+  const chaves=titulos||indice.mapa.keys();
+  return new Map([...chaves].map(tid=>{
+    let vinculos=indice.mapa.get(tid)||[];
+    // A ficha pode ser uma cópia ainda não presente na lista. Incluí-la na
+    // consulta evita presumir que um título já de outro contrato pertence a ela.
+    if(substituir)vinculos=vinculos.filter(x=>!vendaConsulta.id||x.venda.id!==vendaConsulta.id)
+      .concat((vendaConsulta.parcelas||[]).filter(p=>p&&String(p.tid)===tid).map(parcela=>({venda:vendaConsulta,parcela})));
+    return [tid,FINANCEIRO.classificarVinculos(vinculos)];
+  }));
 }
 function vinculosTitulosOmie() {
-  const mapa=new Map();
-  for(const v of lista('venda')) if(v.situacao!=='distratada') for(const p of v.parcelas||[]) {
-    if(!p||p.conferir||p.cancelado||!p.tid)continue;
-    const k=String(p.tid);if(!mapa.has(k))mapa.set(k,new Set());mapa.get(k).add(v.id);
-  }
-  return mapa;
+  // Compatibilidade com as faixas de atraso: apenas um destino confirmado.
+  // Duas ocorrências na mesma ficha também exigem conferência, sem escolher uma.
+  return new Map([...classificacoesVinculosTitulosOmie()]
+    .filter(([,r])=>r.confirmado).map(([tid,r])=>[tid,new Set([r.vinculo.venda.id])]));
 }
 function resumoInadimplenciaOmie(){
-  const vinculos=vinculosTitulosOmie();
+  const vinculos=classificacoesVinculosTitulosOmie();
   const titulos=titulosAbertosOmie('CONTA_A_RECEBER').filter(t=>FINANCEIRO.dataValida(t.venc)&&t.venc<hojeISO()).sort((a,b)=>a.venc.localeCompare(b.venc));
+  const somar=condicao=>titulos.filter(t=>condicao(vinculos.get(String(t.titulo)))).reduce((s,t)=>s+FINANCEIRO.cent(t.original.resumo.nValAberto),0)/100;
   return {titulos,total:titulos.reduce((s,t)=>s+FINANCEIRO.cent(t.original.resumo.nValAberto),0)/100,
-    semVinculo:titulos.filter(t=>!vinculos.has(String(t.titulo))).reduce((s,t)=>s+FINANCEIRO.cent(t.original.resumo.nValAberto),0)/100};
+    semVinculo:somar(r=>!r?.confirmado),valoresPendentes:somar(r=>r?.valoresPendentes),
+    vinculosMultiplos:somar(r=>r?.situacao==='multiplo')};
 }
 function painelInadimplenciaOmie(){
   const r=resumoInadimplenciaOmie();if(!r)return '<p class="nota">Vencido do Omie: aguardando leitura da origem.</p>';
-  return '<button class="cartao fin-conta" onclick="finAbrirVencidosOmie()"><b>Parcelas vencidas a receber · '+r.titulos.length+' títulos</b><div class="num fin-atraso">'+fmt.brl(r.total)+'</div><p>'+finAtraso(r.semVinculo)+' aguardando confirmação do lote · abrir títulos</p></button>';
+  return '<button class="cartao fin-conta" onclick="finAbrirVencidosOmie()"><b>Parcelas vencidas a receber · '+r.titulos.length+' títulos</b><div class="num fin-atraso">'+fmt.brl(r.total)+'</div><p>'+finAtraso(r.semVinculo)+' com vínculo de contrato a conferir · abrir títulos</p>'+
+    (r.vinculosMultiplos?'<p>Desse valor, '+finAtraso(r.vinculosMultiplos)+' têm vínculo duplicado.</p>':'')+
+    (r.valoresPendentes?'<p>'+finAtraso(r.valoresPendentes)+' com contrato confirmado e valores a conferir.</p>':'')+'</button>';
 }
 
 // Vendas em atraso por lote (para o "!" no espelho) — só direção/escritório.

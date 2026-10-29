@@ -5,6 +5,7 @@ const assert=require('node:assert/strict'),fs=require('node:fs'),vm=require('nod
  const {document}=parseHTML('<html><body><main id="app"></main></body></html>');
  const ctx=vm.createContext({window:{innerWidth:1200},document,CustomEvent:document.defaultView.CustomEvent,console,Intl,setTimeout,clearTimeout,crypto:require('node:crypto').webcrypto});
  vm.runInContext(fs.readFileSync('ui.js','utf8'),ctx);
+ vm.runInContext(fs.readFileSync('financeiro-core.js','utf8'),ctx);
  vm.runInContext(fs.readFileSync('conciliacao.js','utf8'),ctx);
  const C=ctx.window.BSQ_CONCILIACAO;
  assert.equal(C.pendenciasAuditoria(null),'');
@@ -21,7 +22,7 @@ const assert=require('node:assert/strict'),fs=require('node:fs'),vm=require('nod
  teste('vínculo manual tem CAS e não altera valor ou data',()=>{const antes=JSON.stringify(reg),item=C.montarFilas(reg,saude).recebimentos.find(x=>x.rec.id==='r2');const p=C.prepararPayload(item,{destino:'v1',motivo:'Recibo conferido'},reg,'id');assert.equal(p.tipo,'recebimento');assert.equal(p.esperado.recebimento,'ra');assert.equal(JSON.stringify(reg),antes);});
  teste('decisão de duplicidade exige seleção explícita e comprovante',()=>{const item=C.montarFilas(reg,saude).duplicidades[0];assert.throws(()=>C.prepararPayload(item,{decisao:'mesmo',motivo:'Recibo'},reg,'id'),/lançamento/i);const p=C.prepararPayload(item,{decisao:'distintos',motivo:'Recibos distintos'},reg,'id');assert.equal(p.esperado.manual,null);});
  teste('decisão já registrada sai da fila, sem excluir lançamento',()=>{const copia=structuredClone(reg);copia.titulo[1].decisaoDuplicidade='distintos';assert.equal(C.montarFilas(copia,saude).duplicidades.length,0);assert.equal(copia.cx.length,1);});
- teste('cancelados e vendas distratadas não são sugeridos',()=>{const copia=structuredClone(reg);copia.titulo[0].status='CANCELADO';assert.equal(C.montarFilas(copia,saude).parcelas.length,0);copia.venda[0].situacao='distratada';assert.ok(!C.sugestoes(C.montarFilas(reg,saude).recebimentos[0],copia).some(x=>x.venda.id==='v1'));});
+ teste('cancelados ficam em conferência sem associação e vendas distratadas não são sugeridas',()=>{const copia=structuredClone(reg);copia.titulo[0].status='CANCELADO';const fila=C.montarFilas(copia,saude).parcelas;assert.equal(fila.length,1);assert.equal(fila[0].subtipo,'semorigem');assert.throws(()=>C.prepararPayload(fila[0],{destino:'v1',politica:'origem',motivo:'Conferido'},copia,'op'),/não disponível/);copia.venda[0].situacao='distratada';assert.ok(!C.sugestoes(C.montarFilas(reg,saude).recebimentos[0],copia).some(x=>x.venda.id==='v1'));});
  // O DOM e os erros de envio são exercitados abaixo com API inteiramente falsa.
  ctx.S={reg,perfil:'direcao'};ctx.apiOmie=async()=>saude;ctx.puxar=async()=>{};let chamadas=[];ctx.api=async(a,p)=>{chamadas.push(p);throw Object.assign(Error('Rede indisponível'),{status:503});};
  C.renderizar(document.querySelector('#app'));await new Promise(setImmediate);
