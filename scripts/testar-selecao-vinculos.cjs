@@ -19,6 +19,20 @@ async function tela(reg=fixture()){
   ctx.S={reg,perfil:'direcao'};ctx.api=async(a,p)=>{chamadas.push({a,p});return {ok:true};};ctx.apiOmie=async()=>({ok:true,sync:{pendencias:[]}});ctx.puxar=async()=>{};
   return {ctx,document,chamadas};
 }
+test('sem cliente selecionado não lista registros sem CPF; escolher cliente mostra apenas seus lotes e pagamentos',async()=>{
+  const reg=fixture();
+  reg.venda.push({id:'v-sem-cpf',codigo:'VD-SEM-CPF',clienteId:'',situacao:'ativa',loteId:'l-sem-cpf',quadra:9,lote:9});
+  reg.rec.push({id:'r-sem-cpf',clienteId:'',valor:25});
+  reg.titulo.push({id:'CONTA_A_RECEBER-t-sem-cpf',titulo:'t-sem-cpf',cpf:'',grupo:'CONTA_A_RECEBER',valor:25,status:'ABERTO'});
+  const {ctx,chamadas}=await tela(reg),m=ctx.window.BSQ_VINCULACAO.abrir();
+  const ids=kind=>[...m.querySelectorAll('[data-vg-lista="'+kind+'"]')].map(el=>el.value);
+  for(const kind of ['vendas','recebimentos','titulos'])assert.deepEqual(ids(kind),[],kind+' deve aguardar a escolha do cliente');
+  m.querySelector('[data-vg-cliente]').onchange({target:{value:'111'}});
+  assert.deepEqual(ids('vendas'),['v1','v2','v3']);assert.deepEqual(ids('recebimentos'),['r1','r2']);assert.deepEqual(ids('titulos'),['t1','t2']);
+  m.querySelector('[data-vg-cliente]').onchange({target:{value:''}});
+  for(const kind of ['vendas','recebimentos','titulos'])assert.deepEqual(ids(kind),[]);
+  assert.equal(chamadas.length,0);
+});
 test('selecionar lotes e revisar não grava; só confirmar envia uma operação ao servidor',async()=>{
   const {ctx,document,chamadas}=await tela(),regAntes=JSON.stringify(ctx.S.reg),m=ctx.window.BSQ_VINCULACAO.abrir({cpf:'111',recId:'r2'});
   for(const id of ['v1','v2','v3']){const el=m.querySelector('[data-vg-lista="vendas"][value="'+id+'"]');el.checked=true;el.onchange();}

@@ -76,16 +76,16 @@
     const raiz=m.querySelector('[data-vg-raiz]');
     function setPrincipal(id){const v=ativas.find(v=>v.id===id&&v.situacao!=='quitada');s.principal=v?.id||'';s.plano=v?{entrada:v.entrada??0,entradaNoEspelho:v.entradaNoEspelho===true,qtdeParcelas:v.qtdeParcelas??0,valorParcela:v.valorParcela??0,tipoParcela:v.tipoParcela||'Fixa',inicioParcelas:v.inicioParcelas||''}:{};s.confirmarPlanoPrincipal=false;}
     function pintar(){
-      const vs=ativas.filter(v=>doc(v.clienteId)===s.cpf),ids=new Set(s.vendas),selecionadas=vs.filter(v=>ids.has(v.id));
+      const vs=s.cpf?ativas.filter(v=>doc(v.clienteId)===s.cpf):[],ids=new Set(s.vendas),selecionadas=vs.filter(v=>ids.has(v.id));
       const autoRec=new Set(vivos(reg.rec).filter(r=>ids.has(r.vendaId)).map(r=>r.id));
       const autoTitulo=new Set(selecionadas.flatMap(v=>(v.parcelas||[]).filter(p=>p&&p.origem!=='manual'&&!p.apagadoEm&&!p.cancelado&&!p._remover).map(p=>String(p.tid||''))));
       const pessoas=[...new Map(ativas.filter(v=>doc(v.clienteId)).map(v=>[doc(v.clienteId),v.clienteNome||doc(v.clienteId)])).entries()].sort((a,b)=>a[1].localeCompare(b[1]));
-      const rs=vivos(reg.rec).filter(r=>cpfRec(r,reg,ts)===s.cpf&&!F.entradaSemVenda(r,ts));
-      const titulos=[...ts.values()].filter(t=>doc(t.cpf)===s.cpf&&F.tituloDisponivel(t)&&!F.entradaSemVenda(t));
+      const rs=s.cpf?vivos(reg.rec).filter(r=>cpfRec(r,reg,ts)===s.cpf&&!F.entradaSemVenda(r,ts)):[];
+      const titulos=s.cpf?[...ts.values()].filter(t=>doc(t.cpf)===s.cpf&&F.tituloDisponivel(t)&&!F.entradaSemVenda(t)):[];
       const match=x=>!s.q||String(x).toLocaleLowerCase('pt-BR').includes(s.q.toLocaleLowerCase('pt-BR'));
       const escolha=(kind,id,checked,automatico,titulo,detalhe)=>'<label class="vg-item"><input type="checkbox" data-vg-lista="'+kind+'" value="'+esc(id)+'" '+(checked||automatico?'checked ':'')+(automatico?'disabled':'')+'><span><b>'+esc(titulo)+'</b><small>'+esc(detalhe)+(automatico?' · acompanha o contrato':'')+'</small></span></label>';
       raiz.innerHTML='<p>Selecione os lotes que fazem parte de um único contrato e os pagamentos correspondentes. A escolha só será aplicada depois da revisão.</p>'+campo('Cliente', '<select data-vg-cliente><option value="">Selecione o cliente</option>'+pessoas.map(([cpf,nome])=>'<option value="'+esc(cpf)+'" '+(cpf===s.cpf?'selected':'')+'>'+esc(nome)+' · '+esc(fmt.doc(cpf))+'</option>').join('')+'</select>')+
-        '<h3>1. Lotes do mesmo contrato</h3><div class="vg-lista">'+(vs.map(v=>escolha('vendas',v.id,ids.has(v.id),false,rotulo(v),(v.clienteNome||'')+' · '+(v.situacao==='quitada'?'Quitado':v.situacao==='conferir'?'A conferir':'Ativo'))).join('')||'<p>Nenhum contrato disponível para este cliente.</p>')+'</div>'+
+        '<h3>1. Lotes do mesmo contrato</h3><div class="vg-lista">'+(vs.map(v=>escolha('vendas',v.id,ids.has(v.id),false,rotulo(v),(v.clienteNome||'')+' · '+(v.situacao==='quitada'?'Quitado':v.situacao==='conferir'?'A conferir':'Ativo'))).join('')||'<p>'+(s.cpf?'Nenhum contrato disponível para este cliente.':'Selecione um cliente para ver os lotes e pagamentos.')+'</p>')+'</div>'+
         campo('Contrato principal — o código que continuará em uso','<select data-vg-principal><option value="">Selecione após marcar os lotes</option>'+selecionadas.filter(v=>v.situacao!=='quitada').map(v=>'<option value="'+esc(v.id)+'" '+(v.id===s.principal?'selected':'')+'>'+esc(rotulo(v))+'</option>').join('')+'</select>')+
         '<p class="cq-nota">As fichas anteriores permanecem no histórico. Os títulos e pagamentos já vinculados aos contratos selecionados acompanham o contrato principal.</p>'+
         '<h3>2. Pagamentos e títulos</h3>'+campo('Filtrar por código, título ou data',input('q',s.q,'search'))+
