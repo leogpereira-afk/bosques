@@ -17,9 +17,11 @@ const dados={agora:()=>new Date().toISOString(),lerCfgBruta:async()=>clone(cfg),
   if(nome==='bsq_omie_finalizar')return{data:true};return{data:{vendasNovas:0,pagamentosVinculados:0,titulos:0,pagamentos:0}};},from:tabela}};
 const resposta=b=>b.call==='ListarContasCorrentes'?{ListarContasCorrentes:[{nCodCC:1,descricao:'Conta'}],total_de_paginas:1}:b.call==='ListarCategorias'?{categoria_cadastro:[{codigo:'1',descricao:'C'}],total_de_paginas:1}:
  b.call==='ListarDepartamentos'?{departamentos:[{codigo:'1',descricao:'D'}],total_de_paginas:1}:b.call==='ListarClientes'?{clientes_cadastro:[],total_de_registros:0,total_de_paginas:0}:{nPagina:1,nTotPaginas:1,nTotRegistros:0,movimentos:[]};
-const ctx={console:{...console,warn(){},error(){}},Request,Response,AbortSignal,Date,Map,Set,JSON,Number,String,Object,Math,Promise,Deno:{env:{get:()=>'token'},serve:f=>handler=f},exports:{},
+const Agora=Date.parse('2026-10-20T13:00:00.000Z');
+class Relogio extends Date { constructor(...args){super(...(args.length?args:[Agora]));} static now(){return Agora;} }
+const ctx={console:{...console,warn(){},error(){}},Request,Response,AbortSignal,Date:Relogio,Map,Set,JSON,Number,String,Object,Math,Promise,Deno:{env:{get:()=>'token'},serve:f=>handler=f},exports:{},
  fetch:async(_u,o)=>{const b=JSON.parse(o.body);requisicoes.push(b);if(omieFora)return new Response('{"faultstring":"fora do ar"}',{status:500});return new Response(JSON.stringify(resposta(b)),{status:200})},
- require:p=>p.includes('dados')?dados:p.includes('cors')?{json:(b,s=200)=>new Response(JSON.stringify(b),{status:s}),preflight:()=>null}:{identificar:async()=>({perfil:'direcao',proprio:true,nome:'Teste'}),perfilDe:q=>q.perfil}};
+ require:p=>p.includes('classificacao-vinculo')?require('./carregar-helper-ts.cjs')('classificacao-vinculo'):p.includes('dados')?dados:p.includes('cors')?{json:(b,s=200)=>new Response(JSON.stringify(b),{status:s}),preflight:()=>null}:{identificar:async()=>({perfil:'direcao',proprio:true,nome:'Teste'}),perfilDe:q=>q.perfil}};
 vm.createContext(ctx);vm.runInContext(ts.transpileModule(fs.readFileSync('supabase/functions/bsq-omie/index.ts','utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,ctx);
 const chamar=async(corpo,headers={'x-token':'token'})=>{const r=await handler(new Request('https://teste.invalid',{method:'POST',headers,body:JSON.stringify(corpo)}));return{status:r.status,b:await r.json()};};
 const automatico=()=>chamar({action:'sincronizar',automatico:true},{'x-rotina-token':'token'});

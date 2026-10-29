@@ -14,6 +14,7 @@ function ambiente(registros) {
   const banco = new Map(registros.map(([col, registro]) => [chave(col, registro.id), clone(registro)]));
   let handler, numero = 0;
   const dados = {
+    db:{rpc:async(nome,args)=>{assert.equal(nome,'bsq_gravar_registro_cas');assert.equal(args.p_colecao,'venda');assert.deepEqual(clone(banco.get(chave('venda',args.p_id))||null),clone(args.p_antes));banco.set(chave('venda',args.p_id),clone(args.p_novo));return {data:{ok:true}};}},
     agora: () => '2026-10-21T12:00:00.000Z', idNovo: () => 'novo-' + (++numero), tokenCurto: () => 'token-publico-ficticio',
     lerCfgBruta: async () => ({}),
     lerUm: async (col, id) => clone(banco.get(chave(col, id)) || null),
@@ -23,7 +24,7 @@ function ambiente(registros) {
       .map(([, registro]) => campos.includes('registro->>')
         ? Object.fromEntries(campos.split(',').map(campo => {
           const [nome, origem] = campo.trim().split(':');
-          return [nome, origem ? registro[origem.replace('registro->>', '')] ?? null : registro[nome]];
+          return [nome, origem ? registro[origem.replace(/registro->>?/, '')] ?? null : registro[nome]];
         })) : { id: registro.id, registro: clone(registro) }),
     proximoNumero: async () => ++numero, guardarIndiceNumero: async () => {},
     marcarMudanca: async () => {}, registrarLog: async () => {},
@@ -32,7 +33,7 @@ function ambiente(registros) {
     podeFazer: () => true, motivoRecusa: () => null, perfilDe: quem => quem.perfil };
   const ctx = vm.createContext({ console, Request, Response, URL, Date, JSON, Map, Set,
     exports: {}, Deno: { env: { get: () => 'token-teste' }, serve: fn => { handler = fn; } },
-    require: arquivo => arquivo.includes('dados') ? dados : arquivo.includes('acesso.ts') ? acesso :
+    require: arquivo =>arquivo.includes('classificacao-vinculo')?require('./carregar-helper-ts.cjs')('classificacao-vinculo'): arquivo.includes('dados') ? dados : arquivo.includes('acesso.ts') ? acesso :
       arquivo.includes('cors') ? { json: (corpo, status = 200) => new Response(JSON.stringify(corpo), { status }), preflight: () => null } :
       arquivo.includes('colecoes') ? { COLECOES: { venda: {}, lote: {}, cliente: {}, rec: {} } } : {},
   });
@@ -122,6 +123,7 @@ async function teste(nome, executar) {
   });
   await teste('Detector de duplicidade inclui quitadas e exclui distratadas e apagadas', () => {
     const ctx = vm.createContext({ TELAS: {}, S: {}, document: {}, console });
+    vm.runInContext(fs.readFileSync(path.join(raiz, 'financeiro-core.js'), 'utf8'), ctx);
     vm.runInContext(fs.readFileSync(path.join(raiz, 'vendas.js'), 'utf8'), ctx);
     ctx.registros = [vendaA, { ...vendaA, id: 'quitada', situacao: 'quitada' },
       { id: 'quitada-b1', loteId: loteB.id, situacao: 'quitada' }, { id: 'quitada-b2', loteId: loteB.id, situacao: 'quitada' },

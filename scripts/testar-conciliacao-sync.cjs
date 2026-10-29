@@ -84,7 +84,7 @@ let passaram = 0, falhas = 0;
         else resposta = { clientes_cadastro: [], total_de_registros: 0, total_de_paginas: 0 };
         return new Response(JSON.stringify(resposta), { status: 200 });
       },
-      require: arquivo => arquivo.includes('dados') ? dados : arquivo.includes('cors') ? { json: (b, s = 200) => new Response(JSON.stringify(b), { status: s }), preflight: () => null } :
+      require: arquivo => arquivo.includes('classificacao-vinculo') ? require('./carregar-helper-ts.cjs')('classificacao-vinculo') : arquivo.includes('dados') ? dados : arquivo.includes('cors') ? { json: (b, s = 200) => new Response(JSON.stringify(b), { status: s }), preflight: () => null } :
         { identificar: async () => ({ perfil: 'direcao', proprio: true, nome: 'Pessoa de teste' }), perfilDe: q => q.perfil },
     });
     const src = fs.readFileSync('supabase/functions/bsq-omie/index.ts', 'utf8');

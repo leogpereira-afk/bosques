@@ -24,7 +24,9 @@ function pctRecebido(recebido, vgv) {
   return Math.round(p) + '%';
 }
 
-const vendasVivas = () => lista('venda').filter((v) => ['ativa', 'conferir'].includes(v.situacao || 'ativa'));
+const vendasVivas = () => lista('venda').filter((v) => FINANCEIRO.vendaAtiva(v) && v.situacao !== 'quitada');
+const buscaLotesVenda = v => FINANCEIRO.lotesVenda(v).map(l => 'Q' + l.quadra + 'L' + l.lote +
+  ' Q' + String(l.quadra).padStart(2, '0') + 'L' + String(l.lote).padStart(2, '0')).join(' ');
 
 /* Redesenhar a tela no meio da digitação destrói o input focado: o foco cai
    no body e a tecla seguinte se perde. Guarda foco+caret e devolve depois.
@@ -61,7 +63,7 @@ function saldoDaParcela(l) {
 // A entrada é separada dos boletos no motor financeiro, mas precisa continuar
 // visível e selecionável na ficha e no formulário de recebimento.
 function linhasRecebimentoVenda(v, r) {
-  if (!r.espelhoOmie || !(Number(v.entrada) > 0)) return r.carne;
+  if (!r.espelhoOmie || v.entradaNoEspelho || !(Number(v.entrada) > 0)) return r.carne;
   const saldo = Number(r.entradaSaldo) || 0;
   return [{ n: 0, rotulo: 'Entrada', venc: v.dataEntrada || v.dataVenda || '',
     valor: Number(v.entrada), pago: Math.max(0, Number(v.entrada) - saldo), saldo,
@@ -69,7 +71,7 @@ function linhasRecebimentoVenda(v, r) {
 }
 function msgCobranca(v, r) {
   const nome = (v.clienteNome || '').trim().split(' ')[0] || 'tudo bem';
-  const loteTxt = 'Q' + v.quadra + '-L' + v.lote;
+  const loteTxt = nomeLotesVenda(v);
   const atrasadas = r.carne.filter((l) => l.situacao === 'atrasada');
   const conta = ((S.cfg && S.cfg.empresa && S.cfg.empresa.contaBancaria) || '').trim();
   let corpo;
@@ -77,13 +79,13 @@ function msgCobranca(v, r) {
     const soma = atrasadas.reduce((s, l) => s + saldoDaParcela(l), 0);
     const detalhe = atrasadas.slice(0, 3).map((l) => l.rotulo + ' (venceu ' + fmt.data(l.venc) + ')').join(', ') +
       (atrasadas.length > 3 ? ' e mais ' + (atrasadas.length - 3) : '');
-    corpo = 'passando para lembrar que constam em aberto no seu lote ' + loteTxt + ': ' + detalhe +
+    corpo = 'passando para lembrar que constam em aberto no seu contrato ' + loteTxt + ': ' + detalhe +
       ', somando ' + fmt.brl(soma) + '.';
   } else if (r.proxima) {
-    corpo = 'lembrando que a próxima parcela do seu lote ' + loteTxt + ' (' + r.proxima.rotulo +
+    corpo = 'lembrando que a próxima parcela do seu contrato ' + loteTxt + ' (' + r.proxima.rotulo +
       ', ' + fmt.brl(saldoDaParcela(r.proxima)) + ') vence em ' + fmt.data(r.proxima.venc) + '.';
   } else {
-    corpo = 'sobre o seu lote ' + loteTxt + '.';
+    corpo = 'sobre o seu contrato ' + loteTxt + '.';
   }
   return 'Olá, ' + nome + '! Tudo bem? Aqui é do Portal dos Bosques 🌳 — ' + corpo +
     (conta ? '\n\nDados para pagamento:\n' + conta : '') +
@@ -154,8 +156,12 @@ function ligarBotoesCobranca(raiz) {
 
 // Os cartões da carteira medem recebimentos registrados, uma população
 // diferente dos movimentos bancários. Seu detalhe preserva a mesma origem.
+function recebimentosVendas() {
+  const titulos=new Map(lista('titulo').filter(t=>t.grupo==='CONTA_A_RECEBER').map(t=>[String(t.titulo),t]));
+  return lista('rec').filter(r=>!FINANCEIRO.entradaSemVenda(r,titulos));
+}
 function abrirRecebimentosVendas(mes = '', pagina = 0) {
-  const registros = lista('rec').filter(r => !mes || String(r.data || '').startsWith(mes))
+  const registros = recebimentosVendas().filter(r => !mes || String(r.data || '').startsWith(mes))
     .sort((a, b) => String(b.data || '').localeCompare(String(a.data || '')) || String(a.id).localeCompare(String(b.id)));
   const total = registros.reduce((s, r) => s + FINANCEIRO.cent(r.valor), 0) / 100;
   const paginas = Math.max(1, Math.ceil(registros.length / 40));
@@ -167,7 +173,7 @@ function abrirRecebimentosVendas(mes = '', pagina = 0) {
       '<p><b>Total: <span class="fin-entrada">' + fmt.brl(total) + '</span></b></p>' +
       '<div class="recebimentos-vendas">' + (registros.slice(pg * 40, pg * 40 + 40).map(rc => {
         const venda = achar('venda', rc.vendaId);
-        const cliente = venda ? 'Q' + venda.quadra + '-L' + venda.lote + ' · ' + (venda.clienteNome || 'Cliente não informado') : 'Sem contrato vinculado';
+        const cliente = venda ? nomeLotesVenda(venda) + ' · ' + (venda.clienteNome || 'Cliente não informado') : 'Sem contrato vinculado';
         return '<button type="button" class="lin home-rec" data-recebimento-venda="' + esc(rc.id) + '">' +
           '<span class="cresce"><b>' + esc(cliente) + '</b><span class="sub">' + esc(fmt.data(rc.data)) +
           (rc.codigo ? ' · ' + esc(rc.codigo) : '') + '</span></span><b class="fin-entrada">' + fmt.brl(rc.valor) + '</b></button>';
@@ -193,7 +199,7 @@ function abrirRecebimentosVendas(mes = '', pagina = 0) {
 /* ── Tela: lista de vendas ─────────────────────────────────────────────────── */
 TELAS.vendas = function () {
   const app = document.getElementById('app');
-  const todas = lista('venda');
+  const todas = lista('venda').filter(v => !v.incorporadaEmVendaId);
   if (!todas.length) { app.innerHTML = vazio('📋', 'Nenhuma venda ainda', 'Registre a primeira pelo espelho de lotes.'); return; }
 
   const filtro = TELAS._fVendas || { q: '', sit: '', so: '' };
@@ -205,7 +211,7 @@ TELAS.vendas = function () {
   const emAtraso = linhas.filter((x) => ['ativa', 'conferir'].includes(x.v.situacao || 'ativa') && x.r.qtdAtraso > 0);
   const totalAtraso = emAtraso.reduce((s, x) => s + x.r.emAtraso, 0);
   const mesStr = hojeISO().slice(0, 7);
-  const recebidoMes = lista('rec').filter((r) => String(r.data || '').startsWith(mesStr))
+  const recebidoMes = recebimentosVendas().filter((r) => String(r.data || '').startsWith(mesStr))
     .reduce((s, r) => s + FINANCEIRO.cent(r.valor), 0) / 100;
 
   /* O TOTAL RECEBIDO — todo o dinheiro que já entrou por venda, não só o do mês.
@@ -224,7 +230,7 @@ TELAS.vendas = function () {
      causa do distrato. Quem quer o VGV de pé olha o cartão do VGV, que exclui
      distratada — são perguntas diferentes, e misturar as réguas faria os dois
      números não conversarem. */
-  const recs = lista('rec');
+  const recs = recebimentosVendas();
   const recebidoTotal = recs.reduce((s, r) => s + FINANCEIRO.cent(r.valor), 0) / 100;
   const semContrato = recs.filter((r) => !String(r.vendaId || '').trim());
   const semContratoTotal = semContrato.reduce((s, r) => s + FINANCEIRO.cent(r.valor), 0) / 100;
@@ -235,7 +241,7 @@ TELAS.vendas = function () {
     if (filtro.sit && (v.situacao || 'ativa') !== filtro.sit) return false;
     if (filtro.so === 'atraso' && !(r.qtdAtraso > 0 && ['ativa', 'conferir'].includes(v.situacao || 'ativa'))) return false;
     if (filtro.q) {
-      const alvo = [v.clienteNome,'Q'+v.quadra+'L'+v.lote,'Q'+String(v.quadra).padStart(2,'0')+'L'+String(v.lote).padStart(2,'0'),v.codigo,v.corretorNome,v.clienteId,v.omieDocumento].join(' ');
+      const alvo = [v.clienteNome,buscaLotesVenda(v),v.codigo,v.corretorNome,v.clienteId,v.omieDocumento].join(' ');
       if (!correspondeBusca(alvo,filtro.q)) return false;
     }
     return true;
@@ -251,7 +257,7 @@ TELAS.vendas = function () {
   const linhaVenda = ({ v, r }) => {
     const pct = r.total > 0 ? Math.round(r.pago / r.total * 100) : 0;
     return '<div class="lin' + (v.situacao === 'distratada' ? ' riscada' : '') + '" data-id="' + esc(v.id) + '">' +
-      '<div class="cresce"><b>Q' + v.quadra + '-L' + v.lote + ' · ' + esc(v.clienteNome || '?') + '</b>' +
+      '<div class="cresce"><b>' + esc(nomeLotesVenda(v)) + ' · ' + esc(v.clienteNome || '?') + '</b>' +
       /* A DATA DO FECHAMENTO ABRE A LINHA, e não vai no fim: dentro de um mês
          com 14 vendas, é ela que responde "qual veio primeiro". No fim da
          frase, atrás do valor, ninguém varre uma coluna com o olho.
@@ -417,7 +423,7 @@ function abrirFilaCobranca() {
     fundo.querySelector('header h2').textContent = '📣 Cobrança em série — ' + (i + 1) + ' de ' + fila.length;
     fundo.querySelector('.corpo').innerHTML =
       '<div class="lin" style="cursor:default"><div class="cresce">' +
-      '<b>' + esc(v.clienteNome || '?') + ' · Q' + v.quadra + '-L' + v.lote + '</b>' +
+      '<b>' + esc(v.clienteNome || '?') + ' · ' + esc(nomeLotesVenda(v)) + '</b>' +
       '<span class="sub">' + esc(v.codigo || '') + ' · ' + r.qtdAtraso + ' parcela(s) vencida(s)' +
         (ult ? ' · última cobrança ' + fmt.quando(ult) : ' · nunca cobrado') + '</span></div>' +
       '<span class="dinheiro" style="color:var(--ruim)">' + fmt.brl(r.emAtraso) + '</span></div>' +
@@ -473,6 +479,14 @@ TELAS.venda = function (id) {
   const app = document.getElementById('app');
   const v = achar('venda', id);
   if (!v) { app.innerHTML = vazio('📋', 'Venda não encontrada') + '<a href="#/vendas">← vendas</a>'; return; }
+  if (v.incorporadaEmVendaId) {
+    const principal = achar('venda', v.incorporadaEmVendaId);
+    app.innerHTML = '<div class="cartao"><h2>' + esc(v.codigo || 'Venda') + '</h2>' +
+      '<p>Este registro foi incorporado a um contrato principal. Os lotes, pagamentos e saldos são conferidos na ficha principal.</p>' +
+      '<a class="btn primario" href="#/venda/' + esc(v.incorporadaEmVendaId) + '">Abrir contrato principal' +
+      (principal?.codigo ? ' · ' + esc(principal.codigo) : '') + '</a></div>';
+    return;
+  }
   const cliente = v.clienteId ? achar('cliente', v.clienteId) : null;
   const recs = recsDaVenda(id);
   const r = resumoVenda(v);
@@ -481,17 +495,17 @@ TELAS.venda = function (id) {
 
   const zap = cliente && (cliente.whatsapp || cliente.celular);
   const cabec =
-    '<div class="cartao"><h2>' + esc(v.codigo || 'Venda') + ' — Q' + v.quadra + '-L' + v.lote + ' ' + etiqueta(sit) + '</h2>' +
+    '<div class="cartao"><h2>' + esc(v.codigo || 'Venda') + ' — ' + esc(nomeLotesVenda(v)) + ' ' + etiqueta(sit) + '</h2>' +
     '<div class="sub" style="color:var(--tinta-fraca);font-size:13.5px">' +
       '👤 ' + esc(v.clienteNome || '?') + (cliente && cliente.cpf ? ' · ' + fmt.doc(cliente.cpf) : '') +
-      (zap ? ' · <a href="' + linkWhats(zap, 'Olá, ' + (v.clienteNome || '').split(' ')[0] + '! Sobre seu lote Q' + v.quadra + '-L' + v.lote + ' no Portal dos Bosques…') + '" target="_blank" rel="noopener">WhatsApp</a>' : '') +
+      (zap ? ' · <a href="' + linkWhats(zap, 'Olá, ' + (v.clienteNome || '').split(' ')[0] + '! Sobre seu contrato ' + nomeLotesVenda(v) + ' no Portal dos Bosques…') + '" target="_blank" rel="noopener">WhatsApp</a>' : '') +
       (v.corretorNome ? '<br>🤝 corretor: ' + esc(v.corretorNome) + (v.comissao ? ' (comissão ' + finSaida(v.comissao) + ')' : '') +
         (v.corretor2Nome ? ' + ' + esc(v.corretor2Nome) + (v.comissao2 ? ' (' + finSaida(v.comissao2) + ')' : '') : '') : '') +
       (ultimaCobranca(v) ? '<br>📣 última cobrança: ' + fmt.quando(ultimaCobranca(v)) +
         ' (' + esc(((v.cobrancas || []).slice().sort((a, b) => String(a.em).localeCompare(b.em)).pop() || {}).por || '—') + ')' : '') +
       '<br>🗓️ venda em ' + fmt.data(v.dataVenda || v.criadoEm) +
-      ' · plano: ' + fmt.brl(v.entrada) + ' de entrada' +
-      (v.entradaDetalhe ? ' (' + esc(v.entradaDetalhe) + ')' : '') + ' + ' + (v.qtdeParcelas || 0) + '× ' + fmt.brl(v.valorParcela) +
+      ' · plano: ' + (v.entradaNoEspelho ? 'entrada de ' + fmt.brl(v.entrada) + ' já incluída nos boletos' : fmt.brl(v.entrada) + ' de entrada') +
+      (v.entradaDetalhe ? ' (' + esc(v.entradaDetalhe) + ')' : '') + (v.entradaNoEspelho ? ' · ' : ' + ') + (v.qtdeParcelas || 0) + '× ' + fmt.brl(v.valorParcela) +
       ' (' + esc(v.tipoParcela || 'Fixa') + ')' +
       (v.obs ? '<br>📝 ' + esc(v.obs) : '') +
     '</div>' +
@@ -718,7 +732,7 @@ function abrirBaixa(v, r, parcelaN, faltaSugerida) {
           const ref = nAlvo === 0 ? 'à entrada' : nAlvo > 0 ? 'à parcela ' + nAlvo + '/' + (v.qtdeParcelas || '') : 'ao pagamento';
           const msg = 'Olá, ' + ((v.clienteNome || '').split(' ')[0] || '') + '! Confirmamos o recebimento de ' +
             fmt.brl(valor) + ' em ' + fmt.data(c.data) + ', referente ' + ref +
-            ' do seu lote Q' + v.quadra + '-L' + v.lote + '. Obrigado! 🌳 Portal dos Bosques';
+            ' do seu contrato ' + nomeLotesVenda(v) + '. Obrigado! 🌳 Portal dos Bosques';
           abrirModal({
             titulo: '✅ Baixa lançada',
             corpo: '<p>Quer mandar a confirmação de recebimento para <b>' + esc(v.clienteNome || '') + '</b> no WhatsApp?</p>' +
@@ -740,8 +754,8 @@ function abrirBaixa(v, r, parcelaN, faltaSugerida) {
 /* ── Distrato ──────────────────────────────────────────────────────────────── */
 function abrirDistrato(v, r) {
   const corpo =
-    '<p>O cliente pagou <b>' + fmt.brl(r.pago) + '</b> até aqui. O distrato encerra o carnê e o lote ' +
-      '<b>Q' + v.quadra + '-L' + v.lote + '</b> volta ao estoque (quem decide o status do lote é o servidor).</p>' +
+    '<p>O cliente pagou <b>' + fmt.brl(r.pago) + '</b> até aqui. O distrato encerra o carnê e devolve ao estoque os lotes do contrato: ' +
+      '<b>' + esc(nomeLotesVenda(v)) + '</b> (quem decide o status dos lotes é o servidor).</p>' +
     '<div class="colunas">' +
       campo('Data do distrato', entrada('em', hojeISO(), { tipo: 'date' })) +
       campo('Valor a devolver (R$)', entrada('valorDevolvido', '', { inputmode: 'decimal' }), 'se for devolver — vira saída no caixa quando pago') +
@@ -1082,7 +1096,7 @@ function abrirEditarParcela(v, idx, opts = {}) {
   const nova = idx < 0;
   const pp = nova ? { tid: 'man-' + Date.now(), venc: hojeISO(), valor: '', valorDia: '', pago: null, obs: '', origem: 'manual' } : { ...ps[idx] };
   if (opts.baixa) { abrirBaixa(v, resumoVenda(v), idx + 1); return; }
-  const outras = lista('venda').filter((x) => x.id !== v.id && x.clienteId === v.clienteId &&
+  const outras = lista('venda').filter((x) => x.id !== v.id && !x.incorporadaEmVendaId && x.clienteId === v.clienteId &&
     ['ativa', 'conferir'].includes(x.situacao || 'ativa'));
   const corpo =
     (pp.tid && !String(pp.tid).startsWith('man-') ? '<p class="nota">Boleto do Omie nº ' + esc(String(pp.tid)) + ' — o pagamento chega sozinho pela sincronização. ' +
@@ -1098,7 +1112,7 @@ function abrirEditarParcela(v, idx, opts = {}) {
     '</div>' +
     (outras.length && !nova
       ? campo('Mover para outra venda deste cliente?', seletor('mover', '', outras.map((x) =>
-          ({ v: x.id, t: (x.codigo || '') + ' · Q' + x.quadra + '-L' + x.lote })), 'não — fica nesta'))
+          ({ v: x.id, t: (x.codigo || '') + ' · ' + nomeLotesVenda(x) })), 'não — fica nesta'))
       : '');
   const acoes = [
     { texto: 'Voltar', aoClicar: () => fecharModal() },
@@ -1267,8 +1281,8 @@ function abrirEditarRec(v, recId, aoTerminar) {
 function lotesDuplicados() {
   const porLote = {};
   // Quitada encerra a cobrança, mas continua ocupando o lote.
-  for (const v of lista('venda').filter(v => ['ativa', 'conferir', 'quitada'].includes(v.situacao || 'ativa')))
-    (porLote[v.loteId] = porLote[v.loteId] || []).push(v);
+  for (const v of lista('venda').filter(FINANCEIRO.vendaAtiva))
+    for (const l of FINANCEIRO.lotesVenda(v)) (porLote[l.loteId] = porLote[l.loteId] || []).push(v);
   return Object.entries(porLote).filter(([, vs]) => vs.length > 1);
 }
 function abrirLotesDuplicados() {
@@ -1277,7 +1291,7 @@ function abrirLotesDuplicados() {
   const corpo = '<p class="nota">O mesmo lote com mais de um contrato vivo: decida quem fica ' +
     '(o outro se distrata na ficha, ou se realoca para outro lote em ✏ Editar venda).</p>' +
     dups.map(([loteId, vs]) =>
-      '<div class="cartao" style="margin:6px 0"><b>Q' + vs[0].quadra + '-L' + vs[0].lote + '</b>' +
+      '<div class="cartao" style="margin:6px 0"><b>' + esc(nomeLote(FINANCEIRO.lotesVenda(vs[0]).find(l => String(l.loteId) === loteId))) + '</b>' +
       vs.map((v) => '<div class="lin dup-venda" data-id="' + esc(v.id) + '">' +
         '<div class="cresce"><b>' + esc(v.codigo || '') + ' · ' + esc(v.clienteNome || '—') + '</b>' +
         '<span class="sub">' + etiqueta(v.situacao || 'ativa') + ' · venda em ' + fmt.data(v.dataVenda) +

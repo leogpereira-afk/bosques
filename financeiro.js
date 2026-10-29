@@ -42,7 +42,7 @@ function finEnriquecer(x,ctx){
   const descricao=(x.rec&&!ctx.porVenda.has(x.rec.vendaId)&&cliente?.nome)?cliente.nome:x.descricao;
   const conta=FINANCEIRO.identidadeConta(r?.contaId||t?.financeiroOmie?.contaCodigo||t?.original?.detalhes?.nCodCC,lista('conta'));
   const vendas=[ctx.porVenda.get(x.vendaId||r?.vendaId),...(ctx.porParcela.get(String(t?.titulo))||[]).map(p=>p.v)].filter(Boolean);
-  const lotes=vendas.map(v=>[v.codigo,v.clienteNome,'Q'+v.quadra+' L'+v.lote].join(' ')).join(' ');
+  const lotes=vendas.map(v=>[v.codigo,v.clienteNome,FINANCEIRO.nomeLotes(v)].join(' ')).join(' ');
   return {...x,descricao,referencia,conta,data:x.data||r?.data||t?.venc||'',busca:[descricao,x.situacao,x.forma,x.id,r?.codigo,t?.titulo,documento,cliente?.nome,cliente?.cpf,t?.financeiroOmie?.pessoaNome,lotes].join(' ')};
 }
 function finClassificacaoTitulo(t,ctx){return FINANCEIRO.classificarVinculos((ctx.porParcela.get(String(t.titulo))||[]).map(x=>({venda:x.v,parcela:x.p,indice:x.i})));}
@@ -97,13 +97,16 @@ function finPendencias(ctx=finIndices()){
     if(r.naoAlocado>0)linhas.push({id:v.id+'-credito',valor:r.naoAlocado,descricao:v.clienteNome||v.id,situacao:'Recebimento sem alocação em parcela',tipoConferencia:'distribuicao',vendaId:v.id,pendente:true});
     if(r.semEspelho)linhas.push({id:v.id+'-espelho',valor:0,descricao:v.clienteNome||v.id,situacao:'Venda sem títulos; plano é previsão',tipoConferencia:'cadastros',vendaId:v.id,pendente:true});
   }
-  for(const r of lista('rec'))if(!ctx.porVenda.has(r.vendaId)||!r.forma||r.forma==='Não informada'||!r.contaId)linhas.push({id:r.id,data:r.data,valor:r.valor,descricao:r.codigo||'Recebimento',situacao:[!ctx.porVenda.has(r.vendaId)?r.vendaId?'Contrato indisponível ou distratado':'Sem lote vinculado':'',!r.contaId?'Sem conta financeira':'',!r.forma||r.forma==='Não informada'?'Forma não confirmada':''].filter(Boolean).join(' · '),tipoConferencia:!ctx.porVenda.has(r.vendaId)?'vinculos':'cadastros',rec:r,pendente:true});
+  for(const r of lista('rec')){
+    const faltaVinculo=!FINANCEIRO.entradaSemVenda(r,ctx.porTitulo)&&!ctx.porVenda.has(r.vendaId);
+    if(faltaVinculo||!r.forma||r.forma==='Não informada'||!r.contaId)linhas.push({id:r.id,data:r.data,valor:r.valor,descricao:r.codigo||'Recebimento',situacao:[faltaVinculo?r.vendaId?'Contrato indisponível ou distratado':'Sem lote vinculado':'',!r.contaId?'Sem conta financeira':'',!r.forma||r.forma==='Não informada'?'Forma não confirmada':''].filter(Boolean).join(' · '),tipoConferencia:faltaVinculo?'vinculos':'cadastros',rec:r,pendente:true});
+  }
   for(const c of cxVivos()){
     const probs=problemasDoLancamento({...c,col:'cx',entrada:c.tipo==='entrada',temRateio:!!c.rateio?.length});
     if(!c.contaId)probs.push('sem conta financeira');if(c.tipo==='saida'&&!c.centroCusto)probs.push('sem centro de custo');
     if(probs.length)linhas.push({id:c.id,data:c.data,valor:c.valor,descricao:c.descricao||'Despesa',situacao:[...new Set(probs)].join(' · '),tipoConferencia:'classificacao',cx:c,pendente:true});
   }
-  for(const t of ctx.titulos)if(t.grupo==='CONTA_A_RECEBER'&&FINANCEIRO.tituloDisponivel(t)){
+  for(const t of ctx.titulos)if(t.grupo==='CONTA_A_RECEBER'&&FINANCEIRO.tituloDisponivel(t)&&!FINANCEIRO.entradaSemVenda(t)){
     const s=finClassificacaoTitulo(t,ctx),divergente=s.vinculo&&finDivergenciaParcela(s.vinculo.parcela,t);
     if(s.situacao==='confirmado'&&!divergente)continue;
     const situacao=s.situacao==='multiplo'?'Título em mais de uma parcela; vínculo a conferir':s.valoresPendentes?'Contrato confirmado; valor e vencimento a conferir':s.confirmado?'Valor ou vencimento diferente da origem Omie':'Sem lote confirmado';
@@ -114,12 +117,12 @@ function finPendencias(ctx=finIndices()){
 function finLinhas(aba,ctx=finIndices()){
   if(aba==='diferencas')return finDiferencas(ctx);
   if(aba==='pendencias')return finPendencias(ctx);
-  if(aba==='recebimentos')return lista('rec').map(r=>({...r,rec:r,descricao:(ctx.porVenda.get(r.vendaId)?.clienteNome||r.codigo||'Recebimento sem lote'),situacao:r.vendaId?'Q'+(ctx.porVenda.get(r.vendaId)?.quadra||'?')+' · L'+(ctx.porVenda.get(r.vendaId)?.lote||'?'):finMotivoPagamento(r,ctx),pendente:!r.vendaId,centroCusto:r.centroCusto||''}));
+  if(aba==='recebimentos')return lista('rec').map(r=>{const semVenda=FINANCEIRO.entradaSemVenda(r,ctx.porTitulo);return {...r,rec:r,descricao:semVenda?'Entrada sem venda':(ctx.porVenda.get(r.vendaId)?.clienteNome||r.codigo||'Recebimento sem lote'),situacao:semVenda?'Entrada sem venda · classificação confirmada':r.vendaId?'Q'+(ctx.porVenda.get(r.vendaId)?.quadra||'?')+' · L'+(ctx.porVenda.get(r.vendaId)?.lote||'?'):finMotivoPagamento(r,ctx),pendente:!semVenda&&!r.vendaId,centroCusto:r.centroCusto||''};});
   if(aba==='despesas')return cxVivos().filter(c=>c.tipo==='saida').map(c=>({...c,cx:c,descricao:c.descricao||'Despesa',situacao:c.centroCusto||'Sem centro de custo',pendente:!c.centroCusto}));
   if(aba==='receber')return titulosAbertosOmie('CONTA_A_RECEBER').map(t=>{
     const s=finClassificacaoTitulo(t,ctx),v=s.confirmado?s.vinculo.venda:null,p=s.vinculo?.parcela,divergente=p&&finDivergenciaParcela(p,t);
     const rotulo=s.situacao==='multiplo'?'Vínculos múltiplos a conferir':v?'Lote confirmado'+(s.valoresPendentes||divergente?' · valores a conferir':''):'Sem lote confirmado';
-    return {id:t.id,data:t.venc,valor:Number(t.original.resumo.nValAberto),descricao:(v?v.clienteNome+' · Q'+v.quadra+' L'+v.lote:'Título Omie '+t.titulo),situacao:(t.venc<hojeISO()?'Vencido · ':'A vencer · ')+rotulo,centroCusto:p?.centroCusto||'',pendente:!v||s.valoresPendentes||!!divergente,...(v?{vendaId:v.id,parcela:s.vinculo.indice}:{titulo:t})};
+    return {id:t.id,data:t.venc,valor:Number(t.original.resumo.nValAberto),descricao:(v?v.clienteNome+' · '+FINANCEIRO.nomeLotes(v):'Título Omie '+t.titulo),situacao:(t.venc<hojeISO()?'Vencido · ':'A vencer · ')+rotulo,centroCusto:p?.centroCusto||'',pendente:!v||s.valoresPendentes||!!divergente,...(v?{vendaId:v.id,parcela:s.vinculo.indice}:{titulo:t})};
   });
   if(aba==='pagar'){
     return titulosAbertosOmie('CONTA_A_PAGAR').map(t=>({...t,data:t.venc,
@@ -265,7 +268,7 @@ function finVincularTitulo(t,aoTerminar) {
   const contexto='<div class="fin-status"><b>Título '+esc(t.titulo)+'</b><p>'+esc(cliente?.nome||'Cliente não identificado')+'</p><p>Documento: '+esc(documento||'Não informado na origem')+' · vencimento: '+fmt.data(t.venc)+'</p><p>Valor do título: '+finEntrada(t.valor||0)+' · em aberto no Omie: '+finEntrada(t.original?.resumo?.nValAberto||0)+'</p></div>';
   const cpf=String(t.cpf||'').replace(/\D/g,'');
   const vendas=lista('venda').filter(v=>v.situacao!=='distratada'&&String(v.clienteId||'').replace(/\D/g,'')===cpf);
-  abrirModal({titulo:'Associar título à venda correta',corpo:contexto+'<p>Escolha a venda após conferir o documento. O vínculo atual e o novo ficam no histórico.</p>'+campo('Venda',seletor('vendaId','',vendas.map(v=>({v:v.id,t:(v.codigo||'')+' · '+(v.clienteNome||'')+' · Q'+v.quadra+' L'+v.lote})),'Selecione'))+campo('Motivo / documento conferido',entrada('motivo','')),acoes:[{texto:'Voltar',aoClicar:fecharModal},{texto:'Confirmar vínculo',classe:'primario',aoClicar:async f=>{const c=lerCampos(f);if(!c.vendaId||!c.motivo){toast('Escolha a venda e informe a conferência realizada','ruim');return;}try{await api('vincularTitulo',{titulo:String(t.titulo),vendaId:c.vendaId,motivo:c.motivo});await puxar();fecharModal();(aoTerminar||TELAS.financeiro)();}catch(e){toast(e.message,'ruim');}}}]});
+  abrirModal({titulo:'Associar título à venda correta',corpo:contexto+'<p>Escolha a venda após conferir o documento. O vínculo atual e o novo ficam no histórico.</p>'+campo('Venda',seletor('vendaId','',vendas.map(v=>({v:v.id,t:(v.codigo||'')+' · '+(v.clienteNome||'')+' · '+FINANCEIRO.nomeLotes(v)})),'Selecione'))+campo('Motivo / documento conferido',entrada('motivo','')),acoes:[{texto:'Voltar',aoClicar:fecharModal},{texto:'Confirmar vínculo',classe:'primario',aoClicar:async f=>{const c=lerCampos(f);if(!c.vendaId||!c.motivo){toast('Escolha a venda e informe a conferência realizada','ruim');return;}try{await api('vincularTitulo',{titulo:String(t.titulo),vendaId:c.vendaId,motivo:c.motivo});await puxar();fecharModal();(aoTerminar||TELAS.financeiro)();}catch(e){toast(e.message,'ruim');}}}]});
 }
 
 function finResolverDuplicidade(p){
@@ -297,13 +300,13 @@ function finDetalheDiferenca(x){
 function finVincularPagamento(r,aoTerminar){
   if(r.omie?.titulo)return finVincularTitulo({titulo:r.omie.titulo,cpf:r.omie.cpf||achar('venda',r.vendaId)?.clienteId},aoTerminar);
   const vs=lista('venda').filter(v=>v.situacao!=='distratada');
-  abrirModal({titulo:'Vincular pagamento a um lote',corpo:campo('Cliente e lote',seletor('vendaId',r.vendaId||'',vs.map(v=>({v:v.id,t:(v.clienteNome||'Cliente')+' · Q'+v.quadra+' L'+v.lote})),'Selecione'))+'<p>Após escolher o lote, distribua o pagamento pelas parcelas na ficha do recebimento.</p>'+campo('Motivo da associação',entrada('motivo','')),acoes:[{texto:'Voltar',aoClicar:fecharModal},{texto:'Vincular',classe:'primario',aoClicar:async f=>{const c=lerCampos(f);try{await api('vincularRecebimento',{id:r.id,...c});await puxar();fecharModal();finEditarRecebimento(achar('rec',r.id),aoTerminar);}catch(e){toast(e.message,'ruim');}}}]});
+  abrirModal({titulo:'Vincular pagamento a um lote',corpo:campo('Cliente e lote',seletor('vendaId',r.vendaId||'',vs.map(v=>({v:v.id,t:(v.clienteNome||'Cliente')+' · '+FINANCEIRO.nomeLotes(v)})),'Selecione'))+'<p>Após escolher o lote, distribua o pagamento pelas parcelas na ficha do recebimento.</p>'+campo('Motivo da associação',entrada('motivo','')),acoes:[{texto:'Voltar',aoClicar:fecharModal},{texto:'Vincular',classe:'primario',aoClicar:async f=>{const c=lerCampos(f);try{await api('vincularRecebimento',{id:r.id,...c});await puxar();fecharModal();finEditarRecebimento(achar('rec',r.id),aoTerminar);}catch(e){toast(e.message,'ruim');}}}]});
 }
 
 const FIN_GRUPOS={outros:'Despesas sem categoria',corretores:'Comissões sem corretor','rec-omie':'Recebimentos sem lote','centro':'Despesas sem centro de custo'};
 function finPertenceGrupo(x,grupo){
   const c=x.cx;
-  if(grupo==='rec-omie')return !!x.rec&&!x.rec.vendaId;
+  if(grupo==='rec-omie')return !!x.rec&&!x.rec.vendaId&&!FINANCEIRO.entradaSemVenda(x.rec,lista('titulo'));
   if(!c||c.tipo!=='saida')return false;
   if(grupo==='outros')return !c.categoria||c.categoria==='Outros';
   if(grupo==='corretores')return c.categoria==='Comissão'&&!c.corretorId&&!c.rateio?.length;

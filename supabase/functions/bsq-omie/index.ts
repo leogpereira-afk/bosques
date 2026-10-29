@@ -1,3 +1,4 @@
+import { vinculoAutomaticoBloqueado, preservarVinculoClassificado } from "../_shared/classificacao-vinculo.ts";
 import { planoRevisao } from "./revisao.ts";
 import { lerPagarIntegral } from "./auditoria-integral.ts";
 import { lerBaixasIntegral } from "./auditoria-baixas.ts";
@@ -543,12 +544,13 @@ Deno.serve(async (req) => {
         const bancoPorId = new Map<string, any>();
         const vendasPorCpf = new Map<string, any[]>();
         for (const v of vendas) {
-          if (v.apagadoEm || v.situacao === "distratada") continue;
+          if (v.apagadoEm || v.incorporadaEmVendaId || v.situacao === "distratada") continue;
           const cpf = soDigitos(v.clienteId);
           if (!vendasPorCpf.has(cpf)) vendasPorCpf.set(cpf, []);
           vendasPorCpf.get(cpf)!.push(v);
         }
         const recPorId = new Map(recs.map((r: any) => [r.id, r]));
+        const recClassificadoPorTitulo = new Map(recs.filter((r:any)=>r.omie?.titulo&&vinculoAutomaticoBloqueado(r)).map((r:any)=>[String(r.omie.titulo),r]));
         const cxPorId = new Map(cxs.map((c: any) => [c.id, c]));
         // Dedupe contra lançamento manual é por CONTAGEM, não por conjunto:
         // cada linha manual "cobre" UM título do Omie. Dois títulos gêmeos
@@ -656,8 +658,8 @@ Deno.serve(async (req) => {
           if (!m) {
             m = new Map<string, string>();
             for (const vv of vendas) {
-              if (vv.apagadoEm || soDigitos(vv.clienteId) !== cpf) continue;
-              for (const pz of (vv.parcelas || [])) if (pz && pz.tid && !pz.conferir) m.set(String(pz.tid), vv.id);
+              if (vv.apagadoEm || vv.incorporadaEmVendaId || soDigitos(vv.clienteId) !== cpf) continue;
+              for (const pz of (vv.parcelas || [])) if (pz && pz.tid && (!pz.conferir || pz.vinculoConfirmado === true)) m.set(String(pz.tid), vv.id);
             }
             tidDonoCache.set(cpf, m);
           }
@@ -726,8 +728,11 @@ Deno.serve(async (req) => {
 
             /* recebimento de venda baixado */
             if (grupo === "CONTA_A_RECEBER") {
+              const tituloClassificado=titulosPorId.get("CONTA_A_RECEBER-"+d.nCodTitulo);
+              const recebimentoClassificado=recPorId.get("rbomie-"+d.nCodTitulo)||recClassificadoPorTitulo.get(String(d.nCodTitulo));
+              const bloqueado=vinculoAutomaticoBloqueado(recebimentoClassificado,tituloClassificado);
               // espelho das parcelas: casa o título com a venda e anota
-              if (d.cStatus !== "CANCELADO") {
+              if (d.cStatus !== "CANCELADO" && !bloqueado) {
                 const cpfT = soDigitos(d.cCPFCNPJCliente);
                 const minhasT = vendasPorCpf.get(cpfT) || [];
                 const cheio = Math.round((Number(d.nValorTitulo) || 0) * 100) / 100;
@@ -761,7 +766,7 @@ Deno.serve(async (req) => {
                     ...(conferirT ? { conferir: true } : {}),
                   });
                 }
-              } else {
+              } else if(d.cStatus === "CANCELADO" && !bloqueado) {
                 // Título CANCELADO no Omie (renegociação de carnê): a parcela
                 // espelhada não pode ficar viva para sempre — anota para o
                 // merge tirar do espelho (ou marcar, se for travada).
@@ -802,12 +807,12 @@ Deno.serve(async (req) => {
                 }
                 const cpf = soDigitos(d.cCPFCNPJCliente);
                 const minhas = vendasPorCpf.get(cpf) || [];
-                const vendaId = existente?.vendaId || tidDono(cpf).get(String(d.nCodTitulo)) || "";
+                const vendaId = bloqueado ? "" : existente?.vendaId || tidDono(cpf).get(String(d.nCodTitulo)) || "";
                 const numero = existente?.numero || await proximoNumero("rec");
                 // A forma REAL do pagamento vem do tipo do título no Omie (mapa lá em cima).
-                const registro: any = {
+                let registro: any = {
                   ...(existente || {}), id, apagadoEm:null, apagadoPor:null, origem: "omie", numero, codigo: "RB-" + String(numero).padStart(4, "0"),
-                  vendaId, tipo: "parcela", parcelaN: null, valor, data: dataPagto,
+                  vendaId, tipo: existente?.tipo || "parcela", parcelaN: existente?.parcelaN ?? null, valor, data: dataPagto,
                   contaOmie:d.nCodCC || null, forma: existente?.ajustes?.forma || "Não informada",
                   // Observação escrita por uma pessoa fica; só a automática é refeita.
                   tipoDocumento: FORMA[d.cTipo] || d.cTipo || "",
@@ -827,6 +832,7 @@ Deno.serve(async (req) => {
                   registro.historico = [...(existente.historico || []), {em:agora(),por:"omie",antes:{valor:existente.valor,data:existente.data},depois:{valor:registro.valor,data:registro.data}}];
                 }
                 if (!vendaId) registro.obsConferir = "não achei a venda deste CPF — vincular à mão";
+                registro=preservarVinculoClassificado(registro,recebimentoClassificado,tituloClassificado);
                 await guardarIndiceNumero("rec", numero, id);
                 gravar.push({ colecao: "rec", id, registro });
                 recPorId.set(id, registro);

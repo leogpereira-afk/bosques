@@ -21,7 +21,7 @@ const linhas=['Disponível','Reservado','Vendido','Cancelado','',null].map((stat
  assert.equal(pub.mapaPublico('https://drive.google.com/open?id=arquivo_mapa_teste&resourcekey=chave'),mapa+'?resourcekey=chave');
  let handler,consultas=0,gravacoes=0;const cadastros=new Map();
  const dados={lerCfgBruta:async()=>cfg,lerColecaoBruta:async c=>{assert.equal(c,'lote');consultas++;return linhas;},agora:()=>payload.geradoEm,lerUm:async(c,id)=>{assert.equal(c,'espelho_acesso');return cadastros.get(id)||null;},gravarUm:async(c,id,r)=>{assert.equal(c,'espelho_acesso');gravacoes++;cadastros.set(id,r);}};
- vm.runInNewContext(transpilar('supabase/functions/bsq-p/index.ts'),{...base,exports:{},Deno:{serve:fn=>handler=fn},require:n=>n.endsWith('/espelho.ts')?pub:n.endsWith('/espelho-acesso.ts')?auth:n.endsWith('/acesso.ts')?painel:dados});
+ vm.runInNewContext(transpilar('supabase/functions/bsq-p/index.ts'),{...base,exports:{},Deno:{serve:fn=>handler=fn},require:n=>n.includes('classificacao-vinculo')?require('./carregar-helper-ts.cjs')('classificacao-vinculo'):n.endsWith('/espelho.ts')?pub:n.endsWith('/espelho-acesso.ts')?auth:n.endsWith('/acesso.ts')?painel:dados});
  const pedir=(token=cfg.espelhoToken,method='GET',body=null,sessao='')=>handler(new Request('https://example.test/bsq-p/espelho/'+token,{method,headers:{...(sessao?{Authorization:'Bearer '+sessao}:{}),'content-type':'application/json'},...(body?{body:JSON.stringify(body)}:{})}));
  assert.equal((await pedir('incorreto')).status,403);assert.equal((await pedir()).status,401);assert.equal(consultas,0);
  const pre=await pedir(cfg.espelhoToken,'OPTIONS');assert.equal(pre.status,204);assert.ok(pre.headers.get('access-control-allow-headers').includes('authorization'));
@@ -43,7 +43,7 @@ const linhas=['Disponível','Reservado','Vendido','Cancelado','',null].map((stat
  const direcaoHash=await painel.sha256('direcao-teste'),corretorHash=await painel.sha256('corretor-teste');
  adminCfg.senhaHash=await painel.sha256(direcaoHash);adminCfg.usuarios=[{id:'corretor',nome:'Corretor Teste',perfil:'corretor',hash:await painel.sha256(corretorHash)}];
  const dadosAdmin={...dados,lerCfgBruta:async()=>adminCfg,gravarCfg:async c=>adminCfg=c,registrarLog:async()=>{},lerColecaoBruta:async c=>{assert.equal(c,'espelho_acesso');return [...cadastros.values()].map(registro=>({registro}));}};
- vm.runInNewContext(transpilar('supabase/functions/bsq-nucleo/index.ts'),{...base,exports:{},Deno:{serve:fn=>adminHandler=fn,env:{get:()=> 'token-painel'}},require:n=>n.endsWith('/acesso.ts')?painel:n.endsWith('/espelho-acesso.ts')?auth:n.endsWith('/cors.ts')?cors:n.endsWith('/colecoes.ts')?colecoes:dadosAdmin});
+ vm.runInNewContext(transpilar('supabase/functions/bsq-nucleo/index.ts'),{...base,exports:{},Deno:{serve:fn=>adminHandler=fn,env:{get:()=> 'token-painel'}},require:n=>n.includes('classificacao-vinculo')?require('./carregar-helper-ts.cjs')('classificacao-vinculo'):n.endsWith('/acesso.ts')?painel:n.endsWith('/espelho-acesso.ts')?auth:n.endsWith('/cors.ts')?cors:n.endsWith('/colecoes.ts')?colecoes:dadosAdmin});
  const adm=(action,body={},senha=direcaoHash)=>adminHandler(new Request('https://example.test/bsq-nucleo',{method:'POST',headers:{'x-token':'token-painel','x-senha':senha,'content-type':'application/json'},body:JSON.stringify({action,...body})}));
  assert.equal((await adm('listarAcessosEspelho',{},corretorHash)).status,403);
  let ar=await adm('listarAcessosEspelho');assert.equal(ar.status,200);assert.equal((await ar.json()).acessos.length,1);

@@ -17,7 +17,7 @@ function ambiente(responder, anteriores=[]) {
   const ctx={console:{error(){},warn(){}},Request,Response,AbortSignal,Date,Map,Set,JSON,Number,String,Object,Math,Promise,
     Deno:{env:{get:()=> 'token'},serve:f=>handler=f},exports:{},
     fetch:async(_u,o)=>{const b=JSON.parse(o.body);requisicoes.push(b);const r=await responder(b,o);return r instanceof Response?r:new Response(JSON.stringify(r));},
-    require:p=>p.includes('dados')?dados:p.includes('cors')?{json:(b,s=200)=>new Response(JSON.stringify(b),{status:s}),preflight:()=>null}:{identificar:async()=>({perfil:'direcao',proprio:true,nome:'Teste'}),perfilDe:q=>q.perfil}};
+    require:p=>p.includes('classificacao-vinculo')?require('./carregar-helper-ts.cjs')('classificacao-vinculo'):p.includes('dados')?dados:p.includes('cors')?{json:(b,s=200)=>new Response(JSON.stringify(b),{status:s}),preflight:()=>null}:{identificar:async()=>({perfil:'direcao',proprio:true,nome:'Teste'}),perfilDe:q=>q.perfil}};
   vm.createContext(ctx);vm.runInContext(compilado,ctx);
   const chamar=async body=>{const r=await handler(new Request('https://teste.invalid',{method:'POST',headers:{'x-token':'token'},body:JSON.stringify(body)}));return{status:r.status,body:await r.json()}};
   return{registros,requisicoes,metas,ultima,finalizacoes,ctx,chamar,sync:()=>chamar({action:'sincronizar'})};

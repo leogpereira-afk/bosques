@@ -5,3 +5,16 @@
 @media(max-width:1000px){.cq-filtros{grid-template-columns:minmax(180px,1fr) minmax(140px,1fr) 120px}.cq-filtros>button{grid-column:1/-1;justify-self:end}.cq-linha{grid-template-columns:minmax(150px,1fr) minmax(130px,.8fr) auto}.cq-abrir{display:none}}
 @media(max-width:600px){.cq-cabecalho{align-items:flex-start;gap:8px}.cq-cabecalho>button{font-size:11px;padding:8px;min-height:44px;max-width:110px}.cq h3{font-size:18px}.cq-cabecalho p{font-size:12px}.cq-filas{gap:5px}.cq-filas button{padding:9px 8px;display:grid;gap:5px;font-size:11px;min-height:78px}.cq-filas button b{font-size:22px}.cq-filtros{grid-template-columns:1fr 1fr;padding:10px;gap:8px}.cq-filtros label:first-child{grid-column:1/-1}.cq-filtros label:nth-child(2){grid-column:1/-1}.cq-filtros input,.cq-filtros select{min-height:44px;font-size:14px}.cq-filtros>button{min-height:44px}.cq-linha{grid-template-columns:minmax(0,1fr) auto;gap:8px;padding:12px}.cq-linha .cq-situacao{grid-column:1/-1;grid-row:2;font-size:11px}.cq-linha .cq-situacao small{display:inline;margin-left:5px}.cq-linha strong{grid-column:2;grid-row:1;font-size:13px}.cq-lista-titulo{font-size:11px}.cq-comparacao{grid-template-columns:1fr;gap:0}.cq-ficha dl>div{grid-template-columns:105px minmax(0,1fr)}.cq-paginas{justify-content:space-between;gap:8px}.cq-paginas button{min-height:44px}.cq-modal-acoes{display:grid;grid-template-columns:1fr}.cq-modal-acoes button{min-height:44px}}
 @media(max-width:600px){.cq-modal footer{display:grid;grid-template-columns:1fr 1fr;gap:8px}.cq-modal footer .cq-modal-acoes{display:contents}.cq-modal footer>button{grid-column:1/-1;order:3}.cq-modal footer button{min-height:44px;font-size:12px;margin:0}}
+
+/* Escolha de contratos, lotes e pagamentos; listas cabem em telas pequenas. */
+.vg-ferramentas{display:flex;flex-wrap:wrap;gap:8px;margin:8px 0 16px}
+.sel-vinculos h3{margin:24px 0 10px;font-size:1.05rem}
+.sel-vinculos .campo{display:flex;flex-direction:column;gap:6px;margin:12px 0}
+.vg-lista{max-height:300px;overflow:auto;border:1px solid var(--borda,#dce1d8);border-radius:12px;padding:8px;margin:10px 0}
+.vg-item{display:flex;align-items:flex-start;gap:12px;padding:12px 8px;border-bottom:1px solid #e7eae3;cursor:pointer}
+.vg-item:last-child{border-bottom:0}
+.vg-item input[type=checkbox]{width:20px;min-width:20px;height:20px;margin:2px 0 0;accent-color:#365e46}
+.vg-item span{min-width:0;overflow-wrap:anywhere}.vg-item small{display:block;margin-top:5px;color:#687067}
+.vg-plano{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:0 16px}
+.sel-vinculos details{margin:14px 0}.sel-vinculos summary{cursor:pointer;font-weight:650;padding:8px 0}
+@media(max-width:650px){.vg-plano{grid-template-columns:1fr}.vg-ferramentas .btn{width:100%}.vg-lista{max-height:250px}}

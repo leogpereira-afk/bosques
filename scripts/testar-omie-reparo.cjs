@@ -21,7 +21,7 @@ const resposta=b=>{if(b.call==='ListarMovimentos'){pedidos.push(b.param[0].nPagi
  return b.call==='ListarContasCorrentes'?{ListarContasCorrentes:[],total_de_registros:0,total_de_paginas:0}:b.call==='ListarCategorias'?{categoria_cadastro:[],total_de_registros:0}:b.call==='ListarDepartamentos'?{departamentos:[],total_de_registros:0}:{clientes_cadastro:[],total_de_registros:0,total_de_paginas:0};};
 const ctx={console:{...console,warn(){},error(){}},Request,Response,AbortSignal,Date,Map,Set,JSON,Number,String,Object,Math,Promise,Deno:{env:{get:()=>'token'},serve:f=>handler=f},exports:{},
  fetch:async(_u,o)=>new Response(JSON.stringify(resposta(JSON.parse(o.body))),{status:200}),
- require:p=>p.includes('dados')?dados:p.includes('cors')?{json:(b,s=200)=>new Response(JSON.stringify(b),{status:s}),preflight:()=>null}:{identificar:async()=>({perfil:'direcao',proprio:true,nome:'Teste'}),perfilDe:q=>q.perfil}};
+ require:p=>p.includes('classificacao-vinculo')?require('./carregar-helper-ts.cjs')('classificacao-vinculo'):p.includes('dados')?dados:p.includes('cors')?{json:(b,s=200)=>new Response(JSON.stringify(b),{status:s}),preflight:()=>null}:{identificar:async()=>({perfil:'direcao',proprio:true,nome:'Teste'}),perfilDe:q=>q.perfil}};
 vm.createContext(ctx);vm.runInContext(ts.transpileModule(fs.readFileSync('supabase/functions/bsq-omie/index.ts','utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,ctx);
 const chamar=async(corpo,headers)=>{const r=await handler(new Request('https://teste.invalid',{method:'POST',headers,body:JSON.stringify(corpo)}));return{status:r.status,b:await r.json()};};
 const automatico=()=>chamar({action:'sincronizar',automatico:true},{'x-rotina-token':'token'});

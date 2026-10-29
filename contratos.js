@@ -82,8 +82,13 @@ function gerarContratoPdf(v, cliente, l, cfg, plano) {
   const totalModelo=planoContratoResumo({entrada:entradaV,qtdeParcelas:nParc,parcCheia,valorParcela:parcDesc,tipoParcela:reajustada?'Reajustada':'Fixa'});
   const restante = Math.round((totalModelo.totalCheio-entradaV)*100)/100;
   const importancia = Math.round((entradaV + restante) * 100) / 100;
-  const cota = (Number(v.quadra) || 0) * 1000 + (Number(v.lote) || 0);
-  const area = (l && l.areaM2) ? Number(l.areaM2) : null;
+  const lotesIdentificados = FINANCEIRO.lotesVenda(v);
+  const lotesContrato = (lotesIdentificados.length ? lotesIdentificados : [v]).map(unidade => {
+    const cadastro = unidade.loteId ? achar('lote', unidade.loteId) : null;
+    const legado = l && (!unidade.loteId || l.id === unidade.loteId) ? l : null;
+    return { ...unidade, areaM2: unidade.areaM2 ?? cadastro?.areaM2 ?? legado?.areaM2 };
+  });
+  const cota = lotesContrato.map(unidade => (Number(unidade.quadra) || 0) * 1000 + (Number(unidade.lote) || 0)).join(', ');
   const ini = String(plano.inicioParcelas != null ? plano.inicioParcelas : (v.inicioParcelas || ''));
   const diaVenc = plano.diaVenc || (ini ? Number(ini.slice(8, 10)) : null);
   const mesIni = ini ? MESES_EXT[Number(ini.slice(5, 7)) - 1] : 'XX';
@@ -127,8 +132,8 @@ function gerarContratoPdf(v, cliente, l, cfg, plano) {
     ['P', 'O PROMITENTE VENDEDOR, na qualidade de senhor e legítimo possuidor de "IMÓVEL RURAL", denominado e registrado "FAZENDA ALMAS", situado no município de Bocaiuva/MG, com área total de 96,9949 ha (noventa e seis hectares, noventa e nove ares e quarenta e nove centiares), registrado no Cartório de Registro de Imóveis de Bocaiuva sob a matrícula de número 24757 - 20/08/2025, registrada no INCRA sob o nº 0000354057107, onde se estabeleceu o empreendimento denominado "CLUBE PORTAL DOS BOSQUES", o qual encontra-se em fase de constituição, construção e implantação conforme projeto;'],
     ['P', 'Pelo presente instrumento particular e na melhor forma de direito as partes acima qualificadas, em conformidade com seus atos constitutivos, têm entre si, ajustadas e contratadas as cláusulas e condições que mutuamente aceitam e outorgam, a saber:'],
     ['P', 'O objeto desse termo é a venda, reserva e garantia para subscrição do título patrimonial de associado do Clube Portal Dos Bosques, conforme descrito na tabela abaixo e demais condições aqui estabelecidas. O objeto realiza a transferência pelo VENDEDOR ao COMPRADOR do Título patrimonial descrito no quadro seguinte, do Clube Portal Dos Bosques, correspondente à cota de número ' + cota + ' com área de uso privativo vinculada ao título patrimonial conforme descrita abaixo e identificada na Planta Geral do Clube Portal Dos Bosques.'],
-    ['Q', ['QUADRA', 'NÚMERO DA ÁREA PRIVATIVA VINCULADA', 'DIMENSÃO DA ÁREA PRIVATIVA'],
-          [String(v.quadra), String(v.lote), area ? area.toLocaleString('pt-BR', { maximumFractionDigits: 2 }) + ' m²' : '—']],
+    ...lotesContrato.map(unidade => ['Q', ['QUADRA', 'NÚMERO DA ÁREA PRIVATIVA VINCULADA', 'DIMENSÃO DA ÁREA PRIVATIVA'],
+          [String(unidade.quadra), String(unidade.lote), Number(unidade.areaM2) > 0 ? Number(unidade.areaM2).toLocaleString('pt-BR', { maximumFractionDigits: 2 }) + ' m²' : '—']]),
     ['C', 'CLÁUSULA SEGUNDA – DO PREÇO'],
     ['P', 'Pela venda ora prometida, as PROMITENTES COMPRADORAS pagarão, ao PROMITENTE VENDEDOR, a importância de ' + dinheiroExt(importancia) + ' que será paga da seguinte forma:'],
     ['P', pagamento],
@@ -298,9 +303,9 @@ TELAS.contratos = function () {
   const foco=document.activeElement?.id==='ct-q',cursor=foco?document.activeElement.selectionStart:null;
   const f = TELAS._fContr || { q: '', pagina:0, modelo:'' };
   TELAS._fContr = f;
-  const vivas = lista('venda').filter((v) => ['ativa', 'conferir', 'quitada'].includes(v.situacao || 'ativa'));
+  const vivas = lista('venda').filter(FINANCEIRO.vendaAtiva);
   const porBusca = f.q
-    ? vivas.filter((v) => correspondeBusca([v.clienteNome,v.clienteId,'Q'+v.quadra+'L'+v.lote,'Q'+String(v.quadra).padStart(2,'0')+'L'+String(v.lote).padStart(2,'0'),v.codigo].join(' '),f.q))
+    ? vivas.filter((v) => correspondeBusca([v.clienteNome,v.clienteId,buscaLotesVenda(v),v.codigo].join(' '),f.q))
     : vivas;
   const filtradas=porBusca.filter(v=>!f.modelo||(v.tipoParcela==='Reajustada'?'Reajustada':'Fixa')===f.modelo);
   f.pagina=Math.max(0,Math.min(f.pagina||0,Math.ceil(filtradas.length/40)-1));
@@ -311,7 +316,7 @@ TELAS.contratos = function () {
     '<div class="filtros"><input aria-label="Buscar contrato" type="search" id="ct-q" placeholder="Cliente, lote ou código" value="'+esc(f.q)+'"><select id="ct-modelo" aria-label="Modelo do contrato">'+['','Fixa','Reajustada'].map(t=>'<option value="'+t+'"'+(f.modelo===t?' selected':'')+'>'+(t||'Todos os modelos')+'</option>').join('')+'</select></div><p class="nota">'+filtradas.length+' venda(s) neste recorte</p>' +
     (filtradas.slice(f.pagina*40, (f.pagina+1)*40).map((v) =>
       '<div role="button" tabindex="0" class="lin ct-lin" data-id="' + esc(v.id) + '">' +
-      '<div class="cresce"><b>' + esc(v.codigo || '') + ' · Q' + v.quadra + '-L' + v.lote + ' · ' + esc(v.clienteNome || '—') + '</b>' +
+      '<div class="cresce"><b>' + esc(v.codigo || '') + ' · ' + esc(nomeLotesVenda(v)) + ' · ' + esc(v.clienteNome || '—') + '</b>' +
       '<span class="sub">' + esc(v.tipoParcela || '') + (v.qtdeParcelas ? ' · ' + v.qtdeParcelas + '× de ' + fmt.brl(v.valorParcela) : '') +
       ' · modelo ' + (v.tipoParcela === 'Reajustada' ? 'REAJUSTE 6%' : 'FIXO') + '</span></div>' +
       '<span class="etiqueta et-hoje">Revisar plano →</span></div>').join('') ||
@@ -329,10 +334,13 @@ TELAS.contratos = function () {
 function abrirGerarContrato(vendaId) {
   const v = achar('venda', vendaId);
   if (!v) return;
+  if (v.incorporadaEmVendaId) { TELAS.venda(vendaId); return; }
   const cli = achar('cliente', v.clienteId) || {};
   const iniPrefill = v.inicioParcelas ||
     (() => { const d = new Date(); return new Date(d.getFullYear(), d.getMonth() + 1, 10).toISOString().slice(0, 10); })();
   const corpo =
+    '<p><b>' + esc(nomeLotesVenda(v)) + '</b></p>' +
+    (v.entradaNoEspelho ? '<p class="nota">A entrada informada já está incluída nos boletos da ficha. Revise a composição do plano abaixo antes de gerar o contrato, para não somá-la novamente.</p>' : '') +
     '<p class="nota">Complete o que faltar do comprador — fica salvo no cadastro dele. ' +
     'Os VALORES e as DATAS do plano podem ser corrigidos aqui: o que você acertar vale no contrato e volta para a venda.</p>' +
     '<div class="colunas-3">' +

@@ -7,7 +7,22 @@ const FINANCEIRO = (() => {
     !Number.isNaN(Date.parse(x + 'T12:00:00Z')) && new Date(x + 'T12:00:00Z').toISOString().slice(0,10) === x;
   const chave = (p, i) => String(p.tid || p.id || ('legado-' + i));
   const tituloDisponivel = t => !!t && !t.apagadoEm && !t.ausenteOrigemOmie && !t.cancelado && t.status !== 'CANCELADO';
-  const vendaAtiva = v => !!v && !v.apagadoEm && ['ativa', 'conferir', 'quitada'].includes(v.situacao || 'ativa');
+  const vendaAtiva = v => !!v && !v.apagadoEm && !v.incorporadaEmVendaId && ['ativa', 'conferir', 'quitada'].includes(v.situacao || 'ativa');
+  function lotesVenda(v) {
+    const itens=Array.isArray(v?.lotes)&&v.lotes.length?v.lotes:(v?.loteId?[{loteId:v.loteId,quadra:v.quadra,lote:v.lote,areaM2:v.areaM2}]:[]);
+    return [...new Map(itens.filter(l=>l&&l.loteId).map(l=>[String(l.loteId),l])).values()];
+  }
+  const nomeLotes = v => lotesVenda(v).map(l=>'Q'+l.quadra+' L'+l.lote).join(' + ') || (v?.quadra!=null&&v?.lote!=null?'Q'+v.quadra+' L'+v.lote:'—');
+  function entradaSemVenda(r, titulos = []) {
+    if (!r) return false;
+    const tid = String(r.omie?.titulo ?? (r.grupo === 'CONTA_A_RECEBER' ? r.titulo : '') ?? '');
+    let fonte;
+    if (tid && titulos?.get) fonte = titulos.get('CONTA_A_RECEBER|' + tid) ?? titulos.get(tid);
+    else if (tid && Array.isArray(titulos)) fonte = titulos.find(t => t?.grupo === 'CONTA_A_RECEBER' && String(t.titulo) === tid);
+    if (Array.isArray(fonte)) fonte = fonte.length === 1 ? fonte[0] : null;
+    // A reabertura no título canônico prevalece sobre uma cópia antiga do recibo.
+    return (fonte?.classificacaoVinculo ?? r.classificacaoVinculo)?.tipo === 'sem_venda';
+  }
   function identidadeConta(id, contas = []) {
     const identidade = String(id ?? '');
     if (!identidade || contas.some(c => String(c?.omieId ?? '') === identidade)) return identidade;
@@ -116,7 +131,7 @@ const FINANCEIRO = (() => {
     for (const r of pagamentos) {
       const valor = cent(r.valor);
       if (valor <= 0) { erros.push('Recebimento sem valor positivo: ' + r.id); continue; }
-      if (r.tipo === 'entrada') { entradas.push(r); continue; }
+      if (r.tipo === 'entrada' && !v.entradaNoEspelho) { entradas.push(r); continue; }
       let als = r.alocacoes;
       if (!Array.isArray(als) && r.omie && r.omie.titulo) als = [{ tid: String(r.omie.titulo), valor: r.valor }];
       if (!Array.isArray(als)) { naoAlocado += valor; continue; }
@@ -155,7 +170,7 @@ const FINANCEIRO = (() => {
         centroCusto:p.centroCusto||'', trava:!!p.trava, obs:p.obs || '', rotulo:(p.indiceOriginal+1)+'ª', origem:p.origem || '',
         credito:rs(Math.max(0,pago-devido)) };
     });
-    const entrada = cent(v.entrada), entradaPaga = entradas.reduce((s,r)=>s+cent(r.valor),0);
+    const entrada = v.entradaNoEspelho ? 0 : cent(v.entrada), entradaPaga = entradas.reduce((s,r)=>s+cent(r.valor),0);
     const entradaSaldo = Math.max(0,entrada-entradaPaga);
     const pago = pagamentos.reduce((s,r)=>s+cent(r.valor),0);
     const saldo = carne.reduce((s,l)=>s+cent(l.saldo),0)+entradaSaldo;
@@ -179,6 +194,6 @@ const FINANCEIRO = (() => {
       if(parcela>0) out.push({tid:p.tid,valor:rs(parcela)}); resto-=parcela; }
     return out;
   }
-  return {cent,rs,dataValida,chave,tituloDisponivel,vendaAtiva,identidadeConta,classificarVinculos,indiceHistoricoAntesCorte,historicoAntesCorte,resumo,alocar};
+  return {cent,rs,dataValida,chave,tituloDisponivel,vendaAtiva,lotesVenda,nomeLotes,entradaSemVenda,identidadeConta,classificarVinculos,indiceHistoricoAntesCorte,historicoAntesCorte,resumo,alocar};
 })();
 if (typeof module !== 'undefined') module.exports = FINANCEIRO;

@@ -267,6 +267,7 @@ TELAS.home = function () {
     .sort((a, b) => b.r.emAtraso - a.r.emAtraso);
   const totalAtraso = comAtraso.reduce((s, x) => s + x.r.emAtraso, 0);
   const ultimosRecs = lista('rec').sort((a, b) => String(b.data || '').localeCompare(a.data || '')).slice(0, 6);
+  const titulosRecebimento = new Map(lista('titulo').filter(t => t.grupo === 'CONTA_A_RECEBER').map(t => [String(t.titulo), t]));
   const propsQuentes = lista('prop').filter((p) => (p.situacao || 'enviada') === 'enviada' &&
     (p.eventos || []).some((e) => e.tipo === 'interesse'));
 
@@ -293,7 +294,7 @@ TELAS.home = function () {
     '<div class="home-operacao"><section class="cartao home-secao"><div class="home-secao-titulo"><h2>Prioridades de cobrança</h2><a href="#/vendas">Ver carteira →</a></div><p class="nota">Saldos em aberto, dos maiores para os menores.</p>' +
       (comAtraso.slice(0, 8).map(({ v, r }) =>
         '<div class="lin venda-lin" data-id="' + esc(v.id) + '">' +
-        '<a class="cresce home-registro" href="#/venda/'+esc(v.id)+'"><b>Q' + v.quadra + '-L' + v.lote + ' · ' + esc(v.clienteNome || '?') + '</b>' +
+        '<a class="cresce home-registro" href="#/venda/'+esc(v.id)+'"><b>' + esc(nomeLotesVenda(v)) + ' · ' + esc(v.clienteNome || '?') + '</b>' +
         '<span class="sub">' + r.qtdAtraso + ' parcela(s) vencida(s)</span></a>' +
         botaoCobranca(v, r, true) +
         '<span class="dinheiro" style="color:var(--ruim)">' + fmt.brl(r.emAtraso) + '</span></div>').join('') ||
@@ -303,7 +304,7 @@ TELAS.home = function () {
         const v = achar('venda', rc.vendaId);
         return '<button class="lin home-rec" data-rec="' + esc(rc.id) + '">' +
           '<span class="cresce"><b class="fin-entrada">' + fmt.brl(rc.valor) + '</b>' +
-          '<span class="sub">' + fmt.data(rc.data) + ' · ' + (v ? 'Q' + v.quadra + '-L' + v.lote + ' · ' + esc(v.clienteNome || '') : 'Sem lote confirmado · abrir recebimento') + '</span></span></button>';
+          '<span class="sub">' + fmt.data(rc.data) + ' · ' + (FINANCEIRO.entradaSemVenda(rc, titulosRecebimento) ? 'Entrada sem venda' : v ? esc(nomeLotesVenda(v)) + ' · ' + esc(v.clienteNome || '') : 'Sem lote confirmado · abrir recebimento') + '</span></span></button>';
       }).join('') || '<p class="nota">Nenhum recebimento registrado.</p>') + '</section></div>' +
     // O pulso da ponte com o Omie: quando sincronizou e se deu certo.
     (S.perfil !== 'corretor'

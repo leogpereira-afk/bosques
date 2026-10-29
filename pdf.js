@@ -248,10 +248,11 @@ const PDF = (() => {
     const desc = 'Recebemos de ' + (venda.clienteNome || '—') + ' a quantia de ' + brl(rc.valor) +
       ', em ' + dataBR(rc.data) + (rc.forma ? ' via ' + rc.forma : '') +
       ', referente a ' + (rc.tipo === 'entrada' ? 'ENTRADA' : rc.parcelaN ? 'parcela ' + rc.parcelaN + ' de ' + (venda.qtdeParcelas || '') : 'pagamento') +
-      ' do lote Quadra ' + venda.quadra + ' Lote ' + venda.lote + ' (' + (venda.codigo || '') + ') no Portal dos Bosques.' +
+      ' do contrato ' + nomeLotesVenda(venda) + ' (' + (venda.codigo || '') + ') no Portal dos Bosques.' +
       (rc.obs ? ' Obs.: ' + rc.obs : '');
-    doc.text(doc.splitTextToSize(desc, 170), 20, y);
-    y += 44;
+    const linhasDesc = doc.splitTextToSize(desc, 170);
+    doc.text(linhasDesc, 20, y);
+    y += Math.max(44, linhasDesc.length * 5 + 12);
     doc.setDrawColor(30, 43, 33);
     doc.line(60, y, 150, y);
     doc.setFontSize(9); doc.setTextColor(...CINZA);
@@ -365,18 +366,21 @@ const PDF = (() => {
     let y = 42;
     doc.setTextColor(30, 43, 33);
     doc.setFont('helvetica', 'bold'); doc.setFontSize(14);
-    doc.text('Q' + v.quadra + '-L' + v.lote + ' — ' + trunca(v.clienteNome || '?', 40), 14, y);
+    const cabVenda = doc.splitTextToSize(soLatin1(nomeLotesVenda(v) + ' — ' + trunca(v.clienteNome || '?', 40)), 182);
+    doc.text(cabVenda, 14, y);
     doc.setFont('helvetica', 'normal'); doc.setFontSize(9.5);
     doc.setTextColor(...CINZA);
-    y += 6;
+    y += cabVenda.length * 6;
     const sit = v.situacao || 'ativa';
     doc.text(soLatin1('Situação: ' + sit.toUpperCase() +
       ' · venda em ' + dataBR(v.dataVenda || v.criadoEm) +
       (v.corretorNome ? ' · corretor: ' + v.corretorNome + (v.comissao ? ' (comissão ' + brl(v.comissao) + ')' : '') : '')), 14, y);
     y += 5;
-    doc.text(soLatin1('Plano: ' + brl(v.entrada) + ' de entrada + ' + (v.qtdeParcelas || 0) + '× ' +
+    const planoVenda = doc.splitTextToSize(soLatin1('Plano: ' + (v.entradaNoEspelho ? 'entrada de ' + brl(v.entrada) + ' já incluída nos boletos · ' : brl(v.entrada) + ' de entrada + ') + (v.qtdeParcelas || 0) + '× ' +
       brl(v.valorParcela) + ' (' + (v.tipoParcela || 'Fixa') + ')' +
-      (sit === 'distratada' && v.distrato ? ' · DISTRATADA em ' + dataBR(v.distrato.em) : '')), 14, y);
+      (sit === 'distratada' && v.distrato ? ' · DISTRATADA em ' + dataBR(v.distrato.em) : '')), 182);
+    doc.text(planoVenda, 14, y);
+    y += (planoVenda.length - 1) * 4.5;
 
     // Painéis: contrato | pago | saldo | em atraso
     y += 8;
@@ -490,14 +494,17 @@ const PDF = (() => {
     // mede na fonte em que a linha SAI (9pt normal, a de tabelaPaginada):
     // 27 chars em caixa alta passam dos 50mm até a coluna do corretor
     doc.setFont('helvetica', 'normal'); doc.setFontSize(9);
-    const linhas = itens.map(({ v, r }) => [
-      v.codigo || '—', 'Q' + v.quadra + '-L' + v.lote, truncaLarg(doc, v.clienteNome, 48),
+    const linhas = itens.flatMap(({ v, r }) => {
+      const unidades = FINANCEIRO.lotesVenda(v), rotuloLote = l => 'Q' + l.quadra + '-L' + l.lote;
+      return [[
+      v.codigo || '—', rotuloLote(unidades[0] || v), truncaLarg(doc, v.clienteNome, 48),
       trunca((v.corretorNome || '—').split(' ')[0] + ' ' + ((v.corretorNome || '').split(' ')[1] || ''), 15),
       abrevSit[v.situacao || 'ativa'] || v.situacao,
       brl(r.total), brl(r.pago),
       r.qtdAtraso > 0 && ['ativa', 'conferir'].includes(v.situacao || 'ativa')
         ? { t: brl(r.emAtraso), cor: [198, 40, 40], negrito: true } : '—',
-    ]);
+    ], ...unidades.slice(1).map(l => ['', rotuloLote(l), '', '', '', '', '', ''])];
+    });
     linhas.push([
       { t: 'TOTAL', negrito: true }, '', '', '', '',
       { t: brl(somaContrato), negrito: true }, { t: brl(somaPago), negrito: true },
@@ -554,6 +561,7 @@ const PDF = (() => {
       ...d.catsDesp.map((c) => linha(c, d.mes.desp[c] || 0, d.ano.desp[c] || 0, d.total.desp[c], { recuo: true, saida:true })),
       linha('(-) Despesas', d.mes.somaDesp, d.ano.somaDesp, d.total.somaDesp, { forte: true, saida:true }),
       linha('(=) RESULTADO', d.mes.resultado, d.ano.resultado, d.total.resultado, { forte: true, cor: true }),
+      linha('Entradas sem venda (fora das receitas acima)', d.mes.entradasSemVenda||0, d.ano.entradasSemVenda||0, d.total.entradasSemVenda||0),
     ];
     tabelaPaginada(doc, cols, linhas, y, rod);
     rodape(doc, rod);
@@ -662,6 +670,7 @@ const PDF = (() => {
     doc.setFont('helvetica','normal');doc.setFontSize(9);
     doc.setTextColor(...AZUL_FIN);doc.text('Recebimentos das vendas de lotes: '+brl(h.dre.mes.recVendas),14,y);y+=6;
     doc.text('Outras receitas: '+brl(h.dre.mes.somaOutras),14,y);y+=6;
+    doc.text('Entradas sem venda (natureza contábil não definida): '+brl(h.dre.mes.entradasSemVenda||0),14,y);y+=6;
     doc.setTextColor(...VERMELHO_FIN);doc.text('Despesas, comissões e devoluções pagas: '+brl(h.selecionado.saidas),14,y);y+=6;
     doc.setTextColor(...NEUTRO_FIN);if(h.semData)doc.text(h.semData+' lançamento(s) sem data ficam fora do histórico mensal e anual.',14,y);
     rodape(doc,rod);

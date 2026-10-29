@@ -239,7 +239,7 @@ function gravarFila(fila = S.fila) {
 // Lista de uma coleção já sem a lixeira e com o mais novo em cima.
 function lista(col, incluirApagados = false) {
   return (S.reg[col] || [])
-    .filter((r) => incluirApagados || !r.apagadoEm)
+    .filter((r) => incluirApagados || (!r.apagadoEm && (col !== 'venda' || !r.incorporadaEmVendaId)))
     .sort((a, b) => String(b.criadoEm || '').localeCompare(String(a.criadoEm || '')));
 }
 

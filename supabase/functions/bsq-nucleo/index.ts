@@ -17,6 +17,7 @@
 // gateway barraria antes de o código rodar. A autorização é feita AQUI.
 // ============================================================================
 import { json, preflight } from "../_shared/cors.ts";
+import { entradaSemVenda, erroEdicaoClassificacaoVinculo } from "../_shared/classificacao-vinculo.ts";
 import { camposFinanceiros } from "../_shared/financeiro-apresentacao.ts";
 import { COLECOES } from "../_shared/colecoes.ts";
 import {
@@ -134,12 +135,27 @@ const diaBrasil = () => new Date(Date.now() - 3 * 3600 * 1000).toISOString().sli
 /* ── O status do lote é conta do servidor ──────────────────────────────────── */
 // Chamado depois de gravar/apagar/restaurar uma venda. A venda viva manda:
 // ativa/conferir/quitada → Vendido; distratada ou apagada → Disponível.
+function idsLotesVenda(v: any): string[] {
+  return [...new Set([v?.loteId,...(Array.isArray(v?.loteIds)?v.loteIds:[]),...(Array.isArray(v?.lotes)?v.lotes.map((l:any)=>l?.loteId):[])].filter(Boolean).map(String))];
+}
+function vendaViva(v:any): boolean {return !!v&&!v.apagadoEm&&!v.incorporadaEmVendaId&&["ativa","conferir","quitada"].includes(v.situacao||"ativa");}
+const canonicoGrupo=(x:any):string=>JSON.stringify(x==null?null:Array.isArray(x)?x.map(v=>JSON.parse(canonicoGrupo(v))):typeof x==='object'?Object.fromEntries(Object.keys(x).sort().map(k=>[k,JSON.parse(canonicoGrupo(x[k]))])):x);
+function erroEdicaoGrupo(atual:any,registro:any): string {
+  if(atual?.incorporadaEmVendaId)return "Cadastro incorporado: abra o contrato principal para editar.";
+  if(atual?.agrupamento||idsLotesVenda(atual).length>1){
+    if(!registro.agrupamento||canonicoGrupo(registro.agrupamento)!==canonicoGrupo(atual.agrupamento))
+      return "O contrato foi agrupado ou atualizado. Atualize a ficha antes de salvar plano ou parcelas.";
+  }
+  for(const k of ["lotes","loteIds","incorporadaEmVendaId","incorporacao","agrupamento"])
+    if(Object.hasOwn(registro,k)&&canonicoGrupo(registro[k])!==canonicoGrupo(atual?.[k]))return "Use o agrupamento por seleção para alterar os lotes do contrato.";
+  if(idsLotesVenda(atual).length>1&&registro.loteId&&registro.loteId!==atual.loteId)return "O contrato conjunto conserva seus lotes; use a conferência por seleção.";
+  return "";
+}
 async function vendasVivasDoLote(loteId: string): Promise<any[]> {
   // Só os campos do vínculo: não baixe todos os carnês para conferir um lote.
   const vendas = await lerColecaoBruta("venda",
-    "id, loteId:registro->>loteId, situacao:registro->>situacao, apagadoEm:registro->>apagadoEm, codigo:registro->>codigo, clienteNome:registro->>clienteNome", false);
-  return vendas.filter((v: any) => !v.apagadoEm && v.loteId === loteId &&
-    ["ativa", "conferir", "quitada"].includes(v.situacao || "ativa"));
+    "id, loteId:registro->>loteId, loteIds:registro->loteIds, lotes:registro->lotes, incorporadaEmVendaId:registro->>incorporadaEmVendaId, situacao:registro->>situacao, apagadoEm:registro->>apagadoEm, codigo:registro->>codigo, clienteNome:registro->>clienteNome", false);
+  return vendas.filter((v: any) => vendaViva(v) && idsLotesVenda(v).includes(loteId));
 }
 
 async function recalcularLote(loteId: string) {
@@ -150,7 +166,7 @@ async function recalcularLote(loteId: string) {
   let vendaViva: any = null;
   if (lote.vendaId) {
     const v = await lerUm("venda", lote.vendaId);
-    if (v && v.loteId === loteId && !v.apagadoEm &&
+    if (v && idsLotesVenda(v).includes(loteId) && !v.apagadoEm && !v.incorporadaEmVendaId &&
         ["ativa", "conferir", "quitada"].includes(v.situacao || "ativa")) vendaViva = v;
   }
   // Trocar de lote invalida o ponteiro antigo; restaurar uma venda pode
@@ -171,10 +187,17 @@ async function recalcularLote(loteId: string) {
 }
 
 /* ── Gravação: onde mora a inteligência ─────────────────────────────────────── */
+async function gravarRegistroCas(col:string,id:string,antes:any,novo:any):Promise<void>{
+  const {data,error}=await db.rpc("bsq_gravar_registro_cas",{p_colecao:col,p_id:id,p_antes:antes??null,p_novo:novo});
+  if(error)throw new Error(error.message);
+  if(data?.ok!==true)throw new Error("O banco não confirmou a gravação do registro. Atualize a ficha.");
+}
 async function gravar(col: string, registro: any, por: string): Promise<any> {
   if (!COLECOES[col]) throw new Error("Coleção desconhecida: " + col);
   const id = registro.id || idNovo();
   const antigo = await lerUm(col, id);
+  if(col==="venda"){const erro=erroEdicaoGrupo(antigo,registro);if(erro)throw new Error(erro);}
+  if(["rec","titulo"].includes(col)){const erro=erroEdicaoClassificacaoVinculo(antigo,registro);if(erro)throw new Error(erro);}
   const novo: any = { ...(antigo || {}), ...registro, id };
 
   if (antigo && ["rec","cx"].includes(col)) {
@@ -232,22 +255,14 @@ async function gravar(col: string, registro: any, por: string): Promise<any> {
   // Proposta ganha o link público (WhatsApp) na primeira gravação.
   if (col === "prop" && !novo.tokenPublico) novo.tokenPublico = tokenCurto();
 
-  await gravarUm(col, id, novo);
+  if(["venda","rec","titulo"].includes(col))await gravarRegistroCas(col,id,antigo,novo);else await gravarUm(col,id,novo);
   await marcarMudanca(col);
 
   // A venda mexeu? O lote acompanha (vendido, libertado pelo distrato…).
   if (col === "venda") {
-    // O lote apontado pela venda ganha o vínculo antes do recálculo.
-    if (novo.loteId && ["ativa", "conferir", "quitada"].includes(novo.situacao || "ativa")) {
-      const lote = await lerUm("lote", novo.loteId);
-      if (lote && lote.vendaId !== id) {
-        lote.vendaId = id;
-        await gravarUm("lote", lote.id, lote);
-      }
-    }
-    await recalcularLote(novo.loteId);
-    // Trocou de lote? O antigo também é recalculado (senão fica preso em Vendido).
-    if (antigo && antigo.loteId && antigo.loteId !== novo.loteId) await recalcularLote(antigo.loteId);
+    // Recalcula a partir da venda atual do banco, inclusive se outro pedido
+    // agrupou contratos entre a gravação e este ajuste de estoque.
+    for(const loteId of new Set([...idsLotesVenda(novo),...idsLotesVenda(antigo)]))await recalcularLote(loteId);
   }
 
   novo._col = col;
@@ -257,20 +272,24 @@ async function gravar(col: string, registro: any, por: string): Promise<any> {
 /* ── Regras por coleção na entrada do salvarLote ───────────────────────────── */
 // Devolve { erro } para recusar, ou { registro } saneado para gravar.
 async function prepararItem(quem: Quem, col: string, registro: any, atual: any): Promise<{ erro?: string; registro?: any }> {
+  if(["rec","titulo"].includes(col)){const erro=erroEdicaoClassificacaoVinculo(atual,registro);if(erro)return {erro};}
   // VENDA: um lote, uma venda viva.
   if (col === "venda") {
+    const erro=erroEdicaoGrupo(atual,registro);if(erro)return {erro};
     const situacao = registro.situacao || (atual && atual.situacao) || "ativa";
     const loteId = txt(registro.loteId || (atual && atual.loteId), 40);
     if (!loteId) return { erro: "venda sem lote" };
     if (["ativa", "conferir", "quitada"].includes(situacao)) {
-      const lote = await lerUm("lote", loteId);
+      for(const idLote of idsLotesVenda({...atual,...registro,loteId})) {
+      const lote = await lerUm("lote", idLote);
       if (!lote || lote.apagadoEm) return { erro: "lote " + loteId + " não existe" };
       // Confere a venda, não só o atalho lote.vendaId: o atalho pode estar
       // ausente depois de uma exclusão ou vindo de um cadastro antigo.
-      const outra = (await vendasVivasDoLote(loteId)).find((v: any) => v.id !== (registro.id || ""));
+      const outra = (await vendasVivasDoLote(idLote)).find((v: any) => v.id !== (registro.id || ""));
       if (outra) {
         return { erro: "o lote " + (lote.quadra ? "Q" + lote.quadra + "-L" + lote.lote : loteId) +
           " já tem venda viva (" + (outra.codigo || "") + " — " + (outra.clienteNome || "?") + ")" };
+      }
       }
     }
     return { registro };
@@ -298,9 +317,10 @@ async function prepararItem(quem: Quem, col: string, registro: any, atual: any):
       // Exceção única: recebimento que chegou SEM venda (baixa do Omie cujo
       // CPF não casou sozinho) pode GANHAR a venda agora — definir não é trocar.
       if (!atual.vendaId && txt(registro.vendaId, 40)) {
+        if(atual.classificacaoVinculo)return {erro:"Use a conciliação auditável para associar uma entrada classificada."};
         const vId = txt(registro.vendaId, 40);
         const venda = await lerUm("venda", vId);
-        if (!venda || venda.apagadoEm) return { erro: "venda não encontrada" };
+        if (!venda || venda.apagadoEm || venda.incorporadaEmVendaId) return { erro: "venda não encontrada ou incorporada; escolha o principal" };
         if (venda.situacao === "distratada") return { erro: "a venda " + (venda.codigo || "") + " está distratada" };
         r.vendaId = vId;
         r.conferir = false;
@@ -312,7 +332,7 @@ async function prepararItem(quem: Quem, col: string, registro: any, atual: any):
     if (!vendaId) return { erro: "recebimento sem venda" };
     if (!(valor > 0)) return { erro: "recebimento sem valor" };
     const venda = await lerUm("venda", vendaId);
-    if (!venda || venda.apagadoEm) return { erro: "venda não encontrada" };
+    if (!venda || venda.apagadoEm || venda.incorporadaEmVendaId) return { erro: "venda não encontrada ou incorporada; escolha o principal" };
     if (venda.situacao === "distratada" && registro.tipo !== "acerto") {
       return { erro: "a venda " + (venda.codigo || "") + " está distratada — use um lançamento de acerto" };
     }
@@ -461,7 +481,18 @@ Deno.serve(async (req) => {
         if(!(num(body.valor)>0)||!/^\d{4}-\d{2}-\d{2}$/.test(body.venc||''))return json({error:"Valor ou vencimento inválido"},400);
         const ajuste={valor:num(body.valor),venc:body.venc};
         const novo={...t,centroCusto:txt(body.centroCusto,100),ajustes:ajuste,editadoAMao:true,atualizadoEm:agora(),historico:[...(t.historico||[]),{id:idNovo(),em:agora(),por,acao:"corrigiu título localmente",antes:{ajustes:t.ajustes,centroCusto:t.centroCusto},depois:{ajustes:ajuste,centroCusto:body.centroCusto},motivo:body.motivo}]};
-        await gravarUm("titulo",t.id,novo);await marcarMudanca("titulo");return json({ok:true});
+        await gravarRegistroCas("titulo",t.id,t,novo);await marcarMudanca("titulo");return json({ok:true});
+      }
+      case "agruparContratos":
+      case "classificarEntrada": {
+        if (!["direcao","escritorio"].includes(perfilDe(quem))) return json({error:"Sem permissão"},403);
+        const agrupando=action==="agruparContratos";
+        const {data,error}=await db.rpc(agrupando?"bsq_agrupar_contratos":"bsq_classificar_entrada",{p_pedido:body,p_por:por});
+        if(error)return json({error:error.message,conflito:error.code==="40001"},error.code==="40001"?409:400);
+        if(data?.ok!==true)return json({error:"O banco não confirmou a operação. Atualize e tente novamente com os mesmos dados."},502);
+        await marcarMudanca((data.colecoes||[]).filter((c:string)=>["venda","lote","rec","titulo"].includes(c)));
+        if(!data.repetida)await registrarLog({acao:agrupando?"agrupou contrato e lotes":"classificou entrada",por,operacao:body.operacao,principal:body.principal,id:body.id});
+        return json({...data,mensagem:agrupando?"Contrato e lotes associados por seleção, com histórico.":"Classificação registrada com histórico."});
       }
       case "conciliarFinanceiro": {
         if (!["direcao", "escritorio"].includes(perfilDe(quem))) return json({ error: "Sem permissão" }, 403);
@@ -486,11 +517,16 @@ Deno.serve(async (req) => {
       case "vincularRecebimento": {
         if(!["direcao","escritorio"].includes(perfilDe(quem)))return json({error:"Sem permissão"},403);
         const r=await lerUm("rec",txt(body.id,100)),v=await lerUm("venda",txt(body.vendaId,100));
-        if(!r||r.apagadoEm||!v||v.apagadoEm||v.situacao==="distratada"||!txt(body.motivo,300))return json({error:"Recebimento, venda ativa e motivo obrigatórios"},400);
+        if(!r||r.apagadoEm||!v||v.apagadoEm||v.incorporadaEmVendaId||v.situacao==="distratada"||!txt(body.motivo,300))return json({error:"Recebimento, venda ativa e motivo obrigatórios"},400);
+        if(entradaSemVenda(r))return json({error:"Entrada sem venda: reabra a conferência antes de associar."},400);
+        const origem=await lerUm("venda",r.vendaId);
+        const cpfDestino=String(v.clienteId||"").replace(/\D/g,"");
+        for(const identidade of [r.cpf,r.clienteId,r.omie?.cpf,origem?.clienteId])if(identidade&&String(identidade).replace(/\D/g,"")!==cpfDestino)return json({error:"Recebimento pertence a outro CPF/CNPJ"},400);
+        if(r.classificacaoVinculo)return json({error:"Use a conciliação auditável para concluir a classificação pendente."},400);
         if(r.omie?.titulo)return json({error:"Use a associação do título para mover a parcela e o recebimento juntos"},400);
         const parcelas=(v.parcelas||[]);const tid=txt(body.tid,100);
         if(tid&&!parcelas.some((p:any)=>String(p.tid)===tid&&!p.cancelado))return json({error:"Parcela não pertence a este lote"},400);
-        await gravarUm("rec",r.id,{...r,vendaId:v.id,alocacoes:tid?[{tid,valor:r.valor}]:[],conferir:false,editadoAMao:true,atualizadoEm:agora(),historico:[...(r.historico||[]),{id:idNovo(),em:agora(),por,acao:"vinculou recebimento ao lote",antes:r.vendaId,depois:v.id,motivo:body.motivo}]});
+        await gravarRegistroCas("rec",r.id,r,{...r,vendaId:v.id,alocacoes:tid?[{tid,valor:r.valor}]:[],conferir:false,editadoAMao:true,atualizadoEm:agora(),historico:[...(r.historico||[]),{id:idNovo(),em:agora(),por,acao:"vinculou recebimento ao lote",antes:r.vendaId,depois:v.id,motivo:body.motivo}]});
         await marcarMudanca("rec");return json({ok:true});
       }
       case "resolverDuplicidade": {
@@ -589,11 +625,13 @@ Deno.serve(async (req) => {
         const { colecao, id } = body;
         const r = await lerUm(colecao, id);
         if (!r) return json({ ok: true });
+        if(colecao==="venda"&&r.incorporadaEmVendaId)return json({error:"Cadastro incorporado: opere pelo contrato principal."},409);
+        const antes={...r};
         r.apagadoEm = agora();
         r.apagadoPor = por;
-        await gravarUm(colecao, id, r);
+        if(["venda","rec","titulo"].includes(colecao))await gravarRegistroCas(colecao,id,antes,r);else await gravarUm(colecao,id,r);
         await marcarMudanca(colecao);
-        if (colecao === "venda" && r.loteId) await recalcularLote(r.loteId);
+        if (colecao === "venda") for(const loteId of idsLotesVenda(r))await recalcularLote(loteId);
         await registrarLog({
           acao: colecao === "rec" ? "estornou recebimento" : "apagou", por, colecao, id,
           codigo: r.codigo || r.nome || "", ...(colecao === "rec" ? { valor: r.valor, vendaId: r.vendaId } : {}),
@@ -611,11 +649,12 @@ Deno.serve(async (req) => {
           const pronto = await prepararItem(quem!, colecao, r, r);
           if (pronto.erro) return json({ ok: false, error: pronto.erro }, 409);
         }
+        const antes={...r};
         delete r.apagadoEm; delete r.apagadoPor;
         r.atualizadoEm = agora(); r.atualizadoPor = por;
-        await gravarUm(colecao, id, r);
+        if(["venda","rec","titulo"].includes(colecao))await gravarRegistroCas(colecao,id,antes,r);else await gravarUm(colecao,id,r);
         await marcarMudanca(colecao);
-        if (colecao === "venda" && r.loteId) await recalcularLote(r.loteId);
+        if (colecao === "venda") for(const loteId of idsLotesVenda(r))await recalcularLote(loteId);
         return json({ ok: true, registro: r });
       }
 

@@ -7,6 +7,7 @@
 
 const lotes = () => lista('lote').sort((a, b) => (a.quadra - b.quadra) || (a.lote - b.lote));
 const nomeLote = (l) => l ? ('Q' + l.quadra + ' · L' + l.lote) : '—';
+const nomeLotesVenda = v => FINANCEIRO.lotesVenda(v).map(nomeLote).join(' + ') || '—';
 const recsDaVenda = (vid) => lista('rec').filter((r) => r.vendaId === vid);
 const cfgReajuste = () => (S.cfg && S.cfg.reajuste) || { pct: 6, aCada: 12 };
 const ehCorretorPerfil = () => S.perfil === 'corretor';
@@ -80,21 +81,21 @@ function indiceHistoricoPagamentosOmie() {
 // O valor do plano (VGV): pagando sempre em dia — entrada + parcelas com desconto.
 function totalPlanoVenda(v) {
   const ps = Array.isArray(v.parcelas) ? v.parcelas.filter(p=>p&&!p.cancelado&&!p._remover) : [];
-  if (Array.isArray(v.parcelas)&&v.parcelas.length&&!ps.length) return Number(v.entrada)||0;
+  if (Array.isArray(v.parcelas)&&v.parcelas.length&&!ps.length) return v.entradaNoEspelho?0:Number(v.entrada)||0;
   if (!ps.length) return CARNE.resumo(v, cfgReajuste(), []).total;
   const soma = ps.reduce((s2, pp) => s2 + (pp.valorDia != null ? Number(pp.valorDia) : Number(pp.valor) || 0), 0);
-  return Math.round(((Number(v.entrada) || 0) + soma) * 100) / 100;
+  return Math.round(((v.entradaNoEspelho?0:Number(v.entrada) || 0) + soma) * 100) / 100;
 }
 
 // Indicadores comerciais compartilhados: contrato quitado continua sendo lote vendido.
 function resumoComercial(){
-  const contratos=lista('venda').filter(v=>v.situacao!=='distratada');
+  const contratos=lista('venda').filter(v=>!v.incorporadaEmVendaId&&v.situacao!=='distratada');
   const ls=lotes(),ids=new Set(ls.map(l=>l.id));
-  const vendidos=new Set(contratos.map(v=>v.loteId).filter(id=>ids.has(id)));
+  const vendidos=new Set(contratos.flatMap(v=>FINANCEIRO.lotesVenda(v).map(l=>l.loteId)).filter(id=>ids.has(id)));
   return {contratos,ativos:contratos.filter(v=>v.situacao!=='quitada').length,quitados:contratos.filter(v=>v.situacao==='quitada').length,
     vendidos:vendidos.size,totalLotes:ls.length,disponiveis:ls.filter(l=>l.status==='Disponível').length,
     vgv:contratos.reduce((s,v)=>s+Math.round(totalPlanoVenda(v)*100),0)/100,
-    divergencias:ls.filter(l=>(l.status==='Vendido')!==vendidos.has(l.id)),semLote:contratos.filter(v=>!ids.has(v.loteId))};
+    divergencias:ls.filter(l=>(l.status==='Vendido')!==vendidos.has(l.id)),semLote:contratos.filter(v=>!FINANCEIRO.lotesVenda(v).length||FINANCEIRO.lotesVenda(v).some(l=>!ids.has(l.loteId)))};
 }
 
 // Uma única população de títulos para cartões, listas, faixas e exportações.
@@ -159,9 +160,9 @@ function lotesComAtraso() {
   const marca = new Set();
   if (ehCorretorPerfil()) return marca;
   for (const v of lista('venda')) {
-    if (v.situacao && v.situacao !== 'ativa' && v.situacao !== 'conferir') continue;
+    if (v.incorporadaEmVendaId || (v.situacao && v.situacao !== 'ativa' && v.situacao !== 'conferir')) continue;
     const r = resumoVenda(v);
-    if (r.qtdAtraso > 0) marca.add(v.loteId);
+    if (r.qtdAtraso > 0) for(const l of FINANCEIRO.lotesVenda(v)) marca.add(l.loteId);
   }
   return marca;
 }

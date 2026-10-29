@@ -16,6 +16,7 @@ const nomeMes = (m) => {
   return (nomes[Number(mm) - 1] || mm) + '/' + a;
 };
 const cxVivos = () => lista('cx').filter((c) => !c.anotacao && !c.ausenteOrigemOmie);
+const titulosClassificacaoEntrada = () => new Map(lista('titulo').filter(t=>t.grupo==='CONTA_A_RECEBER').map(t=>[String(t.titulo),t]));
 
 // Todos os movimentos de um mês, já com sinal e origem.
 /* ── A régua de inconsistência: o que faz um lançamento ficar ASSINALADO ────
@@ -30,20 +31,21 @@ function problemasDoLancamento(x) {
     // só cobra centro de custo depois que a casa os cadastrou
     if (!x.centroCusto && ((S.cfg && S.cfg.centrosCusto) || []).length) probs.push('sem centro de custo');
   }
-  if (x.col === 'rec' && !x.vendaId) probs.push('recebimento sem venda');
+  if (x.col === 'rec' && !x.vendaId && !FINANCEIRO.entradaSemVenda(x,titulosClassificacaoEntrada())) probs.push('recebimento sem venda');
   return probs;
 }
 
 function movimentosDoMes(mes) {
-  const movs = [];
+  const movs = [],titulos=titulosClassificacaoEntrada();
   for (const r of lista('rec')) {
     if (mesDe(r.data) !== mes) continue;
-    const v = achar('venda', r.vendaId);
+    const semVenda=FINANCEIRO.entradaSemVenda(r,titulos),v = semVenda?null:achar('venda', r.vendaId);
     movs.push({
       id: r.id, col: 'rec', data: r.data, valor: Number(r.valor) || 0, entrada: true,
-      descricao: (v ? 'Q' + v.quadra + '-L' + v.lote + ' · ' + (v.clienteNome || '') : 'Venda') +
+      descricao: semVenda?'Entrada sem venda':(v ? FINANCEIRO.nomeLotes(v) + ' · ' + (v.clienteNome || '') : 'Venda') +
         (r.tipo === 'entrada' ? ' (entrada)' : r.parcelaN ? ' (parc. ' + r.parcelaN + ')' : ''),
-      categoria: 'Recebimento de venda', forma: r.forma || '', vendaId: r.vendaId, codigo: r.codigo || '',
+      categoria: semVenda?'Entrada sem venda':'Recebimento de venda', forma: r.forma || '', vendaId: semVenda?'':r.vendaId, codigo: r.codigo || '',
+      classificacaoVinculo:semVenda?{tipo:'sem_venda'}:r.classificacaoVinculo,
     });
   }
   for (const c of cxVivos()) {
@@ -83,7 +85,8 @@ function totaisAcumulados() {
    Sem data entra só no "no histórico disponível". */
 function dreDados(mesSel) {
   const ano = mesSel.slice(0, 4);
-  const balde = () => ({ recVendas: 0, outras: {}, desp: {} });
+  const balde = () => ({ recVendas: 0, entradasSemVenda: 0, outras: {}, desp: {} });
+  const titulos=titulosClassificacaoEntrada();
   const b = { mes: balde(), ano: balde(), total: balde() };
   const baldesDe = (data) => {
     const out = [b.total];
@@ -94,7 +97,8 @@ function dreDados(mesSel) {
     return out;
   };
   for (const r of lista('rec')) {
-    for (const alvo of baldesDe(r.data)) alvo.recVendas += Number(r.valor) || 0;
+    const campo=FINANCEIRO.entradaSemVenda(r,titulos)?'entradasSemVenda':'recVendas';
+    for (const alvo of baldesDe(r.data)) alvo[campo] += Number(r.valor) || 0;
   }
   for (const c of cxVivos()) {
     const cat = c.categoria || 'Outros';
@@ -158,7 +162,8 @@ TELAS.caixa = function () {
   const pendencias = [];
   if (semCategoria) pendencias.push({ n: semCategoria, txt: 'saída(s) na categoria "Outros" — classifique para o DRE dizer a verdade', acao: 'outros' });
   if (comSemCor) pendencias.push({ n: comSemCor, txt: 'comissão(ões) paga(s) sem corretor — associe em Corretores', acao: 'corretores' });
-  const recsSoltos = lista('rec').filter((r) => !r.vendaId).length;
+  const titulos=titulosClassificacaoEntrada();
+  const recsSoltos = lista('rec').filter((r) => !r.vendaId&&!FINANCEIRO.entradaSemVenda(r,titulos)).length;
   if (recsSoltos) pendencias.push({ n: recsSoltos, txt: 'recebimento(s) do Omie sem venda — o caixa conta, o carnê não', acao: 'rec-omie' });
   const blocoVinculos = pendencias.length
     ? '<div class="cartao" style="border-color:#f0ddb5"><h2>🔗 Vínculos pendentes <span class="nota">— amarre e os números contam a história certa</span></h2>' +
@@ -223,6 +228,7 @@ TELAS.caixa = function () {
       { recuo: true, saida:true, barra: Math.round(dre.total.desp[c] / maiorDesp * 100) })).join('') +
     linhaDre('(-) Despesas', dre.mes.somaDesp, dre.ano.somaDesp, dre.total.somaDesp, { forte: true, saida:true }) +
     linhaDre('(=) Resultado', dre.mes.resultado, dre.ano.resultado, dre.total.resultado, { forte: true, cor: true }) +
+    linhaDre('Entradas sem venda · fora das receitas acima', dre.mes.entradasSemVenda, dre.ano.entradasSemVenda, dre.total.entradasSemVenda) +
     '</tbody></table></div></div>';
 
   app.innerHTML =
@@ -487,17 +493,18 @@ TELAS.lancamentos = function () {
   if (f.ano == null) f.ano = String(new Date().getFullYear());
 
   // combina recebimentos de venda + lançamentos avulsos
-  const tudo = [];
+  const tudo = [],titulos=titulosClassificacaoEntrada();
   for (const r of lista('rec')) {
-    const v = achar('venda', r.vendaId);
+    const semVenda=FINANCEIRO.entradaSemVenda(r,titulos),v = semVenda?null:achar('venda', r.vendaId);
     tudo.push({
       col: 'rec', id: r.id, data: r.data || '', entrada: true,
       valor: Number(r.valor) || 0, forma: r.forma || '',
-      categoria: 'Recebimento de venda',
-      descricao: (v ? 'Q' + v.quadra + '-L' + v.lote + ' · ' + (v.clienteNome || '') : 'Venda') +
+      categoria: semVenda?'Entrada sem venda':'Recebimento de venda',
+      descricao: semVenda?'Entrada sem venda':(v ? FINANCEIRO.nomeLotes(v) + ' · ' + (v.clienteNome || '') : 'Venda') +
         (r.tipo === 'entrada' ? ' (entrada)' : r.parcelaN ? ' (parc. ' + r.parcelaN + ')' : ''),
       codigo: r.codigo || '', criadoPor: r.criadoPor || '—', criadoEm: r.criadoEm,
-      atualizadoPor: r.atualizadoPor, vendaId: r.vendaId, obs: r.obs || '',
+      atualizadoPor: r.atualizadoPor, vendaId: semVenda?'':r.vendaId, obs: r.obs || '',
+      classificacaoVinculo:semVenda?{tipo:'sem_venda'}:r.classificacaoVinculo,
       origem: r.origem || '', nHist: 0, edMao: r.editadoAMao === true,
     });
   }
@@ -763,10 +770,11 @@ function relHistoricoHTML(h) {
     '<div class="rolagem"><table class="tabela"><thead><tr><th>Categoria</th><th class="num">'+nomeMes(h.mes)+'</th><th class="num">Ano '+h.ano+'</th><th class="num">Acumulado disponível</th></tr></thead><tbody>'+
     linha('Recebimentos das vendas de lotes',[d.mes.recVendas,d.ano.recVendas,d.total.recVendas],'fin-entrada')+
     d.catsOutras.map(c=>linha('Outras receitas · '+c,[d.mes.outras[c]||0,d.ano.outras[c]||0,d.total.outras[c]],'fin-entrada')).join('')+
-    linha('Total de entradas',[d.mes.receita,d.ano.receita,d.total.receita],'fin-entrada',true)+
+    linha('Total de receitas',[d.mes.receita,d.ano.receita,d.total.receita],'fin-entrada',true)+
+    linha('Entradas sem venda · natureza contábil não definida',[d.mes.entradasSemVenda,d.ano.entradasSemVenda,d.total.entradasSemVenda],'fin-entrada')+
     d.catsDesp.map(c=>linha(c,[d.mes.desp[c]||0,d.ano.desp[c]||0,d.total.desp[c]],'fin-saida')).join('')+
     linha('Total de saídas',[d.mes.somaDesp,d.ano.somaDesp,d.total.somaDesp],'fin-saida',true)+
-    linha('Resultado: entradas − saídas',[d.mes.resultado,d.ano.resultado,d.total.resultado],'',true)+
+    linha('Resultado: receitas − despesas',[d.mes.resultado,d.ano.resultado,d.total.resultado],'',true)+
     '</tbody></table></div><p class="nota">As despesas são agrupadas pela categoria cadastrada no lançamento. Valores em “Outros” precisam de classificação para explicar melhor os gastos.</p><button class="btn" data-rel-lanc="">Ver os '+t.quantidade+' lançamentos de '+nomeMes(h.mes)+'</button></section>';
 }
 
