@@ -314,7 +314,9 @@ const GESTAO_UI = (() => {
   function financeiro(){
     adotarLegado();const f=estado();if(f.secao!=='lancamentos')f.tipo='';if(f.secao==='centros'){centros();return;}acoes=[];rendererAtual=financeiro;
     const b=base(),itens=selecionados(b),renderizar=financeiro;
-    let html=nav()+(f.secao==='conferencias'?'':filtros(b,renderizar)+avisos(b));
+    let html=nav();
+    if(f.secao==='receber')html+=FIN_PREVISAO_UI.html(FIN_PREVISAO_VENDAS.montar(lista('venda').filter(FINANCEIRO.vendaAtiva).map(venda=>({venda,resumo:resumoVenda(venda)})),hojeISO()));
+    html+=(f.secao==='conferencias'?'':filtros(b,renderizar)+avisos(b));
     if(f.secao==='visao')html+=panorama(b,itens);
     else if(f.secao==='fluxo')html+=fluxoTela(b);
     else if(f.secao==='plano')html+=planoContasTela(b);
@@ -325,7 +327,7 @@ const GESTAO_UI = (() => {
     else if(f.secao==='retiradas')html+=retiradas(b,itens);
     else if(f.secao==='conferencias')html+=conferencias(b);
     if(f.secao!=='conferencias')html+=atualizacoes();
-    document.getElementById('app').innerHTML='<div class="gf">'+html+'</div>';ligar(document.getElementById('app'));ligarFiltros(renderizar);ligarNovos(renderizar);ligarPlano(renderizar);
+    document.getElementById('app').innerHTML='<div class="gf">'+html+'</div>';ligar(document.getElementById('app'));ligarFiltros(renderizar);ligarNovos(renderizar);ligarPlano(renderizar);FIN_PREVISAO_UI.ligar(document.getElementById('app'));
     const conciliacao=document.getElementById('bsq-conciliacao');if(conciliacao&&window.BSQ_CONCILIACAO)window.BSQ_CONCILIACAO.renderizar(conciliacao);
     const sync=document.getElementById('gf-sync');if(sync)statusOmieHome(sync);
     const busca=document.getElementById('gf-busca');if(busca)busca.oninput=()=>{f.q=busca.value;f.pagina=0;clearTimeout(_finBuscaTimer);_finBuscaTimer=setTimeout(()=>vdRenderComFoco(financeiro),220);};

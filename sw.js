@@ -1,7 +1,8 @@
 /* Service worker — casca offline. SUBA O NÚMERO a cada publicação, senão o
    navegador continua servindo o arquivo velho (lição paga mais de uma vez). */
-const CACHE = 'bsq-shell-v91.1';
+const CACHE = 'bsq-shell-v92';
 const ARQUIVOS = [
+  'financeiro-previsao-pdf.js', 'financeiro-previsao-vendas.js', 'financeiro-previsao-ui.js', 'financeiro-previsao.css',
   'conciliacao-selecao.js',
   './', 'index.html', 'styles.css', 'design.css', 'mapa-espelho.css', 'mapa-espelho.js', 'config.js', 'ui.js', 'store.js', 'carne.js', 'financeiro-core.js', 'financeiro.js', 'financeiro-gestao.js', 'financeiro-painel.js', 'financeiro-painel.css', 'conciliacao.js', 'conciliacao.css',
   'pdf.js', 'espelho.js', 'vendas.js', 'caixa.js', 'cadastros.js', 'cronograma.js', 'apresentacao.js', 'contratos.js', 'omie.js', 'app.js',
