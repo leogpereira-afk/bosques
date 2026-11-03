@@ -134,6 +134,26 @@
     alvo.querySelector('[data-cq-atualizar]').onclick=async()=>{try{await relerConfirmado();await carregarSaude(true);pintar();}catch(e){erroSaude=e.message;pintar();}};
   }
   const ficha=(titulo,linhas)=>'<section class="cq-ficha"><h4>'+esc(titulo)+'</h4><dl>'+linhas.map(([k,v])=>'<div><dt>'+esc(k)+'</dt><dd>'+esc(v==null||v===''?'Não informado':v)+'</dd></div>').join('')+'</dl></section>';
+  function diagnosticoRegistrado(item) {
+    const tid=origem(item,S.reg).titulo;
+    const recibos=item.rec?[item.rec]:(tid?(S.reg.rec||[]).filter(r=>vivo(r)&&String(r.omie?.titulo||'')===tid):[]);
+    const motivos=[...new Set(recibos.map(r=>r.obsConferir).filter(x=>typeof x==='string'&&x.trim()))];
+    const auditorias=recibos.flatMap(r=>Array.isArray(r.historico)?r.historico:[]).filter(h=>{
+      const e=h?.evidencia;
+      return tid&&String(e?.titulo??'')===tid&&Number.isInteger(Number(e?.linhaCSV))&&Number(e.linhaCSV)>0&&
+        typeof e.arquivo==='string'&&e.arquivo.trim()&&typeof e.observacao==='string'&&e.observacao.trim();
+    });
+    const tempo=h=>Number.isFinite(Date.parse(h.em))?Date.parse(h.em):-Infinity;
+    const ultimo=auditorias.map((h,i)=>({h,i})).sort((a,b)=>tempo(b.h)-tempo(a.h)||b.i-a.i)[0]?.h;
+    if(!motivos.length&&!ultimo)return '';
+    const linhas=motivos.map(m=>['Motivo registrado',m]);
+    if(ultimo){
+      const e=ultimo.evidencia,arquivo=e.arquivo.split(/[\\/]/).pop();
+      linhas.push(['Observação integral registrada (CSV)',e.observacao],['Fonte registrada',arquivo+' · linha '+Number(e.linhaCSV)],
+        ['Registrada em',Number.isFinite(tempo(ultimo))?fmt.dataHora(ultimo.em):'Data não informada']);
+    }
+    return '<section class="cq-ficha" data-cq-diagnostico><h4>Motivo da conferência</h4><dl>'+linhas.map(([k,v])=>'<div><dt>'+esc(k)+'</dt><dd style="white-space:pre-wrap;overflow-wrap:anywhere">'+esc(v)+'</dd></div>').join('')+'</dl></section>';
+  }
   function comparacao(item) {
     const o=origem(item,S.reg),t=item.titulo||{},r=t.original?.resumo||{};
     const fonte=item.titulo?ficha('Origem Omie', [['Pessoa',o.nome],['CPF / CNPJ',o.cpf?fmt.doc(o.cpf):''],['Título / documento',[o.titulo,o.documento].filter(Boolean).join(' · ')],['Valor do título',fmt.brl(t.valor)],['Vencimento',fmt.data(t.venc)],['Liquidado',r.nValLiquido==null?'Não informado':fmt.brl(r.nValLiquido)],['Conta',o.conta],['Observação',o.observacao]]):item.rec?ficha('Recebimento local', [['Pessoa',o.nome],['CPF / CNPJ',o.cpf?fmt.doc(o.cpf):''],['Código / documento',o.documento||item.rec.id],['Valor recebido',fmt.brl(item.rec.valor)],['Data do recebimento',fmt.data(item.rec.data)],['Conta',o.conta],['Observação',o.observacao]]):ficha('Origem não disponível', [['Orientação','Atualize a origem antes de confirmar o vínculo.']]);
@@ -141,7 +161,7 @@
     let local=(item.vinculos||[]).map(x=>ficha(rotuloVenda(x.venda),[['Valor local',fmt.brl(x.parcela.valor)],['Vencimento local',fmt.data(x.parcela.venc)],['Vínculo',situacaoVinculo],['Valor e vencimento',!item.titulo?'Origem indisponível':x.parcela.conferir?'Ainda a conferir':parcelaDivergente(x.parcela,item.titulo)?'Diferentes da origem; conferir':'Sem pendência nesta leitura'],['Alteração manual',x.parcela.trava?'Sim, protegida na sincronização':'Não protegida']])).join('');
     if(item.rec)local+=ficha('Recebimento preservado', [['Código',item.rec.codigo||item.rec.id],['Valor recebido',fmt.brl(item.rec.valor)],['Data do recebimento',fmt.data(item.rec.data)],['Contrato atual',(S.reg.venda||[]).find(v=>v.id===item.rec.vendaId)?.codigo||'Sem contrato confirmado']]);
     if(item.tipo==='duplicidade')local=item.candidatos.map(c=>ficha('Lançamento manual · '+(c.codigo||c.id),[['Descrição',c.descricao],['Favorecido',c.financeiroOmie?.pessoaNome||c.favorecido],['Valor',fmt.brl(c.valor)],['Data',fmt.data(c.data)],['Conta',c.financeiroOmie?.contaNome||c.contaId],['Documento',c.financeiroOmie?.documento||c.documento]])).join('');
-    return '<div class="cq-comparacao">'+fonte+'<div>'+(local||'<p class="cq-vazio">Nenhum vínculo local confirmado.</p>')+'</div></div>';
+    return diagnosticoRegistrado(item)+'<div class="cq-comparacao">'+fonte+'<div>'+(local||'<p class="cq-vazio">Nenhum vínculo local confirmado.</p>')+'</div></div>';
   }
   function abrir(item) {
     if(item?.tipo==='historico'){
