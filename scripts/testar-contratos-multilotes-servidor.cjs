@@ -6,7 +6,7 @@ const stamp='2026-01-01T00:00:00.000Z',migration='20261029150737_contratos_multi
 (async()=>{
  const db=new PGlite();let n=0,passaram=0,falhas=0;
  await db.exec('create role anon;create role authenticated;create role service_role bypassrls;create table bsq_registros(colecao text,id text,registro jsonb,atualizado_em timestamptz,apagado boolean default false,primary key(colecao,id));');
- for(const f of ['202610070001_historico_vinculo_unico.sql','20261021155644_conciliacao_financeira_auditavel.sql','20261021160030_conciliacao_sync_cas.sql',migration,'20261103210000_cobranca_conjunta_preservada.sql']){
+ for(const f of ['202610070001_historico_vinculo_unico.sql','20261021155644_conciliacao_financeira_auditavel.sql','20261021160030_conciliacao_sync_cas.sql',migration,'20261103210000_cobranca_conjunta_preservada.sql','20261103220000_conjunto_divergencias_pendentes.sql']){
    const p=path.join('supabase/migrations',f);if(fs.existsSync(p))await db.exec(fs.readFileSync(p,'utf8'));
  }
  const put=async(col,id,r)=>db.query('insert into bsq_registros values($1,$2,$3,now(),$4) on conflict(colecao,id) do update set registro=excluded.registro,apagado=excluded.apagado',[col,id,JSON.stringify({id,atualizadoEm:stamp,...r}),!!r.apagadoEm]);
@@ -108,6 +108,27 @@ const stamp='2026-01-01T00:00:00.000Z',migration='20261029150737_contratos_multi
  await teste('modo preservado rejeita divergência sem mudar qualquer registro',async()=>{
    const p=seguro(),v=await get('venda','v2');v.parcelas[0].venc='2027-02-01';await put('venda','v2',v);const foto=await snapshot();await assert.rejects(call(p),/diverg|condiç/i);assert.equal(await snapshot(),foto);
  });
+ for(const campo of ['valor','venc'])await teste('vínculo confirmado conserva divergência de '+campo+' em conferência',async()=>{
+   const p=seguro();p.preservarDivergenciasPendentes=true;
+   const t=await get('titulo','CONTA_A_RECEBER-t2');t[campo]=campo==='valor'?800:'2027-02-01';await put('titulo',t.id,t);
+   const original=await get('venda','v3'),rec=await get('rec','r1');await call(p);
+   const v=await get('venda','v1'),parc=v.parcelas.find(x=>x.tid==='t2');
+   assert.equal(parc.valor,600);assert.equal(parc.venc,'2026-12-01');assert.equal(parc.conferir,true);assert.equal(parc.vinculoConfirmado,true);assert.equal(parc.conciliacao.divergenciaPendente,true);
+   assert.equal(v.parcelas.find(x=>x.tid==='t1').conferir,false);assert.deepEqual((await get('venda','v3')).parcelas,original.parcelas);
+   assert.equal((await get('rec','r1')).valor,rec.valor);assert.equal((await get('rec','r1')).data,rec.data);
+   const F=require('../financeiro-core.js');assert.equal(F.classificarVinculos([{venda:v,parcela:parc}]).situacao,'valorespendentes');assert.equal(F.resumo(v,[], '2026-11-03').qtdConferir,1);
+ });
+ await teste('recebimento de título divergente fica no conjunto sem inventar crédito ou baixa',async()=>{
+   const p=seguro();p.preservarDivergenciasPendentes=true;
+   const t=await get('titulo','CONTA_A_RECEBER-t2');t.valor=800;t.original.resumo.nDesconto=200;await put('titulo',t.id,t);
+   await put('rec','pendente',{vendaId:'',valor:800,data:'2026-10-05',omie:{titulo:'t2',cpf:'111'},conferir:true});p.esperado.recebimentos.pendente=stamp;
+   await call(p);const r=await get('rec','pendente'),v=await get('venda','v1');
+   assert.equal(r.valor,800);assert.equal(r.data,'2026-10-05');assert.equal(r.vendaId,'v1');assert.deepEqual(r.alocacoes,[]);assert.equal(r.conferir,true);assert.match(r.obsConferir,/divergência/);
+   assert.equal(v.parcelas.find(x=>x.tid==='t2').liquidacao,undefined);
+   const fin=require('../financeiro-core.js').resumo(v,[r],'2026-11-03');assert.equal(fin.naoAlocado,800);assert.equal(fin.carne.find(x=>x.tid==='t2').credito,0);assert.equal(fin.quitada,false);
+ });
+ await teste('divergência da origem continua bloqueada sem opção expressa',async()=>{const p=seguro();const t=await get('titulo','CONTA_A_RECEBER-t2');t.valor=800;await put('titulo',t.id,t);const foto=await snapshot();await assert.rejects(call(p),/diverg/i);assert.equal(await snapshot(),foto);});
+ await teste('opção de preservar divergências não permite título sem parcela local',async()=>{const p=seguro();p.preservarDivergenciasPendentes=true;p.titulos=['t3'];const foto=await snapshot();await assert.rejects(call(p),/ausente/i);assert.equal(await snapshot(),foto);});
  await teste('modo preservado não aceita novo valor no plano',async()=>{const p=seguro();p.plano={entrada:999};const foto=await snapshot();await assert.rejects(call(p),/novo plano|conjunta/i);assert.equal(await snapshot(),foto);});
  await teste('modo preservado exige confirmação expressa',async()=>{const p=seguro();delete p.confirmarCobrancaConjunta;const foto=await snapshot();await assert.rejects(call(p),/Confirme/i);assert.equal(await snapshot(),foto);});
  await db.close();console.log(passaram+' passaram; '+falhas+' falharam');if(falhas)process.exitCode=1;
