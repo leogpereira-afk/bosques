@@ -33,6 +33,26 @@ caso('total de páginas ausente não encerra sincronização',()=>falhaPreservad
 caso('página vazia intermediária é falha de integridade',()=>falhaPreservada(b=>b.call==='ListarMovimentos'?{movimentos:[],nTotPaginas:2,nTotRegistros:10}:vazio(b)));
 caso('total positivo sem registros não é sucesso vazio',()=>falhaPreservada(b=>b.call==='ListarMovimentos'?{movimentos:[],nTotPaginas:1,nTotRegistros:10}:vazio(b)));
 caso('total explícito zero sem lista é resposta vazia legítima',async()=>{const a=ambiente(b=>b.call==='ListarClientes'?{total_de_paginas:0,total_de_registros:0}:{nTotPaginas:0,nTotRegistros:0});assert.equal((await a.sync()).status,200);assert.equal(a.metas.get('omie_sync').status,'completa')});
+caso('incremental sem alterações com página zero conclui e preserva os registros anteriores',async()=>{
+  const a=ambiente(b=>b.call==='ListarClientes'?vazio(b):{nPagina:0,nTotPaginas:0,nTotRegistros:0,movimentos:[]});
+  const anterior={id:'titulo-ficticio',valor:123.45,venc:'2026-11-15',historico:[{motivo:'registro anterior'}]};
+  a.registros.set('titulo|titulo-ficticio',clone(anterior));
+  const r=await a.sync();assert.equal(r.status,200,JSON.stringify(r.body));assert.equal(a.metas.get('omie_sync').status,'completa');
+  assert.equal(a.registros.size,1);assert.deepEqual(a.registros.get('titulo|titulo-ficticio'),anterior);
+});
+caso('página zero não encobre total positivo, ausente ou registros recebidos',async()=>{
+  for(const resposta of [{nPagina:0,nTotPaginas:0,nTotRegistros:1,movimentos:[]},{nPagina:0,nTotPaginas:0,movimentos:[]},{nPagina:0,nTotPaginas:0,nTotRegistros:0,movimentos:[{}]}])
+    await falhaPreservada(b=>b.call==='ListarClientes'?vazio(b):resposta);
+});
+caso('página zero não é admitida quando a origem declara páginas existentes',()=>falhaPreservada(b=>b.call==='ListarClientes'?vazio(b):{nPagina:0,nTotPaginas:1,nTotRegistros:0,movimentos:[]}));
+caso('página zero exige lista explícita e contagem coerente',async()=>{
+  for(const resposta of [{nPagina:0,nTotPaginas:0,nTotRegistros:0},{nPagina:0,nTotPaginas:0,nTotRegistros:0,nRegistros:1,movimentos:[]}])
+    await falhaPreservada(b=>b.call==='ListarClientes'?vazio(b):resposta);
+});
+caso('página zero não é aceita em releitura completa sem filtro incremental',async()=>{
+  const a=ambiente(b=>b.call==='ListarClientes'?vazio(b):{nPagina:0,nTotPaginas:0,nTotRegistros:0,movimentos:[]});
+  a.metas.delete('omie_sync');const r=await a.sync();assert.equal(r.status,500);assert.equal(a.registros.size,0);assert.ok(a.finalizacoes.at(-1).p_erro);
+});
 caso('clientes após a quinta página são importados',async()=>{const a=ambiente(b=>b.call==='ListarClientes'?{pagina:b.param[0].pagina,total_de_paginas:6,clientes_cadastro:[{codigo_cliente_omie:b.param[0].pagina,cnpj_cpf:String(10000000000+b.param[0].pagina),razao_social:'Cliente '+b.param[0].pagina,tags:[{tag:'Cliente'}]}]}:vazio(b));assert.equal((await a.sync()).status,200);assert.equal(a.requisicoes.filter(b=>b.call==='ListarClientes').length,6);assert.ok(a.registros.has('cliente|10000000006'));assert.equal(a.metas.get('omie_clientes').mapaCpf['10000000006'],6)});
 caso('paginação incompleta de clientes preserva o mapa anterior',async()=>{const a=await falhaPreservada(b=>b.call==='ListarClientes'?b.param[0].pagina===1?{pagina:1,total_de_paginas:2,clientes_cadastro:[{cnpj_cpf:'123',tags:[{tag:'Cliente'}]}]}:{pagina:2,total_de_paginas:2,total_de_registros:2}:vazio(b));assert.equal(a.metas.has('omie_clientes'),false)});
 caso('resposta de outra página não passa silenciosamente',()=>falhaPreservada(b=>b.call==='ListarClientes'?{pagina:2,total_de_paginas:2,clientes_cadastro:[{}]}:vazio(b)));

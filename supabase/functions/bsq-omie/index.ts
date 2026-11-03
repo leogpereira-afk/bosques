@@ -55,14 +55,20 @@ async function omie(modulo: string, call: string, param: Record<string, unknown>
 // /api/v1/geral/clientes/ e /api/v1/financas/mf/. Não presumir página única
 // nem lista vazia quando o servidor deixa de entregar esses campos.
 function paginaOmie(r: any, call: string, pagina: number, campo: string,
-  campoPaginas: string, campoTotal: string, campoPagina: string) {
+  campoPaginas: string, campoTotal: string, campoPagina: string, zeroIncremental = false) {
   const vazio = r[campoTotal] != null && Number(r[campoTotal]) === 0;
   const paginas = Number(r[campoPaginas]);
   const itens = r[campo] == null && vazio ? [] : r[campo];
+  // Na consulta incremental sem alterações o Omie pode retornar página 0.
+  // Aceitar só o vazio explícito e coerente da primeira página filtrada:
+  // nunca tratar resposta ausente/incompleta como exclusão de dados antigos.
+  const paginaZeroVazia = zeroIncremental && pagina === 1 && r[campoPagina] === 0 &&
+    r[campoPaginas] === 0 && r[campoTotal] === 0 && Array.isArray(r[campo]) && !r[campo].length &&
+    (r.nRegistros == null || r.nRegistros === 0);
   if (!Array.isArray(itens) || !Number.isInteger(paginas) || paginas < 0 ||
       (paginas === 0 && !(vazio && pagina === 1 && !itens.length)) ||
       (paginas > 0 && paginas < pagina) ||
-      (r[campoPagina] != null && Number(r[campoPagina]) !== pagina) ||
+      (r[campoPagina] != null && Number(r[campoPagina]) !== pagina && !paginaZeroVazia) ||
       (!itens.length && (pagina < paginas || Number(r[campoTotal]) > 0)) || (vazio && itens.length)) {
     // O formato recebido vai junto (só números e nomes de campo): em 13/10 o
     // Omie respondeu assim por 12 horas e não havia como saber o quê.
@@ -688,7 +694,8 @@ Deno.serve(async (req) => {
             console.warn("bsq-omie: página " + pagina + " sumiu (total " + totResposta + "); recomeçando a rodada da página 1");
             pagina = 1; break;
           }
-          const p = paginaOmie(r, "ListarMovimentos", pagina, "movimentos", "nTotPaginas", "nTotRegistros", "nPagina");
+          const p = paginaOmie(r, "ListarMovimentos", pagina, "movimentos", "nTotPaginas", "nTotRegistros", "nPagina",
+            !completa && typeof janela.dDtAltDe === "string");
           totPaginas = p.paginas;
           const movs: any[] = p.itens;
           await Promise.all([
