@@ -83,6 +83,18 @@ function paginaOmie(r: any, call: string, pagina: number, campo: string,
 const soDigitos = (s: unknown) => String(s || "").replace(/\D/g, "");
 const centavos = (v: unknown) => Math.round((Number(v) || 0) * 100);
 
+// Apenas explica a pendência: quantidade de fichas não confirma um vínculo.
+// Textos diferentes dos diagnósticos automáticos conhecidos são preservados.
+function observacaoRecebimentoSemVinculo(anterior: any, minhas: any[]) {
+  const nenhuma = "Nenhuma ficha de venda ativa encontrada para este CPF. Confira o cadastro ou classifique a entrada sem venda.";
+  const varias = "Há mais de uma ficha de venda para este CPF. Confira os lotes e o vínculo do título antes de alocar o recebimento.";
+  const uma = "Há uma ficha de venda para este CPF, mas este título ainda não tem vínculo confirmado. Confira o documento e o lote antes de vincular.";
+  const texto = anterior?.obsConferir;
+  if (typeof texto === "string" && texto.trim() &&
+      !["não achei a venda deste CPF — vincular à mão", nenhuma, varias, uma].includes(texto)) return texto;
+  return minhas.length > 1 ? varias : minhas.length === 1 ? uma : nenhuma;
+}
+
 // Comparação estável do original do Omie. O jsonb do Postgres reordena as
 // chaves, então JSON.stringify do que veio do banco nunca batia com o que veio
 // do Omie: cada rodada empilhava no histórico uma cópia idêntica (chegou a 300+
@@ -838,7 +850,7 @@ Deno.serve(async (req) => {
                 if (existente && (existente.valor !== registro.valor || existente.data !== registro.data)) {
                   registro.historico = [...(existente.historico || []), {em:agora(),por:"omie",antes:{valor:existente.valor,data:existente.data},depois:{valor:registro.valor,data:registro.data}}];
                 }
-                if (!vendaId) registro.obsConferir = "não achei a venda deste CPF — vincular à mão";
+                if (!vendaId) registro.obsConferir = observacaoRecebimentoSemVinculo(existente, minhas);
                 registro=preservarVinculoClassificado(registro,recebimentoClassificado,tituloClassificado);
                 await guardarIndiceNumero("rec", numero, id);
                 gravar.push({ colecao: "rec", id, registro });
