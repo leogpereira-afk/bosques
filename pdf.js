@@ -374,9 +374,9 @@ const PDF = (() => {
     const sit = v.situacao || 'ativa';
     doc.text(soLatin1('Situação: ' + sit.toUpperCase() +
       ' · venda em ' + dataBR(v.dataVenda || v.criadoEm) +
-      (v.corretorNome ? ' · corretor: ' + v.corretorNome + (v.comissao ? ' (comissão ' + brl(v.comissao) + ')' : '') : '')), 14, y);
+      (!v.cobrancaConjunta && v.corretorNome ? ' · corretor: ' + v.corretorNome + (v.comissao ? ' (comissão ' + brl(v.comissao) + ')' : '') : '')), 14, y);
     y += 5;
-    const planoVenda = doc.splitTextToSize(soLatin1('Plano: ' + (v.entradaNoEspelho ? 'entrada de ' + brl(v.entrada) + ' já incluída nos boletos · ' : brl(v.entrada) + ' de entrada + ') + (v.qtdeParcelas || 0) + '× ' +
+    const planoVenda = doc.splitTextToSize(soLatin1(v.cobrancaConjunta ? 'Cobrança conjunta pelos títulos. Condições comerciais e comissões de cada ficha preservadas; consulte os documentos originais no painel.' : 'Plano: ' + (v.entradaNoEspelho ? 'entrada de ' + brl(v.entrada) + ' já incluída nos boletos · ' : brl(v.entrada) + ' de entrada + ') + (v.qtdeParcelas || 0) + '× ' +
       brl(v.valorParcela) + ' (' + (v.tipoParcela || 'Fixa') + ')' +
       (sit === 'distratada' && v.distrato ? ' · DISTRATADA em ' + dataBR(v.distrato.em) : '')), 182);
     doc.text(planoVenda, 14, y);

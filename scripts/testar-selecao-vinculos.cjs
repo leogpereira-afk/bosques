@@ -37,11 +37,11 @@ test('selecionar lotes e revisar não grava; só confirmar envia uma operação 
   const {ctx,document,chamadas}=await tela(),regAntes=JSON.stringify(ctx.S.reg),m=ctx.window.BSQ_VINCULACAO.abrir({cpf:'111',recId:'r2'});
   for(const id of ['v1','v2','v3']){const el=m.querySelector('[data-vg-lista="vendas"][value="'+id+'"]');el.checked=true;el.onchange();}
   const motivo=m.querySelector('[data-vg="motivo"]');motivo.value='Contrato fictício revisado';motivo.oninput();
-  const ok=m.querySelector('[data-vg="confirmarPlanoPrincipal"]');ok.checked=true;ok.oninput();
+  for(const k of ["entradaIncluidaNoEspelho","confirmarCobrancaConjunta"]){const ok=m.querySelector('[data-vg="'+k+'"]');ok.checked=true;ok.oninput();}
   m.querySelector('[data-vg-revisar]').click();assert.equal(chamadas.length,0);assert.equal(JSON.stringify(ctx.S.reg),regAntes);
   const revisao=[...document.querySelectorAll('.fundo-modal')].at(-1);assert.match(revisao.textContent,/3.*lotes|VD-TESTE-3/);assert.match(revisao.textContent,/2 recebimentos/);
   revisao.querySelector('footer button[data-i="1"]').click();await new Promise(setImmediate);
-  assert.equal(chamadas.length,1);assert.equal(chamadas[0].a,'agruparContratos');assert.equal(chamadas[0].p.vendas.length,3);assert.equal(chamadas[0].p.recebimentos[0],'r2');
+  assert.equal(chamadas.length,1);assert.equal(chamadas[0].a,'agruparContratos');assert.equal(chamadas[0].p.vendas.length,3);assert.equal(chamadas[0].p.recebimentos[0],'r2');assert.equal(chamadas[0].p.modo,'cobranca_conjunta');assert.equal(chamadas[0].p.plano,undefined);assert.equal(chamadas[0].p.politica,'preservar');
 });
 test('recebimento sem contrato oferece classificação e pede revisão antes de gravar',async()=>{
   const {ctx,document,chamadas}=await tela(),m=ctx.window.BSQ_VINCULACAO.entrada('r2');

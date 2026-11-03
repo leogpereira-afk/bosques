@@ -113,3 +113,13 @@ test('Início distingue entrada sem venda de lote ainda não confirmado',async()
  const {run,document,reg}=await ambiente();reg.rec.push({id:'entrada-sem-venda-ficticia',valor:30,data:'2026-10-29',vendaId:'',classificacaoVinculo:{tipo:'sem_venda',motivo:'Teste fictício'}});
  run('TELAS.home()');const linha=document.querySelector('[data-rec="entrada-sem-venda-ficticia"]');assert.ok(linha);assert.match(linha.textContent,/sem (?:venda|vínculo com venda)/i);assert.doesNotMatch(linha.textContent,/Sem lote confirmado/i);
 });
+
+test('cobrança conjunta conserva documentos das fichas e não emite plano contratual individual',async()=>{
+ const a=await ambiente(),v=a.principal,alias=a.reg.venda[1];
+ v.agrupamento={vendas:[v.id,alias.id],condicoesOriginais:[{...v,comissao:100},{...alias,comissao:200}]};v.cobrancaConjunta={versao:1};
+ v.anexos=[{arquivoId:'doc-a',nome:'Contrato A'}];alias.anexos=[{arquivoId:'doc-b',nome:'Contrato B'}];alias.historico=[{em:'2026-10-01',acao:'Evento original fictício',por:'Teste'}];
+ a.run("TELAS.venda('v-principal-ficticia')");assert.equal(a.document.querySelectorAll('.bt-baixar-arq').length,2);assert.match(a.document.getElementById('app').textContent,/Evento original fictício/);assert.match(a.document.getElementById('app').textContent,/comissões preservadas/);
+ a.run("TELAS.venda('v-alias-ficticia')");assert.equal(a.document.querySelectorAll('.bt-baixar-arq').length,1);assert.match(a.document.getElementById('app').textContent,/Contrato B/);
+ a.ctx.v=v;assert.throws(()=>a.run('gerarContratoPdf(v,{}, {}, {}, {})'),/contrato original/);
+ carregarPdf(a);a.run('PDF.venda(v,resumoVenda(v),[],S.cfg)');assert.ok(a.textos.some(t=>/Cobrança conjunta/.test(t.texto)));assert.ok(!a.textos.some(t=>t.texto.startsWith('Plano:')));
+});

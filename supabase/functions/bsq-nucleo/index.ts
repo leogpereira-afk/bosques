@@ -146,8 +146,10 @@ function erroEdicaoGrupo(atual:any,registro:any): string {
     if(!registro.agrupamento||canonicoGrupo(registro.agrupamento)!==canonicoGrupo(atual.agrupamento))
       return "O contrato foi agrupado ou atualizado. Atualize a ficha antes de salvar plano ou parcelas.";
   }
-  for(const k of ["lotes","loteIds","incorporadaEmVendaId","incorporacao","agrupamento"])
+  for(const k of ["lotes","loteIds","incorporadaEmVendaId","incorporacao","agrupamento","cobrancaConjunta"])
     if(Object.hasOwn(registro,k)&&canonicoGrupo(registro[k])!==canonicoGrupo(atual?.[k]))return "Use o agrupamento por seleção para alterar os lotes do contrato.";
+  if(atual?.cobrancaConjunta) for(const k of ["entrada","entradaNoEspelho","qtdeParcelas","valorParcela","tipoParcela","inicioParcelas","dataVenda","corretorId","corretorNome","comissao","corretor2Id","corretor2Nome","comissao2"])
+    if(Object.hasOwn(registro,k)&&canonicoGrupo(registro[k])!==canonicoGrupo(atual[k]))return "Condições originais preservadas: alteração comercial exige conferência do contrato conjunto.";
   if(idsLotesVenda(atual).length>1&&registro.loteId&&registro.loteId!==atual.loteId)return "O contrato conjunto conserva seus lotes; use a conferência por seleção.";
   return "";
 }

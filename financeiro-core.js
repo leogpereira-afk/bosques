@@ -194,6 +194,22 @@ const FINANCEIRO = (() => {
       if(parcela>0) out.push({tid:p.tid,valor:rs(parcela)}); resto-=parcela; }
     return out;
   }
-  return {cent,rs,dataValida,chave,tituloDisponivel,vendaAtiva,lotesVenda,nomeLotes,entradaSemVenda,identidadeConta,classificarVinculos,indiceHistoricoAntesCorte,historicoAntesCorte,resumo,alocar};
+  function condicoesComerciais(v) {
+    const originais=v?.agrupamento?.condicoesOriginais;
+    return Array.isArray(originais)&&originais.length?originais:[v];
+  }
+  function vendasComerciais(vendas) {
+    return (vendas||[]).filter(v=>v&&!v.apagadoEm&&!v.incorporadaEmVendaId).flatMap(v=>
+      condicoesComerciais(v).map(c=>({...c,situacao:v.situacao,principalId:v.id})));
+  }
+  function fichasDoGrupo(v,todas) {
+    const ids=new Set([v.id,...(v.agrupamento?.vendas||[])]);
+    return [...ids].map(id=>id===v.id?v:(todas||[]).find(c=>c.id===id)).filter(Boolean);
+  }
+  function anexosDoGrupo(v,todas) {
+    return fichasDoGrupo(v,todas).flatMap(c=>(c.anexos||[]).filter(a=>a&&!a.apagadoEm)
+      .map(a=>({...a,fichaOrigem:c.codigo||c.id,vendaOrigem:c.id})));
+  }
+  return {condicoesComerciais,vendasComerciais,fichasDoGrupo,anexosDoGrupo,cent,rs,dataValida,chave,tituloDisponivel,vendaAtiva,lotesVenda,nomeLotes,entradaSemVenda,identidadeConta,classificarVinculos,indiceHistoricoAntesCorte,historicoAntesCorte,resumo,alocar};
 })();
 if (typeof module !== 'undefined') module.exports = FINANCEIRO;

@@ -80,6 +80,7 @@ function indiceHistoricoPagamentosOmie() {
 
 // O valor do plano (VGV): pagando sempre em dia — entrada + parcelas com desconto.
 function totalPlanoVenda(v) {
+  if (Number.isFinite(v.totalPlanoOriginal)) return v.totalPlanoOriginal;
   const ps = Array.isArray(v.parcelas) ? v.parcelas.filter(p=>p&&!p.cancelado&&!p._remover) : [];
   if (Array.isArray(v.parcelas)&&v.parcelas.length&&!ps.length) return v.entradaNoEspelho?0:Number(v.entrada)||0;
   if (!ps.length) return CARNE.resumo(v, cfgReajuste(), []).total;

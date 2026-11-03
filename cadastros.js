@@ -217,7 +217,7 @@ function pagoComissaoDoCorretor(corId, pagos) {
 // As contas a pagar de comissão: saldo devido por corretor (>0).
 function comissoesAPagar() {
   const pagos = cxVivos().filter((c) => c.tipo === 'saida' && c.categoria === 'Comissão');
-  const vendas = lista('venda');
+  const vendas = FINANCEIRO.vendasComerciais(lista('venda'));
   return lista('corretor').map((cor) => {
     const vivasDele = vendas.filter((v) => v.situacao !== 'distratada');
     const devido = vivasDele.filter((v) => v.corretorId === cor.id).reduce((s, v) => s + (Number(v.comissao) || 0), 0) +
@@ -231,7 +231,7 @@ function comissoesAPagar() {
 TELAS.corretores = function () {
   const app = document.getElementById('app');
   const corretores = lista('corretor');
-  const vendas = lista('venda');
+  const vendas = FINANCEIRO.vendasComerciais(lista('venda'));
   const pagos = cxVivos().filter((c) => c.tipo === 'saida' && c.categoria === 'Comissão');
 
   // O ranking: quem vendeu mais (nº de vendas; empate decide pelo VGV).

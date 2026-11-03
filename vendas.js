@@ -475,6 +475,36 @@ function notaHistoricoPagamentoVenda(r) {
       pendencias.map(p=>esc(p.motivo)).filter((p,i,ps)=>ps.indexOf(p)===i).join(' ')+'</p>':'');
 }
 
+function historicoGrupoHtml(v) {
+  const fichas=FINANCEIRO.fichasDoGrupo(v,S.reg.venda||[]);
+  return '<details class="cartao"><summary>Histórico e fichas originais</summary>'+fichas.map(f=>
+    '<details><summary>'+esc(f.codigo||f.id)+' · '+esc(nomeLotesVenda(f))+'</summary>'+
+    '<a href="#/venda/'+esc(f.id)+'">Abrir ficha</a>'+(f.historico||[]).map(h=>
+      '<p class="nota">'+esc(fmt.quando(h.em))+' · '+esc(h.por||'')+' · '+esc(h.acao||'')+
+      (h.motivo?' — '+esc(h.motivo):'')+'</p>').join('')+'</details>').join('')+'</details>';
+}
+function condicoesGrupoHtml(v) {
+  return '<details class="cartao"><summary>Condições comerciais originais · comissões preservadas</summary>'+
+    FINANCEIRO.condicoesComerciais(v).map(c=>'<p><b>'+esc(c.codigo||c.id)+' · '+esc(nomeLotesVenda(c))+'</b><br>'+
+      'Entrada registrada: '+fmt.brl(c.entrada)+' · '+(Number(c.qtdeParcelas)||0)+' × '+fmt.brl(c.valorParcela)+
+      ' · '+esc(c.tipoParcela||'Não informado')+'<br>Comissão: '+esc(c.corretorNome||'Não informado')+' · '+fmt.brl(c.comissao)+
+      (c.corretor2Nome?' + '+esc(c.corretor2Nome)+' · '+fmt.brl(c.comissao2):'')+'</p>').join('')+
+      '<p class="nota">Condições de cada ficha antes do vínculo. Não representam um novo plano conjunto. Os títulos e seus vencimentos foram preservados.</p></details>';
+}
+function arquivosGrupoHtml(v) {
+  const anexos=FINANCEIRO.anexosDoGrupo(v,S.reg.venda||[]);
+  return '<div class="cartao"><h2>Contrato e arquivos · '+anexos.length+'</h2>'+anexos.map(a=>
+    '<div class="lin"><div class="cresce"><b>'+esc(a.nome||'arquivo')+'</b><span class="sub">'+esc(a.fichaOrigem)+' · '+esc(a.rotulo||'')+' · '+esc(fmt.data(a.em))+' · por '+esc(a.por||'—')+'</span></div>'+
+    '<button class="btn mini bt-baixar-arq" data-id="'+esc(a.arquivoId)+'" data-nome="'+esc(a.nome||'arquivo')+'">baixar</button></div>').join('')+
+    (!anexos.length?'<p class="nota">Nenhum documento anexado.</p>':'')+'</div>';
+}
+function ligarArquivosGrupo(app) {
+  app.querySelectorAll('.bt-baixar-arq').forEach(b=>{b.onclick=async()=>{
+    b.disabled=true;b.textContent='…';try{const {blob,meta}=await baixarArquivo(b.dataset.id,p=>{b.textContent=Math.round(p*100)+'%';});salvarNoAparelho(blob,b.dataset.nome||meta.nome);}
+    catch(e){toast(e.message||'Falhou o download','ruim');}finally{b.disabled=false;b.textContent='baixar';}
+  };});
+}
+
 /* ── Tela: ficha da venda (o carnê) ────────────────────────────────────────── */
 TELAS.venda = function (id) {
   const app = document.getElementById('app');
@@ -485,7 +515,8 @@ TELAS.venda = function (id) {
     app.innerHTML = '<div class="cartao"><h2>' + esc(v.codigo || 'Venda') + '</h2>' +
       '<p>Este registro foi incorporado a um contrato principal. Os lotes, pagamentos e saldos são conferidos na ficha principal.</p>' +
       '<a class="btn primario" href="#/venda/' + esc(v.incorporadaEmVendaId) + '">Abrir contrato principal' +
-      (principal?.codigo ? ' · ' + esc(principal.codigo) : '') + '</a></div>';
+      (principal?.codigo ? ' · ' + esc(principal.codigo) : '') + '</a></div>'+condicoesGrupoHtml(v)+arquivosGrupoHtml(v)+historicoGrupoHtml(v);
+    ligarArquivosGrupo(app);
     return;
   }
   const cliente = v.clienteId ? achar('cliente', v.clienteId) : null;
@@ -503,6 +534,7 @@ TELAS.venda = function (id) {
     '<div class="sub" style="color:var(--tinta-fraca);font-size:13.5px">' +
       '👤 ' + esc(v.clienteNome || '?') + (cliente && cliente.cpf ? ' · ' + fmt.doc(cliente.cpf) : '') +
       (zap ? ' · <a href="' + linkWhats(zap, 'Olá, ' + (v.clienteNome || '').split(' ')[0] + '! Sobre seu contrato ' + nomeLotesVenda(v) + ' no Portal dos Bosques…') + '" target="_blank" rel="noopener">WhatsApp</a>' : '') +
+      (v.cobrancaConjunta ? '<br>Cobrança conjunta · títulos únicos. Consulte abaixo as condições originais de cada ficha.' : (
       (v.corretorNome ? '<br>🤝 corretor: ' + esc(v.corretorNome) + (v.comissao ? ' (comissão ' + finSaida(v.comissao) + ')' : '') +
         (v.corretor2Nome ? ' + ' + esc(v.corretor2Nome) + (v.comissao2 ? ' (' + finSaida(v.comissao2) + ')' : '') : '') : '') +
       (ultimaCobranca(v) ? '<br>📣 última cobrança: ' + fmt.quando(ultimaCobranca(v)) +
@@ -510,7 +542,7 @@ TELAS.venda = function (id) {
       '<br>🗓️ venda em ' + fmt.data(v.dataVenda || v.criadoEm) +
       ' · plano: ' + (v.entradaNoEspelho ? 'entrada de ' + fmt.brl(v.entrada) + ' já incluída nos boletos' : fmt.brl(v.entrada) + ' de entrada') +
       (v.entradaDetalhe ? ' (' + esc(v.entradaDetalhe) + ')' : '') + (v.entradaNoEspelho ? ' · ' : ' + ') + (v.qtdeParcelas || 0) + '× ' + fmt.brl(v.valorParcela) +
-      ' (' + esc(v.tipoParcela || 'Fixa') + ')' +
+      ' (' + esc(v.tipoParcela || 'Fixa') + ')' )) +
       (v.obs ? '<br>📝 ' + esc(v.obs) : '') +
     '</div>' +
     (sit === 'distratada' && v.distrato ? '<p class="nota" style="margin-top:8px">⛔ Distratada em ' + fmt.data(v.distrato.em) +
@@ -585,17 +617,9 @@ TELAS.venda = function (id) {
     '<div class="cartao"><h2>Recebimentos <span class="nota">— ' + recs.length + ' lançado(s)</span></h2>' +
     (linhasRecs || '<p class="nota">Nenhum dinheiro lançado ainda.</p>') + '</div>';
 
-  const anexos = (v.anexos || []).filter((a) => a && !a.apagadoEm);
-  const blocoAnexos =
-    '<div class="cartao"><h2>Contrato e arquivos <span class="nota">— ' + anexos.length + ' arquivo(s)</span></h2>' +
-    (anexos.map((a) =>
-      '<div class="lin" style="cursor:default"><div class="cresce"><b>' + esc(a.nome || 'arquivo') + '</b>' +
-      '<span class="sub">' + (a.rotulo ? esc(a.rotulo) + ' · ' : '') + fmt.data(a.em) + ' · por ' + esc(a.por || '—') + '</span></div>' +
-      '<button class="btn mini bt-baixar-arq" data-id="' + esc(a.arquivoId) + '" data-nome="' + esc(a.nome || 'arquivo') + '">baixar</button></div>').join('') ||
-      '<p class="nota">Suba aqui o contrato assinado — ele fica guardado com a venda.</p>') +
-    '</div>';
-
-  app.innerHTML = '<a class="nota" href="#/vendas">← vendas</a>' + cabec + carne + blocoRecs + blocoAnexos;
+  const blocoAnexos = arquivosGrupoHtml(v);
+  app.innerHTML = '<a class="nota" href="#/vendas">← vendas</a>' + cabec +
+    (v.agrupamento?.condicoesOriginais?condicoesGrupoHtml(v):'') + carne + blocoRecs + blocoAnexos + historicoGrupoHtml(v);
 
   /* ── ações ── */
   ligarBotoesCobranca(app);
@@ -675,16 +699,7 @@ TELAS.venda = function (id) {
       if (rc) PDF.recibo(rc, v, S.cfg || {});
     };
   });
-  app.querySelectorAll('.bt-baixar-arq').forEach((b) => {
-    b.onclick = async () => {
-      b.disabled = true; b.textContent = '…';
-      try {
-        const { blob, meta } = await baixarArquivo(b.dataset.id, (p) => { b.textContent = Math.round(p * 100) + '%'; });
-        salvarNoAparelho(blob, b.dataset.nome || meta.nome);
-      } catch (e) { toast(e.message || 'Falhou o download', 'ruim'); }
-      b.disabled = false; b.textContent = 'baixar';
-    };
-  });
+  ligarArquivosGrupo(app);
 };
 
 /* ── Baixa de parcela ──────────────────────────────────────────────────────── */
@@ -1194,6 +1209,7 @@ function abrirEditarParcela(v, idx, opts = {}) {
    o resto — corretores, comissões, datas, plano, observação — edita aqui.
    O plano NÃO mexe no espelho das parcelas: o carnê real vem do Omie. */
 function abrirEditarVenda(v) {
+  if(v.cobrancaConjunta){toast('As condições originais estão preservadas. Alterações comerciais exigem conferência das fichas e do contrato.', 'ruim');return;}
   const corrs = lista('corretor').filter((c) => c.ativo !== false);
   const opc = (sel) => corrs.map((c) => '<option value="' + esc(c.id) + '"' + (sel === c.id ? ' selected' : '') + '>' + esc(c.nome) + '</option>').join('');
   const corpo =

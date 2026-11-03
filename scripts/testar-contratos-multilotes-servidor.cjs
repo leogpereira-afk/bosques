@@ -6,7 +6,7 @@ const stamp='2026-01-01T00:00:00.000Z',migration='20261029150737_contratos_multi
 (async()=>{
  const db=new PGlite();let n=0,passaram=0,falhas=0;
  await db.exec('create role anon;create role authenticated;create role service_role bypassrls;create table bsq_registros(colecao text,id text,registro jsonb,atualizado_em timestamptz,apagado boolean default false,primary key(colecao,id));');
- for(const f of ['202610070001_historico_vinculo_unico.sql','20261021155644_conciliacao_financeira_auditavel.sql','20261021160030_conciliacao_sync_cas.sql',migration]){
+ for(const f of ['202610070001_historico_vinculo_unico.sql','20261021155644_conciliacao_financeira_auditavel.sql','20261021160030_conciliacao_sync_cas.sql',migration,'20261103210000_cobranca_conjunta_preservada.sql']){
    const p=path.join('supabase/migrations',f);if(fs.existsSync(p))await db.exec(fs.readFileSync(p,'utf8'));
  }
  const put=async(col,id,r)=>db.query('insert into bsq_registros values($1,$2,$3,now(),$4) on conflict(colecao,id) do update set registro=excluded.registro,apagado=excluded.apagado',[col,id,JSON.stringify({id,atualizadoEm:stamp,...r}),!!r.apagadoEm]);
@@ -92,5 +92,23 @@ const stamp='2026-01-01T00:00:00.000Z',migration='20261029150737_contratos_multi
   await teste(nome+' encerra classificação pendente após decisão humana',async()=>{for(const [col,id] of [['titulo','CONTA_A_RECEBER-t3'],['rec','extra']])await put(col,id,{...(await get(col,id)),classificacaoVinculo:{tipo:'pendente'}});await associar('t3');assert.equal((await get('titulo','CONTA_A_RECEBER-t3')).classificacaoVinculo,undefined);assert.equal((await get('rec','extra')).classificacaoVinculo,undefined);});
  }
  await teste('agrupamento encerra classificação pendente após seleção humana',async()=>{for(const [col,id] of [['titulo','CONTA_A_RECEBER-t3'],['rec','extra']])await put(col,id,{...(await get(col,id)),classificacaoVinculo:{tipo:'pendente'}});await call();assert.equal((await get('titulo','CONTA_A_RECEBER-t3')).classificacaoVinculo,undefined);assert.equal((await get('rec','extra')).classificacaoVinculo,undefined);});
+
+ const seguro=()=>{const p=pedido();delete p.plano;delete p.confirmarPlanoPrincipal;Object.assign(p,{modo:'cobranca_conjunta',politica:'preservar',confirmarCobrancaConjunta:true,entradaIncluidaNoEspelho:true});p.recebimentos=[];return p;};
+ await teste('cobrança conjunta preserva comissões, condições, documentos e histórico de todas as fichas',async()=>{
+   for(const id of ['v1','v2','v3']){const v=await get('venda',id);await put('venda',id,{...v,comissao:id==='v1'?100:200,corretorId:'cor-ficticio',anexos:[{arquivoId:'arq-'+id,nome:'Documento fictício'}],historico:[{id:'hist-'+id,acao:'criou'}]});}
+   const antes=await Promise.all(['v1','v2','v3'].map(id=>get('venda',id)));const rAntes=await get('rec','r2');const p=seguro();await call(p);
+   const depois=await Promise.all(['v1','v2','v3'].map(id=>get('venda',id)));const F=require('../financeiro-core.js');
+   assert.equal(F.vendasComerciais(depois).reduce((s,v)=>s+v.comissao,0),500);
+   assert.equal(F.anexosDoGrupo(depois[0],depois).length,3);
+   for(let i=0;i<3;i++){for(const k of ['entrada','qtdeParcelas','valorParcela','comissao','corretorId','anexos'])assert.deepEqual(depois[i][k],antes[i][k]);assert.deepEqual(depois[i].historico.slice(0,1),antes[i].historico);}
+   assert.equal(depois[0].parcelas.length,2);assert.equal(depois[0].entradaNoEspelho,true);
+   assert.equal((await get('rec','r2')).valor,rAntes.valor);assert.equal((await get('rec','r2')).data,rAntes.data);
+   const foto=await snapshot();assert.equal((await call(p)).repetida,true);assert.equal(await snapshot(),foto);
+ });
+ await teste('modo preservado rejeita divergência sem mudar qualquer registro',async()=>{
+   const p=seguro(),v=await get('venda','v2');v.parcelas[0].venc='2027-02-01';await put('venda','v2',v);const foto=await snapshot();await assert.rejects(call(p),/diverg|condiç/i);assert.equal(await snapshot(),foto);
+ });
+ await teste('modo preservado não aceita novo valor no plano',async()=>{const p=seguro();p.plano={entrada:999};const foto=await snapshot();await assert.rejects(call(p),/novo plano|conjunta/i);assert.equal(await snapshot(),foto);});
+ await teste('modo preservado exige confirmação expressa',async()=>{const p=seguro();delete p.confirmarCobrancaConjunta;const foto=await snapshot();await assert.rejects(call(p),/Confirme/i);assert.equal(await snapshot(),foto);});
  await db.close();console.log(passaram+' passaram; '+falhas+' falharam');if(falhas)process.exitCode=1;
 })().catch(e=>{console.error(e);process.exitCode=1;});

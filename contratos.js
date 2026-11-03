@@ -69,6 +69,7 @@ function planoContratoResumo(plano) {
 
 /* ── o PDF do contrato ────────────────────────────────────────────────────── */
 function gerarContratoPdf(v, cliente, l, cfg, plano) {
+  if(v.cobrancaConjunta) throw Error('Consulte o contrato original do conjunto. O vínculo financeiro não cria novas condições contratuais.');
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF({ unit: 'mm', format: 'a4' });
   // O PLANO vem corrigido do modal (a venda é o prefill; o que o dono digitar
@@ -335,6 +336,7 @@ function abrirGerarContrato(vendaId) {
   const v = achar('venda', vendaId);
   if (!v) return;
   if (v.incorporadaEmVendaId) { TELAS.venda(vendaId); return; }
+  if(v.cobrancaConjunta){toast('Cobrança conjunta: consulte os contratos originais na ficha. Nenhum novo plano foi definido.', 'ruim');TELAS.venda(vendaId);return;}
   if (!FINANCEIRO.vendaAtiva(v)) { toast('Esta venda está arquivada. Consulte os documentos e o histórico na ficha.', 'ruim'); return; }
   const cli = achar('cliente', v.clienteId) || {};
   const iniPrefill = v.inicioParcelas || '';
