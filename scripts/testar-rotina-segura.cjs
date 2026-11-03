@@ -26,7 +26,9 @@ function ambiente(opcoes = {}) {
     },
     lerCfgBruta: async () => ({ empresa: { nome: 'Empresa de teste' }, senhaHash: 'nao-copiar' }),
     lerNumeracao: async () => ({ venda: 1 }),
-    lerColecaoBruta: async () => [{ id: 'arquivo-orfao-ficticio', registro: { partes: 1, criadoEm: '2000-01-01' } }],
+    lerColecaoBruta: async (col, campos) => col === '_arqmeta'
+      ? [{ id: 'arquivo-orfao-ficticio', registro: { partes: 1, criadoEm: '2000-01-01' } }]
+      : (assert.match(campos, /arquivoId:registro->arquivoId/), []),
     gravarBackup: async (dia, conteudo) => {
       chamadas.gravarBackup++;
       if (falhasBackup.length) throw falhasBackup.shift();
@@ -41,7 +43,16 @@ function ambiente(opcoes = {}) {
     apagarDeVez: async () => { chamadas.exclusoes++; },
     gravarUm: async () => {},
     registrarLog: async x => { logs.push(JSON.parse(JSON.stringify(x))); },
-    db: { from: tabela => ({
+    db: { rpc: async nome => {
+      assert.equal(nome, 'bsq_criar_backup_diario');
+      chamadas.lerTudo++;
+      if (falhasLeitura.length) throw falhasLeitura.shift();
+      chamadas.gravarBackup++;
+      if (falhasBackup.length) return { error: falhasBackup.shift() };
+      if (opcoes.semConfirmacao) return { data: null, error: null };
+      backups.set('2026-10-21', { cfg: { empresa: { nome: 'Empresa de teste' } } });
+      return { data: { dia: '2026-10-21', registros: 1, arquivos: 1 }, error: null };
+    }, from: tabela => ({
       delete: () => {
         chamadas.exclusoes++;
         return { lt: () => ({ select: async () => ({ data: [], error: opcoes.erroLimpeza || null }) }) };
@@ -146,6 +157,11 @@ async function teste(nome, fn) {
   await teste('Corpo inválido é recusado antes de qualquer operação', async () => {
     const a = ambiente(); const r = await a.chamar('{');
     assert.equal(r.status, 400); assert.equal(a.chamadas.gravarBackup, 0); assert.equal(a.chamadas.exclusoes, 0);
+  });
+  await teste('RPC sem confirmação não autoriza limpezas nem anuncia sucesso', async () => {
+    const a = ambiente({ semConfirmacao: true }); const r = await a.chamar();
+    assert.equal(r.status, 503); assert.equal(a.chamadas.exclusoes, 0);
+    assert.equal(r.corpo.backupSalvo, undefined); assert.equal(a.backups.size, 0);
   });
   await teste('Modo somente backup com tipo errado não pode executar limpezas por engano', async () => {
     const a = ambiente(); const r = await a.chamar({ somenteBackup: 'true' });

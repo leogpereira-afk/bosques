@@ -335,9 +335,10 @@ function abrirGerarContrato(vendaId) {
   const v = achar('venda', vendaId);
   if (!v) return;
   if (v.incorporadaEmVendaId) { TELAS.venda(vendaId); return; }
+  if (!FINANCEIRO.vendaAtiva(v)) { toast('Esta venda está arquivada. Consulte os documentos e o histórico na ficha.', 'ruim'); return; }
   const cli = achar('cliente', v.clienteId) || {};
-  const iniPrefill = v.inicioParcelas ||
-    (() => { const d = new Date(); return new Date(d.getFullYear(), d.getMonth() + 1, 10).toISOString().slice(0, 10); })();
+  const iniPrefill = v.inicioParcelas || '';
+  let gerando = false;
   const corpo =
     '<p><b>' + esc(nomeLotesVenda(v)) + '</b></p>' +
     (v.entradaNoEspelho ? '<p class="nota">A entrada informada já está incluída nos boletos da ficha. Revise a composição do plano abaixo antes de gerar o contrato, para não somá-la novamente.</p>' : '') +
@@ -384,6 +385,11 @@ function abrirGerarContrato(vendaId) {
     acoes: [
       { texto: 'Voltar', aoClicar: () => fecharModal() },
       { texto: 'Gerar contrato (PDF)', classe: 'primario', aoClicar: async (fundo) => {
+        if (gerando) return;
+        gerando = true;
+        try {
+        const atual = achar('venda', vendaId);
+        if (!FINANCEIRO.vendaAtiva(atual)) { toast('A venda foi arquivada ou incorporada. Reabra a ficha para consultar o histórico.', 'ruim'); return; }
         const c = lerCampos(fundo);
         if (!c.nome.trim() || !c.cpf.trim()) { toast('Nome e CPF são obrigatórios no contrato', 'ruim'); return; }
         const plano = {
@@ -397,20 +403,38 @@ function abrirGerarContrato(vendaId) {
           entradaDetalhe: String(c.entradaDetalhe || '').slice(0, 160),
         };
         if(plano.entrada<0||plano.valorParcela<0||plano.parcCheia<0||numeroBR(c.qtdeParcelas)<0||numeroBR(c.qtdeParcelas)>1200){toast('Informe valores positivos e até 1.200 parcelas.', 'ruim');return;}
+        if(![plano.entrada,plano.qtdeParcelas,plano.valorParcela,plano.parcCheia].every(Number.isFinite)||!Number.isInteger(numeroBR(c.qtdeParcelas))){toast('Confira os valores e informe uma quantidade inteira de parcelas.', 'ruim');return;}
+        if(plano.entrada===0&&plano.qtdeParcelas===0){toast('O plano está incompleto: informe o valor à vista ou as parcelas confirmadas antes de gerar o contrato.', 'ruim');return;}
         if(plano.qtdeParcelas&&(!plano.inicioParcelas||!plano.valorParcela||!plano.parcCheia)){toast('Preencha o vencimento e os valores das parcelas.', 'ruim');return;}
+        if(plano.qtdeParcelas){const d=new Date(plano.inicioParcelas+'T12:00:00Z');if(!/^\d{4}-\d{2}-\d{2}$/.test(plano.inicioParcelas)||Number.isNaN(+d)||d.toISOString().slice(0,10)!==plano.inicioParcelas){toast('Informe uma data de vencimento válida, conforme o plano confirmado.', 'ruim');return;}}
         if(plano.qtdeParcelas&&Math.abs(Math.round(plano.parcCheia*80)-Math.round(plano.valorParcela*100))>1){toast('O modelo prevê desconto de 20%. Ajuste a parcela cheia ou o valor em dia.', 'ruim');return;}
-        const l = achar('lote', v.loteId);
-        const blob = gerarContratoPdf({ ...v, codigo: v.codigo }, c, l, S.cfg || {}, plano);
-        // a correção VOLTA para a venda — contrato e sistema contam a mesma história
-        salvar('venda', { id: v.id, entrada: plano.entrada, qtdeParcelas: plano.qtdeParcelas,
+        // A emissão só usa campos confirmados pelo servidor. A fila preserva
+        // a tentativa se houver falha, sem emitir um contrato divergente.
+        const vendaCampos = { entrada: plano.entrada, qtdeParcelas: plano.qtdeParcelas,
           valorParcela: plano.valorParcela, parcCheia: plano.parcCheia, tipoParcela: plano.tipoParcela,
-          inicioParcelas: plano.inicioParcelas, entradaDetalhe: plano.entradaDetalhe,
-          historico: [{ em: new Date().toISOString(), por: S.quem || '—', acao: 'plano corrigido ao gerar o contrato' }] });
+          inicioParcelas: plano.inicioParcelas, entradaDetalhe: plano.entradaDetalhe };
+        const itens = [{ colecao: 'venda', registro: { id: v.id, ...vendaCampos,
+          historico: historiar(atual, 'plano revisado ao gerar o contrato') } }];
+        const clienteCampos = { nome: c.nome, cpf: c.cpf, rg: c.rg, profissao: c.profissao,
+          nacionalidade: c.nacionalidade, email: c.email, endereco: c.endereco,
+          bairro: c.bairro, cidade: c.cidade, cep: c.cep };
         if (cli.id) {
-          salvar('cliente', { id: cli.id, nome: c.nome, cpf: c.cpf, rg: c.rg, profissao: c.profissao,
-            nacionalidade: c.nacionalidade, email: c.email, endereco: c.endereco,
-            bairro: c.bairro, cidade: c.cidade, cep: c.cep });
+          itens.push({ colecao: 'cliente', registro: { id: cli.id, ...clienteCampos } });
         }
+        salvarGrupo(itens, { semSubir: true });
+        await subirFila();
+        const confirmado = (col, id, campos) => {
+          const r = achar(col, id);
+          return r && !r._pendente && !S.fila.some(f => f.colecao === col && f.registro.id === id) &&
+            Object.entries(campos).every(([chave, valor]) => String(r[chave] ?? '') === String(valor ?? ''));
+        };
+        if (!confirmado('venda', v.id, vendaCampos) || (cli.id && !confirmado('cliente', cli.id, clienteCampos))) {
+          toast('Gravação ainda não confirmada. O PDF não foi emitido; confira a sincronização e tente novamente.', 'ruim'); return;
+        }
+        const vendaConfirmada = achar('venda', v.id);
+        if (!FINANCEIRO.vendaAtiva(vendaConfirmada)) { toast('A venda foi arquivada durante a gravação. O PDF não foi emitido.', 'ruim'); return; }
+        const l = achar('lote', vendaConfirmada.loteId);
+        const blob = gerarContratoPdf(vendaConfirmada, { ...cli, ...clienteCampos }, l, S.cfg || {}, plano);
         const nomeArq = 'Contrato-Bosques-' + (v.codigo || 'Q' + v.quadra + 'L' + v.lote) + '-' +
           (c.nome || '').split(' ')[0] + '.pdf';
         salvarNoAparelho(blob, nomeArq);
@@ -418,10 +442,16 @@ function abrirGerarContrato(vendaId) {
         toast('Contrato gerado — baixando e anexando à venda…');
         try {
           const meta = await enviarArquivo(new File([blob], nomeArq, { type: 'application/pdf' }));
-          salvar('venda', { id: v.id, anexos: [{ id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
-            arquivoId: meta.id, nome: nomeArq, rotulo: 'contrato gerado', em: new Date().toISOString(), por: S.quem || '—' }] });
+          const anexo = { id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+            arquivoId: meta.id, nome: nomeArq, rotulo: 'contrato gerado', em: new Date().toISOString(), por: S.quem || '—' };
+          salvar('venda', { id: v.id, anexos: [...(achar('venda', v.id)?.anexos || []), anexo] });
+          await subirFila();
+          if (!confirmado('venda', v.id, {}) || !(achar('venda', v.id)?.anexos || []).some(a => a.id === anexo.id)) {
+            toast('PDF baixado; o vínculo do anexo ainda está pendente de confirmação.', 'ruim'); return;
+          }
           toast('Contrato anexado à venda ✓');
         } catch (e) { toast('PDF baixado; não anexou à venda agora (' + (e.message || 'sem internet') + ')', 'ruim'); }
+        } finally { gerando = false; }
       } },
     ],
   });

@@ -141,12 +141,14 @@ const GESTAO_UI = (() => {
     return recolher('Fonte e atualização dos dados','<dl class="gf-detalhe"><div><dt>Última sincronização concluída do Omie</dt><dd id="gf-sync-fonte">'+esc(origem?quando(origem):'Não confirmada nesta leitura')+'</dd></div><div><dt>Leitura no aparelho</dt><dd>'+esc(local)+'</dd></div><div><dt>Saldo consultado</dt><dd>'+esc(dadosSaldos?.quando?quando(dadosSaldos.quando):'Ainda não consultado')+'</dd></div><div><dt>Estado</dt><dd>'+esc(dadosSaldos?.desatualizado?'Última leitura preservada após falha':dadosSaldos?.parcial?'Saldos parciais':'Cada fonte tem sua própria data')+'</dd></div></dl>'+(S.erroSync?aviso(S.erroSync):''));
   }
   async function consultarSaldos(renderizar,forcar=true){
+    if(histLendo||revisandoMovimentos){if(forcar)toast('Aguarde a consulta de extratos em andamento antes de atualizar os saldos.');return;}
     if(saldosLendo)return;saldosLendo=true;saldosTentados=true;
     const btn=document.getElementById('gf-consultar-saldo');if(btn){btn.disabled=true;btn.textContent='Consultando…';}
     try{dadosSaldos=await saldoBancosOmie(forcar);}catch(e){dadosSaldos={...(dadosSaldos||{contas:[],parcial:true}),desatualizado:true,erro:e.message||'Não foi possível consultar os saldos.'};}finally{saldosLendo=false;}
     if(rendererAtual===renderizar&&document.querySelector('.gf'))renderizar();
   }
   async function carregarHistorico(renderizar,consultar=false){
+    if(saldosLendo||revisandoMovimentos){if(consultar)toast('Aguarde a consulta financeira em andamento antes de consultar outros extratos.');return;}
     if(histLendo)return;const b=base(),f={...estado()},p=F.intervalo(f,b.hoje,b.bancos),ate=p.ate>b.hoje?b.hoje:p.ate,cs=todasContas(b).filter(c=>!f.conta||c.id===f.conta);
     if(!p.valido||p.de>ate){toast('Selecione um período já realizado.','ruim');return;}
     histLendo=true;histMensagem='Consultando histórico…';renderizar();
@@ -167,6 +169,7 @@ const GESTAO_UI = (() => {
   }
   let revisandoMovimentos=false;
   async function revisarMovimentos(){
+    if(saldosLendo||histLendo){toast('Aguarde a consulta financeira em andamento antes de revisar os movimentos.');return;}
     if(revisandoMovimentos)return;
     const f=estado(),p=F.intervalo(f,hojeISO(),base().bancos),ate=p.ate>hojeISO()?hojeISO():p.ate;
     if(!f.conta||!p.valido||p.de.slice(0,7)!==ate.slice(0,7)||p.de>ate){toast('Selecione uma conta e um único mês realizado para revisar.','ruim');return;}

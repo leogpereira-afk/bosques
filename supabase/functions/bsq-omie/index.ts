@@ -157,6 +157,7 @@ const MAPA_CATEGORIA: [string, string][] = [
   ["2.07.01", "Obra / infraestrutura"],   // máquinas e equipamentos
   ["2.07.04", "Administrativo"],          // informática
   ["2.07.06", "Telefone / internet"],
+  ["2.09", "Distrato / devolução"],       // devoluções da receita na origem
   ["2.01", "Obra / infraestrutura"],      // matéria prima, serviços, mercadorias
   ["2.03", "Funcionários"],               // salários, adiantamentos
   ["2.04", "Administrativo"],

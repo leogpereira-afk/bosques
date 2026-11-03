@@ -13,17 +13,12 @@
 // ============================================================================
 import { json } from "../_shared/cors.ts";
 import { NOMES_COLECOES } from "../_shared/colecoes.ts";
-import { cfgSemSegredo } from "../_shared/acesso.ts";
 import { arquivosDoRegistro } from "../_shared/arquivos.ts";
 import { lapideDe, precisaLapide } from "../_shared/lixeira.ts";
 import {
   db,
   agora,
   lerUm,
-  lerTudo,
-  lerCfgBruta,
-  lerNumeracao,
-  gravarBackup,
   apagarArquivo,
   apagarDeVez,
   gravarUm,
@@ -103,23 +98,18 @@ Deno.serve(async (req) => {
   for (let tentativa = 1; tentativa <= 3; tentativa++) {
     resultado.backupTentativas = tentativa;
     try {
-    // Cadastros de acesso são privados: entram no backup, não no snapshot do painel.
-    const registros = await lerTudo(null, [...NOMES_COLECOES, "espelho_acesso"]);
-    const cfg = await lerCfgBruta();
-    // Nenhum hash de senha entra na cópia.
-    const copia = cfgSemSegredo(cfg);
-    // Sem a numeração, uma restauração recomeçaria em SC-0001 e repetiria
-    // número de documento que já foi para fornecedor.
-    const seq = await lerNumeracao();
-    // Inventário dos arquivos: sem ele ninguém sabe quais plantas existiam.
-    // Paginado: uma varredura sem .range() para em 1000 e o backup ficaria
-    // incompleto sem avisar.
-    const metas = await lerColecaoBruta(META, "registro");
-    const arquivos = metas.map((l: any) => l.registro);
-
-    await gravarBackup(hoje, { em: agora(), cfg: copia, registros, seq, arquivos });
-    resultado.registros = registros.length;
-    resultado.arquivos = arquivos.length;
+    // Uma transação no banco captura registros, configuração sem hashes,
+    // numeração e inventário. Só a confirmação pequena volta à Edge Function.
+    const { data, error } = await db.rpc("bsq_criar_backup_diario");
+    if (error) throw error;
+    if (!data || typeof data.dia !== "string" || !Number.isInteger(data.registros) ||
+      data.registros < 0 || !Number.isInteger(data.arquivos) || data.arquivos < 0) {
+      throw new Error("Backup sem confirmação válida do banco");
+    }
+    resultado.dia = data.dia;
+    resultado.backupEm = data.em;
+    resultado.registros = data.registros;
+    resultado.arquivos = data.arquivos;
     resultado.backupSalvo = true;
     break;
     } catch (e) {
@@ -183,10 +173,14 @@ Deno.serve(async (req) => {
   //    interrompido, registro apagado de vez). Sem isso uma planta de 60MB fica
   //    ocupando espaço para sempre.
   try {
-    // Cadastros de acesso são privados: entram no backup, não no snapshot do painel.
-    const registros = await lerTudo(null, [...NOMES_COLECOES, "espelho_acesso"]);
     const usados = new Set<string>();
-    for (const o of registros) for (const id of arquivosDoRegistro(o)) usados.add(id);
+    // A varredura precisa das referências, não dos documentos originais Omie
+    // e de todo o histórico. Mantém paginação e inclui registros da lixeira.
+    for (const colecao of [...NOMES_COLECOES, "espelho_acesso"]) {
+      const referencias = await lerColecaoBruta(colecao,
+        "id,arquivoId:registro->arquivoId,versoes:registro->versoes,anexos:registro->anexos,documentos:registro->documentos");
+      for (const o of referencias) for (const id of arquivosDoRegistro(o)) usados.add(id);
+    }
 
     const metas = await lerColecaoBruta(META, "id, registro");
     // Carência de 1 dia: arquivo recém-enviado pode estar esperando o registro

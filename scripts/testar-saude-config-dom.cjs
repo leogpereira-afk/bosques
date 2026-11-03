@@ -8,6 +8,10 @@ const fs = require('fs'), vm = require('vm'), assert = require('node:assert/stri
     status: 'completa', quando: new Date().toISOString(), contagens: {},
     pendencias: [{ tipo: 'vinculo', titulo: 123, valor: 150 }],
   }, automacao: { ativa: true, intervaloMinutos: 15 } };
+  const diaBackup = new Date().toISOString().slice(0, 10), emBackup = diaBackup + 'T12:00:00.000Z';
+  let respostaBackup = { ok: true, backups: [{ dia: diaBackup, em: emBackup }],
+    rotina: { dia: '2020-01-01', em: '2020-01-01T12:00:00Z', registros: 35 },
+    backupStatus: { dia: diaBackup, em: diaBackup + 'T12:00:01Z', backupEm: emBackup, backupSalvo: true, registros: 42 } };
   let falhar = true;
   const ctx = vm.createContext({ document, window: { addEventListener() {}, FINANCEIRO_EM_VALIDACAO: true },
     navigator: { onLine: true }, location: { hash: '#/config' },
@@ -23,7 +27,7 @@ const fs = require('fs'), vm = require('vm'), assert = require('node:assert/stri
         if (falhar) throw Error('Falha temporária simulada');
         return resposta;
       }
-      return { ok: true, backups: [{ dia: new Date().toISOString().slice(0, 10) }] };
+      return respostaBackup;
     },
   });
   for (const f of ['config.js', 'ui.js', 'mapa-espelho.js', 'store.js', 'carne.js', 'financeiro-core.js', 'pdf.js', 'espelho.js',
@@ -50,5 +54,26 @@ const fs = require('fs'), vm = require('vm'), assert = require('node:assert/stri
   const detalhes = saude.querySelector('details'); detalhes.open = true;
   timer.fn(); await esperar(); assert.equal(saude.querySelector('details').open, true);
   assert.ok(pedidos.every(p => p.acao === 'saude'));
+  const conferirBackup = async (resposta, esperado, naoEsperado) => {
+    respostaBackup = resposta; vm.runInContext('TELAS.config()', ctx); await esperar();
+    const texto = document.querySelector('#cf-saude').textContent;
+    assert.match(texto, esperado); if (naoEsperado) assert.doesNotMatch(texto, naoEsperado);
+  };
+  const atual = respostaBackup;
+  await conferirBackup(atual, /42 registros/, /35 registros|Backup automático em dia/);
+  await conferirBackup({ ...atual, backupStatus: { ...atual.backupStatus, registros: 0 } }, /0 registros/, /35 registros/);
+  await conferirBackup({ ...atual, backupStatus: { ...atual.backupStatus, backupEm: null } }, /Cópia de segurança em dia/, /\d+ registros/);
+  await conferirBackup({ ...atual, backupStatus: { ...atual.backupStatus, backupEm: diaBackup + 'T11:59:59Z' } }, /Cópia de segurança em dia/, /\d+ registros/);
+  await conferirBackup({ ...atual, backups: [{ dia: diaBackup, em: diaBackup + 'T12:00:00.000001Z' }],
+    backupStatus: { ...atual.backupStatus, backupEm: diaBackup + 'T12:00:00.000002Z' } }, /Cópia de segurança em dia/, /\d+ registros/);
+  await conferirBackup({ ...atual, backupStatus: { ...atual.backupStatus, dia: '2020-01-01' } }, /Cópia de segurança em dia/, /\d+ registros/);
+  await conferirBackup({ ...atual, backupStatus: { ...atual.backupStatus, backupSalvo: false } }, /Cópia de segurança em dia/, /\d+ registros/);
+  await conferirBackup({ ...atual, backupStatus: { ...atual.backupStatus, registros: '<img src=x>' } }, /Cópia de segurança em dia/, /<img|35 registros/);
+  assert.equal(document.querySelector('#cf-saude img'), null);
+  await conferirBackup({ ...atual, backupStatus: null, rotina: { ...atual.backupStatus, registros: 43 } }, /43 registros/, /42 registros/);
+  await conferirBackup({ ...atual, backups: [] }, /Nenhum backup na tabela/, /42 registros/);
+  await conferirBackup({ ...atual, backups: [{ dia: '2020-01-01', em: '2020-01-01T12:00:00Z' }] }, /Backup atrasado/, /42 registros/);
+  assert.ok(pedidos.every(p => p.acao === 'saude'));
+  console.log('PASSOU backup: 11 cenários de data/quantidade da mesma cópia, legado, zero, falha, injeção e ausência.');
   console.log('PASSOU DOM: Configurações recupera sozinha, preserva campo em edição e detalhes abertos, sem gravação, snapshot ou importação.');
 })().catch(e => { console.error(e); process.exit(1); });

@@ -403,14 +403,23 @@ TELAS.config = function () {
       const r = await api('saude');
       const ult = (r.backups && r.backups[0]) || null;
       if (!ult) { el.innerHTML = '⚠ <b>Nenhum backup na tabela ainda.</b>'; el.style.color = 'var(--ruim)'; return; }
+      // Data e quantidade pertencem à MESMA cópia. O status da manutenção
+      // pode ser antigo, e duas cópias do mesmo dia podem ter contagens diferentes.
+      const emCopia = Date.parse(ult.em);
+      const comprovacao = [r.backupStatus, r.rotina].find(st => st && st.backupSalvo === true &&
+        st.dia === ult.dia && Number.isFinite(emCopia) && st.backupEm === ult.em);
+      const registros = comprovacao && Number.isSafeInteger(comprovacao.registros) && comprovacao.registros >= 0
+        ? comprovacao.registros : null;
       const hoje = hojeISO();
       const ontem = CARNE.venc(hoje, 0) && new Date(Date.now() - 86400000).toISOString().slice(0, 10);
       const atrasado = ult.dia < ontem;
       el.innerHTML = (atrasado
-        ? '🔴 <b>Backup atrasado!</b> O último é de ' + fmt.data(ult.dia) + ' — a rotina das 03:10 não está entregando. Avise quem cuida do sistema.'
-        : '🟢 Backup automático em dia: último em <b>' + fmt.data(ult.dia) + '</b>' +
-          (r.rotina && r.rotina.registros ? ' com <b>' + r.rotina.registros + ' registros</b>' : '') +
-          ' · roda sozinho todo dia às 03:10 e guarda 60 dias.');
+        ? '🔴 <b>Backup atrasado!</b> O último é de ' + fmt.data(ult.dia) + ' — confira a execução da rotina diária. Avise quem cuida do sistema.'
+        : '🟢 Cópia de segurança em dia: salva em <b>' + fmt.data(ult.dia) + '</b>' +
+          (registros !== null ? ' com <b>' + registros + ' registros</b>' : '') +
+          ' · histórico diário guardado por até 60 dias.');
+      if (r.rotina && r.rotina.em) el.innerHTML += '<br>Última rotina de manutenção: ' + esc(fmt.quando(r.rotina.em)) +
+        (r.rotina.ok === false ? ' · há falhas registradas.' : '');
       if (atrasado) el.style.color = 'var(--ruim)';
     } catch (e) {
       el.textContent = '⚠ Não consegui conferir o backup agora: ' + (e.message || 'sem resposta');

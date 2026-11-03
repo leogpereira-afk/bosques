@@ -51,7 +51,7 @@ function abrirFichaPessoa(col, id, opts) {
   const extras = vendas.length
     ? '<div class="campo"><label>Vendas</label>' + vendas.map((v) =>
         '<div class="nota" style="padding:2px 0">• <a href="#/venda/' + esc(v.id) + '" onclick="fecharModal()">' +
-        esc(v.codigo || '') + '</a> Q' + v.quadra + '-L' + v.lote +
+        esc(v.codigo || '') + '</a> ' + esc(nomeLotesVenda(v)) +
         (ehCorretor ? ' · ' + esc(v.clienteNome || '') : (v.corretorNome ? ' · corretor: ' + esc(v.corretorNome) : ' · sem corretor')) +
         ' · ' + fmt.data(v.dataVenda || v.criadoEm) + ' ' + etiqueta(v.situacao || 'ativa') + '</div>').join('') + '</div>'
     : '';
@@ -130,6 +130,7 @@ TELAS.clientes = function () {
 
   const linhaCliente = (p) => {
     const suas = vendas.filter((v) => v.clienteId === p.id);
+    const totalLotes = new Set(suas.flatMap(v => FINANCEIRO.lotesVenda(v).map(l => l.loteId))).size;
     const corretores2 = [...new Set(suas.map((v) => v.corretorNome).filter(Boolean))];
     const comp = completudeCliente(p);
     return '<div class="lin cli-lin" data-id="' + esc(p.id) + '">' +
@@ -137,7 +138,7 @@ TELAS.clientes = function () {
       '<div class="cresce"><b>' + esc(p.nome || '?') + '</b>' +
       '<span class="sub">' + (p.cpf ? fmt.doc(p.cpf) + ' · ' : '') +
         ((p.whatsapp || p.celular) ? fmt.telefone(p.whatsapp || p.celular) + ' · ' : '') +
-        suas.length + ' lote(s)' +
+        totalLotes + ' lote(s)' +
         (corretores2.length ? ' · corretor: ' + esc(corretores2.join(', ')) : '') + '</span></div>' +
       ((p.whatsapp || p.celular) ? '<a class="btn mini whats" target="_blank" rel="noopener" onclick="event.stopPropagation()" href="' +
         linkWhats(p.whatsapp || p.celular, 'Olá, ' + (p.nome || '').split(' ')[0] + '!') + '">WhatsApp</a>' : '') +

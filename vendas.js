@@ -238,6 +238,7 @@ TELAS.vendas = function () {
     .reduce((s, r) => s + FINANCEIRO.cent(r.valor), 0) / 100;
 
   const filtradas = linhas.filter(({ v, r }) => {
+    if (!filtro.sit && v.situacao === 'distratada') return false;
     if (filtro.sit && (v.situacao || 'ativa') !== filtro.sit) return false;
     if (filtro.so === 'atraso' && !(r.qtdAtraso > 0 && ['ativa', 'conferir'].includes(v.situacao || 'ativa'))) return false;
     if (filtro.q) {
@@ -281,7 +282,7 @@ TELAS.vendas = function () {
   // ali dentro. Só a busca/filtro tira do agrupamento (mostra o resultado
   // plano — procurar um nome não pode exigir saber o mês).
   const porMesVenda = {};
-  for (const x of linhas) {
+  for (const x of linhas.filter(x => x.v.situacao !== 'distratada')) {
     const m = mesDe(x.v.dataVenda || x.v.criadoEm);
     const chave = /^\d{4}-\d{2}$/.test(m) ? m : 'sem-data';
     const b = porMesVenda[chave] = porMesVenda[chave] || { n: 0, vgv: 0, itens: [] };
@@ -351,8 +352,8 @@ TELAS.vendas = function () {
     '</div>' +
     '<div class="filtros">' +
       '<input type="search" id="vd-q" placeholder="cliente, lote, código…" value="' + esc(filtro.q) + '">' +
-      '<select id="vd-sit"><option value="">Todas</option>' +
-        [['ativa', 'Ativas'], ['conferir', 'Conferir'], ['quitada', 'Quitadas'], ['distratada', 'Distratadas']]
+      '<select id="vd-sit"><option value="">Vendas em vigor</option>' +
+        [['ativa', 'Ativas'], ['conferir', 'Conferir'], ['quitada', 'Quitadas'], ['distratada', 'Arquivadas · distratos']]
           .map(([v2, t]) => '<option value="' + v2 + '"' + (filtro.sit === v2 ? ' selected' : '') + '>' + t + '</option>').join('') + '</select>' +
       '<button class="chip' + (filtro.so === 'atraso' ? ' on' : '') + '" id="vd-atraso">só atraso</button>' +
       '<button class="btn mini" id="vd-pdf" title="baixa o retrato do que está na tela — filtrou, sai só o filtrado">📄 PDF</button>' +
@@ -383,7 +384,7 @@ TELAS.vendas = function () {
     if (filtro.so === 'atraso') pedacos.push('só em atraso');
     if (filtro.sit) pedacos.push(({ ativa: 'ativas', conferir: 'a conferir', quitada: 'quitadas', distratada: 'distratadas' })[filtro.sit] || filtro.sit);
     if (filtro.q) pedacos.push('busca "' + filtro.q + '"');
-    PDF.vendasDash(filtradas, pedacos.join(' · ') || 'todas as vendas', S.cfg || {});
+    PDF.vendasDash(filtradas, pedacos.join(' · ') || 'vendas em vigor · inclui quitadas', S.cfg || {});
     toast('PDF gerado — ' + filtradas.length + ' venda(s)');
   };
   const bFila = document.getElementById('vd-fila');
@@ -491,11 +492,14 @@ TELAS.venda = function (id) {
   const recs = recsDaVenda(id);
   const r = resumoVenda(v);
   const sit = v.situacao || 'ativa';
-  const viva = ['ativa', 'conferir'].includes(sit);
+  const viva = !v.apagadoEm && ['ativa', 'conferir'].includes(sit);
+  const devolucaoRegistrada = sit === 'distratada' ? lista('cx').filter(c => !c._pendente && c.tipo === 'saida' &&
+    c.categoria === 'Distrato / devolução' && c.vendaId === v.id).reduce((s, c) => s + FINANCEIRO.cent(c.valor), 0) / 100 : 0;
 
   const zap = cliente && (cliente.whatsapp || cliente.celular);
   const cabec =
     '<div class="cartao"><h2>' + esc(v.codigo || 'Venda') + ' — ' + esc(nomeLotesVenda(v)) + ' ' + etiqueta(sit) + '</h2>' +
+    (v.apagadoEm ? '<p class="nota">Venda na lixeira · somente leitura. Documentos e recebimentos foram preservados; a direção pode conferir a restauração nas Configurações.</p>' : '') +
     '<div class="sub" style="color:var(--tinta-fraca);font-size:13.5px">' +
       '👤 ' + esc(v.clienteNome || '?') + (cliente && cliente.cpf ? ' · ' + fmt.doc(cliente.cpf) : '') +
       (zap ? ' · <a href="' + linkWhats(zap, 'Olá, ' + (v.clienteNome || '').split(' ')[0] + '! Sobre seu contrato ' + nomeLotesVenda(v) + ' no Portal dos Bosques…') + '" target="_blank" rel="noopener">WhatsApp</a>' : '') +
@@ -511,7 +515,8 @@ TELAS.venda = function (id) {
     '</div>' +
     (sit === 'distratada' && v.distrato ? '<p class="nota" style="margin-top:8px">⛔ Distratada em ' + fmt.data(v.distrato.em) +
       (v.distrato.motivo ? ' — ' + esc(v.distrato.motivo) : '') +
-      (v.distrato.valorDevolvido ? ' · devolvido ' + fmt.brl(v.distrato.valorDevolvido) : '') + '</p>' : '') +
+      (v.distrato.valorDevolvido ? ' · devolução combinada: ' + fmt.brl(v.distrato.valorDevolvido) +
+        (devolucaoRegistrada > 0 ? ' · saída de devolução registrada: ' + fmt.brl(devolucaoRegistrada) : ' · pagamento não confirmado neste painel') : '') + '</p>' : '') +
     '<div class="paineis" style="margin:12px 0 0">' +
       '<div class="painel clicavel" data-rola="carne"><div class="rot">Contrato</div><div class="num">' + fmt.brl(r.total) + '</div></div>' +
       '<div class="painel clicavel" data-rola="recs"><div class="rot">Pago</div><div class="num pos">' + fmt.brl(r.pago) + '</div>' +
@@ -527,9 +532,9 @@ TELAS.venda = function (id) {
       (viva ? botaoCobranca(v, r, false) : '') +
       (viva && r.quitada ? '<button class="btn" id="bt-quitar">✅ Marcar quitada</button>' : '') +
       (viva ? '<button class="btn perigo" id="bt-distrato">Distratar…</button>' : '') +
-      (sit === 'distratada' && S.perfil === 'direcao' ? '<button class="btn" id="bt-reabrir">Reabrir venda</button>' : '') +
-      (sit === 'conferir' ? '<button class="btn" id="bt-ok">Conferido — marcar ativa</button>' : '') +
-      '<button class="btn" id="bt-anexo">📎 Anexar contrato/arquivo</button>' +
+      (!v.apagadoEm && sit === 'distratada' && S.perfil === 'direcao' ? '<button class="btn" id="bt-reabrir">Reabrir venda</button>' : '') +
+      (!v.apagadoEm && sit === 'conferir' ? '<button class="btn" id="bt-ok">Conferido — marcar ativa</button>' : '') +
+      (!v.apagadoEm ? '<button class="btn" id="bt-anexo">📎 Anexar contrato/arquivo</button>' : '') +
       '<button class="btn" id="bt-pdf-venda">📄 Baixar PDF desta venda</button>' +
     '</div></div>';
 

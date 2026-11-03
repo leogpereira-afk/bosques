@@ -1075,6 +1075,7 @@ function abrirNovaVenda(l, sim) {
    desconto de pontualidade. NÃO grava nada: nem orçamento, nem reserva. */
 TELAS.simulador = function () {
   const app = document.getElementById('app');
+  TELAS._simPdf = null;
   const f = TELAS._fSimLivre || { loteId: '', m2: '', preco: '' };
   TELAS._fSimLivre = f;
   if (f.tipo === undefined) Object.assign(f, { tipo: 'fixa', entradaV: '', nParc: '', ini: '', parcDia: '' });
@@ -1087,7 +1088,33 @@ TELAS.simulador = function () {
     : (l && l.preco ? Number(l.preco) : m2 * PRECO_POR_M2);
   const entradaP = f.entradaV !== '' ? numeroBR(f.entradaV) : ((S.cfg && S.cfg.entradaPadrao) || 3000);
   const parc = (razao) => Math.round(preco * razao * 100) / 100;
-  const nParc = f.nParc !== '' ? Math.min(1200, Math.max(1, Math.round(numeroBR(f.nParc)))) : 150;
+  const nParc = f.nParc !== '' ? numeroBR(f.nParc) : 150;
+  const reajustada = f.tipo === 'reaj';
+  const parcSugerida = parc(reajustada ? RAZAO_PARC.parcReajDesc : RAZAO_PARC.parcFixaDesc);
+  const parcDia = f.parcDia !== '' ? numeroBR(f.parcDia) : parcSugerida;
+  const numerico = v => {
+    if (typeof v === 'number') return Number.isFinite(v) && v >= 0;
+    const s = String(v ?? '').trim().replace(/^R\$\s*/, '').replace(/\s/g, '');
+    return /^(?:\d+(?:[.,]\d+)?|\d{1,3}(?:\.\d{3})+(?:,\d+)?)$/.test(s) && Number.isFinite(numeroBR(v));
+  };
+  let erroSim = '';
+  for (const [chave, rotulo] of [['m2','Metragem'],['preco','Valor do lote'],['entradaV','Entrada'],['nParc','Quantidade de parcelas'],['parcDia','Parcela em dia']]) {
+    if (f[chave] != null && f[chave] !== '' && !numerico(f[chave])) { erroSim = rotulo + ': informe um número válido, sem valor negativo.'; break; }
+  }
+  if (!erroSim && (!Number.isInteger(nParc) || nParc < 1 || nParc > 1200)) erroSim = 'Informe uma quantidade inteira entre 1 e 1.200 parcelas.';
+  if (!erroSim && f.parcDia !== '' && !(parcDia > 0)) erroSim = 'A parcela em dia deve ser maior que zero.';
+  if (!erroSim && f.preco !== '' && !(preco > 0)) erroSim = 'O valor do lote deve ser maior que zero.';
+  if (!erroSim && f.ini) {
+    const d = new Date(f.ini + 'T12:00:00Z');
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(f.ini) || Number.isNaN(+d) || d.toISOString().slice(0,10) !== f.ini) erroSim = 'Informe uma data válida para a primeira parcela.';
+  }
+  const camposPlano = () => '<div class="colunas-3">' +
+    '<div class="campo"><label>Tipo</label><select id="sl-tipo"><option value="fixa"' + (!reajustada ? ' selected' : '') + '>Fixa</option>' +
+    '<option value="reaj"' + (reajustada ? ' selected' : '') + '>Reajustada ' + (cfgReajuste().pct ?? 6) + '%</option></select></div>' +
+    campo('Entrada (R$)', entrada('entradaV', f.entradaV !== '' ? f.entradaV : entradaP.toFixed(2), { inputmode: 'decimal' }), 'padrão da casa — pode ajustar') +
+    campo('Quantas parcelas', entrada('nParc', f.nParc !== '' ? f.nParc : nParc, { inputmode: 'numeric' })) + '</div><div class="colunas-3">' +
+    campo('1ª parcela em', entrada('ini', f.ini || '', { tipo: 'date' }), 'com a data, os vencimentos saem no quadro') +
+    campo('Parcela em dia (R$)', entrada('parcDia', f.parcDia !== '' ? f.parcDia : parcDia.toFixed(2), { inputmode: 'decimal' }), 'sugerida pela régua: ' + fmt.brl(parcSugerida)) + '</div>';
   /* Total pelo MESMO motor do quadro completo (totalDoPlano → CARNE):
      a Reajustada sobe +6% a cada 12 — multiplicar reto subestimava o plano
      e a tabela contradizia o quadro logo abaixo na mesma tela. */
@@ -1106,10 +1133,10 @@ TELAS.simulador = function () {
       '</select><div class="dica">' + disponiveis.length + ' disponíveis</div></div>' +
       campo('Metragem (m²)', entrada('m2', l ? (l.areaM2 || '') : f.m2, { inputmode: 'decimal', somenteLeitura: !!l }),
         'régua oficial: R$ ' + PRECO_POR_M2 + '/m²') +
-      campo('Valor do lote (R$)', entrada('preco', preco ? preco.toFixed(2) : '', { inputmode: 'decimal' }),
+      campo('Valor do lote (R$)', entrada('preco', f.preco !== '' ? f.preco : (preco ? preco.toFixed(2) : ''), { inputmode: 'decimal' }),
         'sugerido pela régua — pode ajustar') +
     '</div></div>' +
-    (preco > 0
+    (erroSim ? '<div class="cartao"><h2>Confira os dados da simulação</h2><p role="alert" class="nota">' + esc(erroSim) + ' O cálculo e o PDF ficam disponíveis após a correção.</p>' + camposPlano() + '</div>' : preco > 0
       ? '<div class="paineis">' +
           '<div class="painel clicavel sl-foca" data-campo-alvo="preco"><div class="rot">Valor do lote</div><div class="num">' + fmt.brl(preco) + '</div>' +
             (m2 ? '<div class="sub">' + m2.toLocaleString('pt-BR') + ' m² × R$ ' + PRECO_POR_M2 + '</div>' : '') + '</div>' +
@@ -1163,17 +1190,7 @@ TELAS.simulador = function () {
             '<td class="num">' + c3 + '</td>' +
             '<td class="num" style="color:var(--verde);font-weight:700">' + c4 + '</td></tr>';
           return '<div class="cartao"><h2>3. Ajuste e confira o plano completo</h2>' +
-            '<div class="colunas-3">' +
-              '<div class="campo"><label>Tipo</label><select id="sl-tipo">' +
-                '<option value="fixa"' + (!reajustada ? ' selected' : '') + '>Fixa</option>' +
-                '<option value="reaj"' + (reajustada ? ' selected' : '') + '>Reajustada ' + (reajCfg.pct ?? 6) + '%</option></select></div>' +
-              campo('Entrada (R$)', entrada('entradaV', entradaP.toFixed(2), { inputmode: 'decimal' }), 'padrão da casa — pode ajustar') +
-              campo('Quantas parcelas', entrada('nParc', nParc, { inputmode: 'numeric' })) +
-            '</div><div class="colunas-3">' +
-              campo('1ª parcela em', entrada('ini', f.ini || '', { tipo: 'date' }), 'com a data, os vencimentos saem no quadro') +
-              campo('Parcela em dia (R$)', entrada('parcDia', parcDia.toFixed(2), { inputmode: 'decimal' }),
-                'sugerida pela régua: ' + fmt.brl(parcSugerida)) +
-            '</div>' +
+            camposPlano() +
             '<div class="sl-resumo"><div><span>Parcela inicial em dia</span><strong>'+fmt.brl(parcDia)+'</strong></div><div><span>Total com pagamentos em dia</span><strong>'+fmt.brl(totDia)+'</strong></div><div><span>Último vencimento</span><strong>'+esc(f.ini?vencDe(nParc):'Informe a data inicial')+'</strong></div></div><div class="rolagem"><table class="tabela sl-plano">' +
             '<thead><tr><th>Faixa</th><th class="num">Vencimentos</th><th class="num">Boleto (cheio)</th><th class="num">Em dia (−20%)</th></tr></thead><tbody>' +
             tr3('<b>Entrada</b>', f.ini ? 'no ato' : '', '', fmt.brl(entradaP)) +
@@ -1203,6 +1220,7 @@ TELAS.simulador = function () {
   if (st) st.onchange = (e) => { f.tipo = e.target.value; f.parcDia = ''; TELAS.simulador(); };
   const bp = document.getElementById('sl-pdf');
   if (bp) bp.onclick = () => {
+    if (!TELAS._simPdf) { toast('Corrija os dados da simulação antes de baixar o PDF.', 'ruim'); return; }
     const blob = PDF.simulacao(TELAS._simPdf, S.cfg || {});
     salvarNoAparelho(blob, 'Simulacao-Bosques-' + hojeISO() + '.pdf');
     toast('Simulação em PDF baixada');

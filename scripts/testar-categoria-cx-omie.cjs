@@ -1,11 +1,15 @@
 // Regressões da política de atualização do cache legado: dados fictícios.
 const {test}=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs'),vm=require('node:vm'),ts=require('typescript');
-const fonte=fs.readFileSync('supabase/functions/bsq-omie/index.ts','utf8'),inicio=fonte.indexOf('function categoriaDespesaSincronizada('),fim=fonte.indexOf('\n}',inicio)+2;
-const trecho=inicio>=0?fonte.slice(inicio,fim):'function categoriaDespesaSincronizada(antes,nova){return antes?.categoria||nova;}';
-const ctx={exports:{}};vm.runInNewContext(ts.transpileModule(trecho+'\nexports.categoriaDespesaSincronizada=categoriaDespesaSincronizada;',{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.CommonJS}}).outputText,ctx);
-const categoria=ctx.exports.categoriaDespesaSincronizada;
+const fonte=fs.readFileSync('supabase/functions/bsq-omie/index.ts','utf8'),inicio=fonte.indexOf('const MAPA_CATEGORIA:'),fim=fonte.indexOf('\nasync function lerMeta(',inicio);
+assert.ok(inicio>=0&&fim>inicio,'Mapeamento e política reais precisam existir na função de produção');
+const trecho=fonte.slice(inicio,fim);
+const ctx={exports:{}};vm.runInNewContext(ts.transpileModule(trecho+'\nexports.categoriaLocal=categoriaLocal;\nexports.categoriaDespesaSincronizada=categoriaDespesaSincronizada;',{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.CommonJS}}).outputText,ctx);
+const categoria=ctx.exports.categoriaDespesaSincronizada,mapear=ctx.exports.categoriaLocal;
 const copia=x=>JSON.parse(JSON.stringify(x));
 const importado=extra=>({id:'cxomie-101',origem:'omie',tipo:'saida',categoria:'Comissão',valor:123,data:'2026-01-02',descricao:'Documento fictício',omie:{titulo:101,categoria:'2.02.01'},...extra});
+test('família Omie 2.09 mantém devoluções identificadas no Caixa',()=>{for(const codigo of ['2.09','2.09.01','2.09.02'])assert.equal(mapear(codigo),'Distrato / devolução');});
+test('mapeamento específico e fallback existentes permanecem intactos',()=>{assert.equal(mapear('2.02.01'),'Comissão');assert.equal(mapear('2.04.10'),'Contabilidade');assert.equal(mapear('2.04.99'),'Administrativo');assert.equal(mapear('2.01.04'),'Obra / infraestrutura');assert.equal(mapear('9.99'),'Outros');assert.equal(mapear(''),'Outros');});
+test('reclassificação 2.09.02 atualiza só cache importado e preserva decisões humanas e dados',()=>{const nova=mapear('2.09.02');for(const extra of [{},{ajustes:{categoria:'Classificação confirmada'}},{editadoAMao:true},{vinculoOmieConfirmado:true},{rateio:[{corretorId:'pessoa-ficticia',valor:123}]}]){const registro=importado({historico:[{por:'omie',acao:'Importado'}],...extra}),antes=copia(registro);assert.equal(categoria(registro,nova),extra.ajustes?.categoria||(Object.keys(extra).length?'Comissão':'Distrato / devolução'));assert.deepEqual(registro,antes);}});
 test('correção comprovada no ERP atualiza categoria obsoleta do cache puramente importado',()=>{const c=importado();assert.equal(categoria(c,'Obra / infraestrutura'),'Obra / infraestrutura');assert.equal(categoria(c,'Administrativo'),'Administrativo');assert.equal(categoria(c,'Outros'),'Outros');});
 test('novo lançamento recebe categoria mapeada da origem',()=>{assert.equal(categoria(null,'Comissão'),'Comissão');});
 test('marca histórica editadoAMao protege a categoria escolhida no painel',()=>{assert.equal(categoria(importado({editadoAMao:true}),'Administrativo'),'Comissão');});

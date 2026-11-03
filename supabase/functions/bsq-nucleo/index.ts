@@ -810,11 +810,16 @@ Deno.serve(async (req) => {
       // A saúde da rotina diária: quando rodou, o que fez, e os últimos dias
       // que EXISTEM na tabela de backup — a prova é a tabela, não o job.
       case "saude": {
-        const { data: st } = await db.from("bsq_meta").select("valor, atualizado_em")
-          .eq("chave", "manutencao_status").maybeSingle();
-        const { data: dias } = await db.from("bsq_backup").select("dia, em")
-          .order("dia", { ascending: false }).limit(5);
-        return json({ ok: true, rotina: (st && st.valor) || null, backups: dias || [] });
+        const [rotina, copia, backups] = await Promise.all([
+          db.from("bsq_meta").select("valor, atualizado_em").eq("chave", "manutencao_status").maybeSingle(),
+          db.from("bsq_meta").select("valor, atualizado_em").eq("chave", "backup_status").maybeSingle(),
+          db.from("bsq_backup").select("dia, em").order("dia", { ascending: false }).limit(5),
+        ]);
+        // Falha de consulta não significa ausência de backup. Só metadados
+        // pequenos saem aqui; nunca o conteúdo da cópia ou hashes de acesso.
+        for (const leitura of [rotina, copia, backups]) if (leitura.error) throw leitura.error;
+        return json({ ok: true, rotina: rotina.data?.valor || null,
+          backupStatus: copia.data?.valor || null, backups: backups.data || [] });
       }
 
       // ── Log e backup ───────────────────────────────────────────────────────
