@@ -42,7 +42,7 @@ function movimentosDoMes(mes) {
     const semVenda=FINANCEIRO.entradaSemVenda(r,titulos),v = semVenda?null:achar('venda', r.vendaId);
     movs.push({
       id: r.id, col: 'rec', data: r.data, valor: Number(r.valor) || 0, entrada: true,
-      descricao: semVenda?'Entrada sem venda':(v ? FINANCEIRO.nomeLotes(v) + ' · ' + (v.clienteNome || '') : 'Venda') +
+      descricao: semVenda?'Entrada sem venda':(v ? FINANCEIRO.nomeLotes(v) + ' · ' + (v.clienteNome || '') : FINANCEIRO.recebimentoRateado(r)?'Recebimento distribuído entre '+r.rateioContratos.partes.length+' contratos':'Venda') +
         (r.tipo === 'entrada' ? ' (entrada)' : r.parcelaN ? ' (parc. ' + r.parcelaN + ')' : ''),
       categoria: semVenda?'Entrada sem venda':'Recebimento de venda', forma: r.forma || '', vendaId: semVenda?'':r.vendaId, codigo: r.codigo || '',
       classificacaoVinculo:semVenda?{tipo:'sem_venda'}:r.classificacaoVinculo,
@@ -163,7 +163,7 @@ TELAS.caixa = function () {
   if (semCategoria) pendencias.push({ n: semCategoria, txt: 'saída(s) na categoria "Outros" — classifique para o DRE dizer a verdade', acao: 'outros' });
   if (comSemCor) pendencias.push({ n: comSemCor, txt: 'comissão(ões) paga(s) sem corretor — associe em Corretores', acao: 'corretores' });
   const titulos=titulosClassificacaoEntrada();
-  const recsSoltos = lista('rec').filter((r) => !r.vendaId&&!FINANCEIRO.entradaSemVenda(r,titulos)).length;
+  const recsSoltos = lista('rec').filter((r) => !r.vendaId&&!FINANCEIRO.recebimentoRateado(r)&&!FINANCEIRO.entradaSemVenda(r,titulos)).length;
   if (recsSoltos) pendencias.push({ n: recsSoltos, txt: 'recebimento(s) do Omie sem venda — o caixa conta, o carnê não', acao: 'rec-omie' });
   const blocoVinculos = pendencias.length
     ? '<div class="cartao" style="border-color:#f0ddb5"><h2>🔗 Vínculos pendentes <span class="nota">— amarre e os números contam a história certa</span></h2>' +
@@ -500,7 +500,7 @@ TELAS.lancamentos = function () {
       col: 'rec', id: r.id, data: r.data || '', entrada: true,
       valor: Number(r.valor) || 0, forma: r.forma || '',
       categoria: semVenda?'Entrada sem venda':'Recebimento de venda',
-      descricao: semVenda?'Entrada sem venda':(v ? FINANCEIRO.nomeLotes(v) + ' · ' + (v.clienteNome || '') : 'Venda') +
+      descricao: semVenda?'Entrada sem venda':(v ? FINANCEIRO.nomeLotes(v) + ' · ' + (v.clienteNome || '') : FINANCEIRO.recebimentoRateado(r)?'Recebimento distribuído entre '+r.rateioContratos.partes.length+' contratos':'Venda') +
         (r.tipo === 'entrada' ? ' (entrada)' : r.parcelaN ? ' (parc. ' + r.parcelaN + ')' : ''),
       codigo: r.codigo || '', criadoPor: r.criadoPor || '—', criadoEm: r.criadoEm,
       atualizadoPor: r.atualizadoPor, vendaId: semVenda?'':r.vendaId, obs: r.obs || '',

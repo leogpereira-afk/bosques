@@ -321,7 +321,7 @@ async function abrirBoletosVenda(v) {
 
 /* ── recebimentos que chegaram sem venda: o vínculo é um clique ────────────── */
 function vincularRecsOmie(aoTerminar) {
-  const soltos = lista('rec').filter((r) => !r.vendaId);
+  const soltos = lista('rec').filter((r) => !r.vendaId&&!FINANCEIRO.recebimentoRateado(r));
   if (!soltos.length) { toast('Nenhum recebimento para vincular'); if (aoTerminar) aoTerminar(); return; }
   const vendas = lista('venda').filter((v) => v.situacao !== 'distratada');
   const rotulo = (v) => (v.codigo || '') + ' Q' + v.quadra + '-L' + v.lote + ' · ' + (v.clienteNome || '');

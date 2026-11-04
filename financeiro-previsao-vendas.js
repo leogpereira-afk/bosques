@@ -82,8 +82,10 @@ const FIN_PREVISAO_VENDAS = (() => {
     }
     const ocorrencias = new Map();
     for (const {l} of candidatos) if (l.tid) ocorrencias.set(l.tid, (ocorrencias.get(l.tid) || 0) + 1);
+    const grupos=new Map();for(const c of candidatos){const a=grupos.get(c.l.tid)||[];a.push({venda:{id:c.l.vendaId,situacao:'ativa'},parcela:c.fonte});grupos.set(c.l.tid,a);}
+    const F=typeof FINANCEIRO!=='undefined'?FINANCEIRO:(typeof require==='function'?require('./financeiro-core.js'):null);
     for (const {l, p} of candidatos) {
-      if (l.tid && ocorrencias.get(l.tid) > 1) { pendente(l, 'titulo-duplicado', 'Título aparece em mais de uma parcela ou contrato; conferir o vínculo antes de somar.'); continue; }
+      if (l.tid && ocorrencias.get(l.tid) > 1 && F?.classificarVinculos(grupos.get(l.tid)).situacao!=='rateado') { pendente(l, 'titulo-duplicado', 'Título aparece em mais de uma parcela ou contrato; conferir o vínculo antes de somar.'); continue; }
       if (!l.vendaId) { pendente(l, 'sem-venda', 'Contrato sem identidade confirmada.'); continue; }
       if (p.conferir || p.situacao === 'conferir') { pendente(l, 'conferir', 'Parcela com conferência pendente no contrato; consulte a ficha e a conciliação.'); continue; }
       if (!dataValida(l.venc)) { pendente(l, 'sem-data', 'Parcela sem vencimento válido.'); continue; }

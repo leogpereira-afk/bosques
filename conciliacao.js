@@ -8,6 +8,7 @@
   const chaveTitulo=t=>String(t?.titulo??'');
   function parcelaDivergente(p,t) {
     if(!t)return false;
+    if(FINANCEIRO.parcelaRateadaConfere(p,t))return false;
     const c=p.conciliacao,igualOrigem=cent(p.valor)===cent(t.valor)&&String(p.venc||'')===String(t.venc||'');
     const localConferido=c?.politica==='local'&&cent(c.valorOrigem)===cent(t.valor)&&String(c.vencOrigem||'')===String(t.venc||'')&&cent(c.valorLocalAntes)===cent(p.valor)&&String(c.vencLocalAntes||'')===String(p.venc||'');
     return !igualOrigem&&!localConferido;
@@ -16,7 +17,7 @@
     const rs=registros(reg),vs=rs.venda.filter(ativa),porVenda=new Map(vs.map(v=>[v.id,v])),porTitulo=new Map(rs.titulo.filter(t=>t.grupo==='CONTA_A_RECEBER').map(t=>[chaveTitulo(t),t])),porTituloPagar=new Map(rs.titulo.filter(t=>t.grupo==='CONTA_A_PAGAR').map(t=>[chaveTitulo(t),t])),porCx=new Map(rs.cx.map(c=>[c.id,c])),porParcela=new Map();
     for(const venda of vs)for(const parcela of venda.parcelas||[])if(vivo(parcela)&&!parcela.cancelado&&!parcela._remover){const tid=String(parcela.tid),links=porParcela.get(tid)||[];links.push({venda,parcela});porParcela.set(tid,links);}
     const faltaDistribuir=r=>r.conferir&&!r.omie?.titulo&&(r.alocacoes||[]).reduce((s,a)=>s+cent(a.valor),0)<cent(r.valor);
-    const recebimentos=rs.rec.filter(r=>!FINANCEIRO.entradaSemVenda(r,porTitulo)&&(!porVenda.has(r.vendaId)||faltaDistribuir(r))).map(r=>({chave:'recebimento-'+r.id,tipo:r.omie?.titulo?'titulo':'recebimento',grupo:'recebimentos',subtipo:porVenda.has(r.vendaId)?'alocacao':'semcontrato',rec:r,titulo:porTitulo.get(String(r.omie?.titulo)),data:r.data,valor:Number(r.valor)||0,motivo:porVenda.has(r.vendaId)?'Contrato confirmado; distribuição nas parcelas ainda pendente':r.vendaId?'Contrato indisponível ou distratado':'Recebimento sem contrato confirmado'}));
+    const recebimentos=rs.rec.filter(r=>!FINANCEIRO.entradaSemVenda(r,porTitulo)&&((!FINANCEIRO.recebimentoRateado(r)&&!porVenda.has(r.vendaId))||faltaDistribuir(r))).map(r=>({chave:'recebimento-'+r.id,tipo:r.omie?.titulo?'titulo':'recebimento',grupo:'recebimentos',subtipo:porVenda.has(r.vendaId)?'alocacao':'semcontrato',rec:r,titulo:porTitulo.get(String(r.omie?.titulo)),data:r.data,valor:Number(r.valor)||0,motivo:porVenda.has(r.vendaId)?'Contrato confirmado; distribuição nas parcelas ainda pendente':r.vendaId?'Contrato indisponível ou distratado':'Recebimento sem contrato confirmado'}));
     for(const i of recebimentos)if(i.titulo){i.vinculos=porParcela.get(chaveTitulo(i.titulo))||[];if(!FINANCEIRO.tituloDisponivel(i.titulo))i.titulo=undefined;}
     const parcelas=[];
     for(const t of porTitulo.values()) {
@@ -163,7 +164,8 @@
     if(item.tipo==='duplicidade')local=item.candidatos.map(c=>ficha('Lançamento manual · '+(c.codigo||c.id),[['Descrição',c.descricao],['Favorecido',c.financeiroOmie?.pessoaNome||c.favorecido],['Valor',fmt.brl(c.valor)],['Data',fmt.data(c.data)],['Conta',c.financeiroOmie?.contaNome||c.contaId],['Documento',c.financeiroOmie?.documento||c.documento]])).join('');
     return diagnosticoRegistrado(item)+'<div class="cq-comparacao">'+fonte+'<div>'+(local||'<p class="cq-vazio">Nenhum vínculo local confirmado.</p>')+'</div></div>';
   }
-  function abrir(item) {
+  function abrir(item, destinosIniciais=[], motivoInicial='') {
+    if(!['direcao','escritorio'].includes(S.perfil))return;
     if(item?.tipo==='historico'){
       const venda=item.vinculos?.[0]?.venda;
       abrirModal({titulo:'Conferir pagamento histórico',largo:true,corpo:'<p>'+esc(item.motivo)+'</p>'+comparacao(item)+'<p class="cq-aviso">Confira o recibo ou a planilha anterior a '+esc(fmt.data(item.corte))+'. Confirmar um vínculo não comprova pagamento. Nenhuma baixa foi criada e este valor não será cobrado automaticamente.</p>',acoes:[{texto:'Voltar à fila',aoClicar:fecharModal},...(venda?[{texto:'Abrir contrato',aoClicar:()=>{fecharModal();location.hash='#/venda/'+venda.id;}}]:[])]});return;
@@ -183,7 +185,7 @@
       }
       if(item.tipo==='titulo'&&!semDestino)corpo+=campo('Valor e vencimento da parcela',seletor('politica','',[{v:'origem',t:'Usar os dados atuais da origem Omie'},{v:'local',t:'Manter os dados locais conferidos'},{v:'pendente',t:'Vincular ao contrato e manter valores a conferir'}],'Selecione como tratar a parcela'))+'<p class="cq-nota">Usar a origem adota o valor nominal e vencimento do título. Manter local preserva os dados já conferidos no contrato. Descontos cadastrados não são alterados por esta decisão. Manter pendente confirma o contrato, sem concluir a conferência dos valores.</p>';
     }
-    corpo+=(semDestino?'':campo('Motivo / documento conferido',areaTexto('motivo','')))+'<div class="cq-erro" data-cq-erro role="alert" hidden></div><button type="button" class="btn" data-cq-reler hidden>Recarregar as conferências</button>'+((bloqueado||semDestino)?'':'<div class="cq-modal-acoes"><button type="button" class="btn primario" data-cq-salvar>Confirmar e salvar</button><button type="button" class="btn" data-cq-proximo>Salvar e próximo</button></div>');
+    corpo+=(semDestino?'':campo('Motivo / documento conferido',areaTexto('motivo',motivoInicial)))+'<div class="cq-erro" data-cq-erro role="alert" hidden></div><button type="button" class="btn" data-cq-reler hidden>Recarregar as conferências</button>'+((bloqueado||semDestino)?'':'<div class="cq-modal-acoes"><button type="button" class="btn primario" data-cq-salvar>Confirmar e salvar</button><button type="button" class="btn" data-cq-proximo>Salvar e próximo</button></div>');
     const m=abrirModal({titulo:'Conferir e vincular',corpo,largo:true,acoes:[{texto:'Voltar à fila',aoClicar:fecharModal}]});
     m.querySelector('.modal').classList.add('cq-modal');
     if(window.BSQ_VINCULACAO&&item.tipo!=='duplicidade'){
@@ -197,6 +199,25 @@
     const acoesFixas=m.querySelector('.cq-modal-acoes');if(acoesFixas)m.querySelector('footer').appendChild(acoesFixas);
     const politica=m.querySelector('[data-campo="politica"]'),opcaoLocal=politica?.querySelector('[value="local"]');if(opcaoLocal&&item.vinculos?.length!==1){opcaoLocal.disabled=true;opcaoLocal.textContent+=item.vinculos?.length?' · escolha um contrato com parcela única':' · nenhuma parcela local disponível';}
     const sel=m.querySelector('[data-campo="destino"]');if(sel)sel.onchange=()=>{const v=(regConferido.venda||[]).find(v=>v.id===sel.value),vinculos=item.vinculos||[],noDestino=vinculos.filter(x=>x.venda.id===v?.id);if(opcaoLocal){opcaoLocal.disabled=!(noDestino.length===1||(noDestino.length===0&&vinculos.length===1));opcaoLocal.textContent='Manter os dados locais conferidos'+(opcaoLocal.disabled?' · parcela local não inequívoca':'');}m.querySelector('[data-cq-destino]').innerHTML=v?ficha('Contrato selecionado', [['Cliente',v.clienteNome],['Quadra / lote','Q'+v.quadra+' · L'+v.lote],['Identificação',v.codigo||v.id],['CPF / CNPJ',fmt.doc(v.clienteId)]])+(!origem(item,S.reg).cpf?'<p class="cq-aviso">A origem não informa CPF/CNPJ. Confirme a identidade no comprovante.</p>':''):'';};
+    const destinos=new Set(destinosIniciais.filter(id=>candidatos.some(c=>c.venda.id===id)));
+    const podeMultiplo=window.BSQ_RATEIO&&item.tipo==='titulo'&&!bloqueado&&candidatos.length>1;
+    if(podeMultiplo){
+      const campoDestino=sel.closest('.campo'),escolhas=document.createElement('section');
+      campoDestino.hidden=true;m.querySelector('.cq-sugestoes')?.remove();escolhas.className='cq-destinos';
+      escolhas.innerHTML='<fieldset><legend>Contratos de destino</legend><p class="cq-nota">Marque um ou mais contratos após conferir o documento. Nenhum será selecionado automaticamente.</p><div class="cq-destinos-lista">'+candidatos.map(c=>'<label class="cq-destino-opcao"><input type="checkbox" data-cq-contrato="'+esc(c.venda.id)+'"><span><b>'+esc(rotuloVenda(c.venda))+'</b><small>'+esc(c.motivos.join(' · '))+'</small></span></label>').join('')+'</div><p data-cq-contagem role="status" aria-live="polite"></p><p data-cq-multiplo-nota hidden>Os contratos permanecem separados. Na próxima etapa, informe quanto deste título pertence a cada um e confira os recebimentos já realizados.</p><button type="button" class="btn primario" data-cq-continuar-multiplo hidden>Conferir distribuição</button></fieldset>';
+      campoDestino.after(escolhas);
+      const atualizarDestinos=()=>{
+        const multiplo=destinos.size>1;sel.value=destinos.size===1?[...destinos][0]:'';sel.onchange();
+        escolhas.querySelector('[data-cq-contagem]').textContent=destinos.size+' contrato(s) selecionado(s)';
+        escolhas.querySelector('[data-cq-multiplo-nota]').hidden=!multiplo;
+        const seguir=escolhas.querySelector('[data-cq-continuar-multiplo]');seguir.hidden=!multiplo;seguir.textContent='Continuar com '+destinos.size+' contratos';
+        if(politica){politica.closest('.campo').hidden=multiplo;const nota=politica.closest('.campo').nextElementSibling;if(nota?.classList.contains('cq-nota'))nota.hidden=multiplo;}
+        m.querySelectorAll('[data-cq-salvar],[data-cq-proximo]').forEach(b=>b.hidden=multiplo);
+      };
+      escolhas.querySelectorAll('[data-cq-contrato]').forEach(el=>{el.checked=destinos.has(el.dataset.cqContrato);el.onchange=()=>{el.checked?destinos.add(el.dataset.cqContrato):destinos.delete(el.dataset.cqContrato);atualizarDestinos();};});
+      escolhas.querySelector('[data-cq-continuar-multiplo]').onclick=()=>{const selecionados=[...destinos],motivo=lerCampos(m).motivo||'';fecharModal();window.BSQ_RATEIO.abrir(chaveTitulo(item.titulo),{selecionados,motivo,voltar:()=>abrir(item,selecionados,motivo)});};
+      atualizarDestinos();
+    }
     if(sel&&semDestino){sel.setAttribute('disabled','');sel.querySelector('option').textContent='Nenhum contrato disponível para selecionar';}
     const abrirAnterior=m.querySelector('[data-cq-contrato-anterior]');if(abrirAnterior)abrirAnterior.onclick=()=>{fecharModal();location.hash='#/venda/'+anterior.id;};
     const consultarContratos=m.querySelector('[data-cq-consultar-contratos]');if(consultarContratos)consultarContratos.onclick=()=>{fecharModal();location.hash='#/vendas';};
@@ -206,6 +227,7 @@
     let ocupado=false,confirmado=false,operacao=crypto.randomUUID(),assinatura='';
     async function enviar(proximo) {
       if(ocupado)return;const erro=m.querySelector('[data-cq-erro]');erro.hidden=true;
+      if(destinos.size>1){erro.hidden=false;erro.textContent='Confira a distribuição entre os contratos antes de salvar.';return;}
       try {
         const fAntes=estado(),filaAntes=filtrar(montarFilas(S.reg,saude,S.cfg?.omie?.corteEntradas,hojeISO())[fAntes.grupo]||[],fAntes,S.reg),posAntes=filaAntes.findIndex(x=>x.chave===item.chave);
         const c=lerCampos(m),p=prepararPayload(item,c,regConferido,operacao),novaAssinatura=JSON.stringify({...p,operacao:''});
@@ -224,5 +246,5 @@
     const salvar=m.querySelector('[data-cq-salvar]'),proximo=m.querySelector('[data-cq-proximo]');if(salvar)salvar.onclick=()=>enviar(false);if(proximo)proximo.onclick=()=>enviar(true);
   }
   function renderizar(elemento) {alvo=elemento||document.getElementById('bsq-conciliacao')||document.getElementById('app');if(!alvo)return; if(!['direcao','escritorio'].includes(S.perfil)){alvo.innerHTML='<p class="cq-aviso">A conciliação está disponível apenas para gestão e escritório.</p>';return;}pintar();carregarSaude();}
-  window.BSQ_CONCILIACAO={renderizar,montarFilas,sugestoes,prepararPayload,filtrar,pendenciasAuditoria,relerConfirmado};
+  window.BSQ_CONCILIACAO={abrir,renderizar,montarFilas,sugestoes,prepararPayload,filtrar,pendenciasAuditoria,relerConfirmado};
 })();

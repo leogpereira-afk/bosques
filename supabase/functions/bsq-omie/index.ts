@@ -695,6 +695,7 @@ Deno.serve(async (req) => {
         // partes). A ficha do dedupe é POR TÍTULO: a 2ª ocorrência do mesmo
         // tid repete o pulo, em vez de gastar outra ficha (ou criar o rec).
         const tidsCobertos = new Set<string>();
+        const rateiosConferir = new Map<string, any>();
 
         while (pagina < fim) {
           const r = await omie("financas/mf", "ListarMovimentos",
@@ -751,8 +752,14 @@ Deno.serve(async (req) => {
               const tituloClassificado=titulosPorId.get("CONTA_A_RECEBER-"+d.nCodTitulo);
               const recebimentoClassificado=recPorId.get("rbomie-"+d.nCodTitulo)||recClassificadoPorTitulo.get(String(d.nCodTitulo));
               const bloqueado=vinculoAutomaticoBloqueado(recebimentoClassificado,tituloClassificado);
+              const rateioTitulo=tituloClassificado?.rateioContratos;
+              if(rateioTitulo){
+                const divergente=centavos(rateioTitulo.valorTotal)!==centavos(d.nValorTitulo)||rateioTitulo.venc!==brParaISO(d.dDtVenc)||d.cStatus==="CANCELADO"||soDigitos(d.cCPFCNPJCliente)!==soDigitos(tituloClassificado?.cpf)||[res.nDesconto,res.nJuros,res.nMulta].some(x=>centavos(x)!==0)||
+                  (recebimentoClassificado?.rateioContratos&&(centavos(recebimentoClassificado.rateioContratos.valorTotal)!==centavos(res.nValLiquido)||recebimentoClassificado.rateioContratos.data!==brParaISO(d.dDtPagamento)||!Number(res.nValPago)));
+                if(divergente){rateiosConferir.set(String(d.nCodTitulo),rateioTitulo);pendNovas.push({tipo:"rateio",titulo:d.nCodTitulo,categoria:"Origem alterada após divisão entre contratos; conferir sem redistribuir automaticamente"});}
+              }
               // espelho das parcelas: casa o título com a venda e anota
-              if (d.cStatus !== "CANCELADO" && !bloqueado) {
+              if (d.cStatus !== "CANCELADO" && !bloqueado && !rateioTitulo) {
                 const cpfT = soDigitos(d.cCPFCNPJCliente);
                 const minhasT = vendasPorCpf.get(cpfT) || [];
                 const cheio = Math.round((Number(d.nValorTitulo) || 0) * 100) / 100;
@@ -786,7 +793,7 @@ Deno.serve(async (req) => {
                     ...(conferirT ? { conferir: true } : {}),
                   });
                 }
-              } else if(d.cStatus === "CANCELADO" && !bloqueado) {
+              } else if(d.cStatus === "CANCELADO" && !bloqueado && !rateioTitulo) {
                 // Título CANCELADO no Omie (renegociação de carnê): a parcela
                 // espelhada não pode ficar viva para sempre — anota para o
                 // merge tirar do espelho (ou marcar, se for travada).
@@ -795,6 +802,19 @@ Deno.serve(async (req) => {
               }
               const id = "rbomie-" + d.nCodTitulo;
               const existente = recPorId.get(id);
+              // Um recibo rateado preexistente pode ter ID manual. Nunca criar
+              // outro recibo integral para o mesmo título ao sincronizar.
+              if(rateioTitulo&&!existente){
+                const distribuidos=recs.filter((r:any)=>!r.apagadoEm&&String(r.omie?.titulo)===String(d.nCodTitulo)&&r.rateioContratos);
+                if(distribuidos.length){
+                  const total=distribuidos.reduce((s:number,r:any)=>s+centavos(r.valor),0);
+                  if(total!==centavos(res.nValLiquido??res.nValPago)||d.cStatus==="CANCELADO"||distribuidos.some((r:any)=>r.data!==brParaISO(d.dDtPagamento))){
+                    rateiosConferir.set(String(d.nCodTitulo),rateioTitulo);
+                    pendNovas.push({tipo:"rateio",titulo:d.nCodTitulo,categoria:"Recebimentos distribuídos com diferença na origem; conferir sem criar novo recebimento"});
+                  }
+                  soma("recJaLancadoAMao");continue;
+                }
+              }
               if (Number(res.nValPago) > 0 && d.cStatus !== "CANCELADO") {
                 const dataPagto = brParaISO(d.dDtPagamento);
                 if (!dataPagto || dataPagto < corte) { soma("recAntesDoCorte"); continue; }
@@ -827,7 +847,7 @@ Deno.serve(async (req) => {
                 }
                 const cpf = soDigitos(d.cCPFCNPJCliente);
                 const minhas = vendasPorCpf.get(cpf) || [];
-                const vendaId = bloqueado ? "" : existente?.vendaId || tidDono(cpf).get(String(d.nCodTitulo)) || "";
+                const vendaId = bloqueado || rateioTitulo ? "" : existente?.vendaId || tidDono(cpf).get(String(d.nCodTitulo)) || "";
                 const numero = existente?.numero || await proximoNumero("rec");
                 // A forma REAL do pagamento vem do tipo do título no Omie (mapa lá em cima).
                 let registro: any = {
@@ -851,7 +871,11 @@ Deno.serve(async (req) => {
                 if (existente && (existente.valor !== registro.valor || existente.data !== registro.data)) {
                   registro.historico = [...(existente.historico || []), {em:agora(),por:"omie",antes:{valor:existente.valor,data:existente.data},depois:{valor:registro.valor,data:registro.data}}];
                 }
-                if (!vendaId) registro.obsConferir = observacaoRecebimentoSemVinculo(existente, minhas);
+                if(existente?.rateioContratos){
+                  registro.rateioContratos=existente.rateioContratos;registro.vendaId="";registro.alocacoes=[];
+                  registro.conferir=!!existente.conferir||rateiosConferir.has(String(d.nCodTitulo))||centavos(existente.rateioContratos.valorTotal)!==centavos(registro.valor)||existente.rateioContratos.data!==registro.data;
+                }
+                if (!vendaId && !existente?.rateioContratos) registro.obsConferir = observacaoRecebimentoSemVinculo(existente, minhas);
                 registro=preservarVinculoClassificado(registro,recebimentoClassificado,tituloClassificado);
                 await guardarIndiceNumero("rec", numero, id);
                 gravar.push({ colecao: "rec", id, registro });
@@ -1030,6 +1054,14 @@ Deno.serve(async (req) => {
           venda.atualizadoEm = agora();
           gravar.push({ colecao: "venda", id: vendaId, registro: venda });
           soma("pagamentosEmParcelaMovida");
+        }
+        for(const [tid,rateio] of rateiosConferir){
+          for(const parte of rateio.partes||[]){
+            const venda=await lerVendaC(parte.vendaId);if(!venda)continue;
+            for(const p of venda.parcelas||[])if(String(p?.tid)===tid&&p.rateioContratos){p.conferir=true;p.obsConferir="Origem alterada após rateio. Confira a divisão entre contratos.";}
+            venda.atualizadoEm=agora();
+            gravar.push({colecao:"venda",id:parte.vendaId,registro:venda});
+          }
         }
         // CAS e upserts no servidor são uma única transação, inclusive as
         // vendas acima. Checar a revisão e depois fazer upserts REST separados

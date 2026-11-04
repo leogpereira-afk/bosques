@@ -173,7 +173,7 @@ function abrirRecebimentosVendas(mes = '', pagina = 0) {
       '<p><b>Total: <span class="fin-entrada">' + fmt.brl(total) + '</span></b></p>' +
       '<div class="recebimentos-vendas">' + (registros.slice(pg * 40, pg * 40 + 40).map(rc => {
         const venda = achar('venda', rc.vendaId);
-        const cliente = venda ? nomeLotesVenda(venda) + ' · ' + (venda.clienteNome || 'Cliente não informado') : 'Sem contrato vinculado';
+        const cliente = venda ? nomeLotesVenda(venda) + ' · ' + (venda.clienteNome || 'Cliente não informado') : FINANCEIRO.recebimentoRateado(rc)?'Distribuído entre '+rc.rateioContratos.partes.length+' contratos':'Sem contrato vinculado';
         return '<button type="button" class="lin home-rec" data-recebimento-venda="' + esc(rc.id) + '">' +
           '<span class="cresce"><b>' + esc(cliente) + '</b><span class="sub">' + esc(fmt.data(rc.data)) +
           (rc.codigo ? ' · ' + esc(rc.codigo) : '') + '</span></span><b class="fin-entrada">' + fmt.brl(rc.valor) + '</b></button>';
@@ -232,9 +232,9 @@ TELAS.vendas = function () {
      números não conversarem. */
   const recs = recebimentosVendas();
   const recebidoTotal = recs.reduce((s, r) => s + FINANCEIRO.cent(r.valor), 0) / 100;
-  const semContrato = recs.filter((r) => !String(r.vendaId || '').trim());
+  const semContrato = recs.filter((r) => !String(r.vendaId || '').trim()&&!FINANCEIRO.recebimentoRateado(r));
   const semContratoTotal = semContrato.reduce((s, r) => s + FINANCEIRO.cent(r.valor), 0) / 100;
-  const semContratoMes = recs.filter((r) => String(r.data || '').startsWith(mesStr) && !String(r.vendaId || '').trim())
+  const semContratoMes = recs.filter((r) => String(r.data || '').startsWith(mesStr) && !String(r.vendaId || '').trim()&&!FINANCEIRO.recebimentoRateado(r))
     .reduce((s, r) => s + FINANCEIRO.cent(r.valor), 0) / 100;
 
   const filtradas = linhas.filter(({ v, r }) => {
@@ -605,12 +605,13 @@ TELAS.venda = function (id) {
     '<div class="lin" style="cursor:default">' +
       '<div class="cresce"><b>' + fmt.brl(rc.valor) + ' <span class="nota">' + esc(rc.codigo || '') + '</span></b>' +
       '<span class="sub">' + fmt.data(rc.data) + ' · ' + esc(rc.forma || '') +
+        (rc._projecaoRateio?' · parte de '+fmt.brl(rc.rateioOriginal.valorTotal)+' distribuída entre contratos':'') +
         (rc.tipo === 'entrada' ? ' · entrada' : rc.parcelaN ? ' · parcela ' + rc.parcelaN : '') +
         (rc.obs ? ' · ' + esc(rc.obs) : '') + ' · por ' + esc(rc.criadoPor || rc.atualizadoPor || '—') +
         (rc.origem === 'omie' ? ' · <b>🔗 omie</b>' : rc.origem === 'planilha' ? ' · 📄 planilha' : ' · ✍️ manual') + '</span></div>' +
       (viva ? '<button class="btn mini bt-edit-rec" data-id="' + esc(rc.id) + '">✏</button>' : '') +
-      '<button class="btn mini bt-recibo" data-id="' + esc(rc.id) + '">recibo</button>' +
-      (viva ? '<button class="btn mini perigo bt-estorno" data-id="' + esc(rc.id) + '">estornar</button>' : '') +
+      (!rc._projecaoRateio?'<button class="btn mini bt-recibo" data-id="' + esc(rc.id) + '">recibo</button>':'') +
+      (viva&&!rc._projecaoRateio ? '<button class="btn mini perigo bt-estorno" data-id="' + esc(rc.id) + '">estornar</button>' : '') +
     '</div>').join('');
 
   const blocoRecs =
@@ -679,6 +680,7 @@ TELAS.venda = function (id) {
     b.onclick = async () => {
       const rc = achar('rec', b.dataset.id);
       if (!rc) return;
+      if(rc.rateioContratos)return BSQ_RATEIO.abrir(String(rc.omie?.titulo));
       if (await confirmar('Estornar o recebimento de ' + fmt.brl(rc.valor) + ' de ' + fmt.data(rc.data) +
         '? Ele sai do carnê e do caixa (fica na lixeira, com registro de quem estornou).', { perigo: true, ok: 'Estornar' })) {
         try {
@@ -1115,6 +1117,7 @@ function abrirEditarParcela(v, idx, opts = {}) {
   const ps = Array.isArray(v.parcelas) ? v.parcelas.slice() : [];
   const nova = idx < 0;
   const pp = nova ? { tid: 'man-' + Date.now(), venc: hojeISO(), valor: '', valorDia: '', pago: null, obs: '', origem: 'manual' } : { ...ps[idx] };
+  if(pp.rateioContratos)return BSQ_RATEIO.abrir(String(pp.tid));
   if (opts.baixa) { abrirBaixa(v, resumoVenda(v), idx + 1); return; }
   const outras = lista('venda').filter((x) => x.id !== v.id && !x.incorporadaEmVendaId && x.clienteId === v.clienteId &&
     ['ativa', 'conferir'].includes(x.situacao || 'ativa'));
@@ -1268,6 +1271,7 @@ function abrirEditarVenda(v) {
 function abrirEditarRec(v, recId, aoTerminar) {
   const rc = achar('rec', recId);
   if (!rc) return;
+  if(rc.rateioContratos){window.BSQ_RATEIO?.abrir(String(rc.omie?.titulo));return;}
   const corpo =
     '<div class="colunas-3">' +
       campo('Valor (travado)', entrada('valorTravado', fmt.brl(rc.valor), { somenteLeitura: true }),

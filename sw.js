@@ -1,9 +1,9 @@
 /* Service worker — casca offline. SUBA O NÚMERO a cada publicação, senão o
    navegador continua servindo o arquivo velho (lição paga mais de uma vez). */
-const CACHE = 'bsq-shell-v95';
+const CACHE = 'bsq-shell-v96';
 const ARQUIVOS = [
   'financeiro-previsao-pdf.js', 'financeiro-previsao-vendas.js', 'financeiro-previsao-ui.js', 'financeiro-previsao.css',
-  'conciliacao-selecao.js',
+  'conciliacao-selecao.js', 'conciliacao-rateio.js',
   './', 'index.html', 'styles.css', 'design.css', 'mapa-espelho.css', 'mapa-espelho.js', 'config.js', 'ui.js', 'store.js', 'carne.js', 'financeiro-core.js', 'financeiro.js', 'financeiro-gestao.js', 'financeiro-painel.js', 'financeiro-painel.css', 'conciliacao.js', 'conciliacao.css',
   'pdf.js', 'espelho.js', 'vendas.js', 'caixa.js', 'cadastros.js', 'cronograma.js', 'apresentacao.js', 'contratos.js', 'omie.js', 'app.js',
   'libs/jspdf.umd.min.js', 'manifest.webmanifest', 'icons/icon-192.png', 'icons/icon-512.png',

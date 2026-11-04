@@ -29,9 +29,41 @@ const FINANCEIRO = (() => {
     const conta = contas.find(c => String(c?.id ?? '') === identidade);
     return conta?.omieId == null || conta.omieId === '' ? identidade : String(conta.omieId);
   }
+  // Um rateio é uma distribuição explícita, nunca uma cópia do valor integral.
+  function rateioValido(r, total, data, campoData, permiteZero=false) {
+    return !!r && r.versao===1 && typeof r.operacao==='string' && r.operacao.length>=8 &&
+      Array.isArray(r.partes) && r.partes.length>=2 && new Set(r.partes.map(p=>p.vendaId)).size===r.partes.length &&
+      r.partes.every(p=>typeof p.vendaId==='string'&&p.vendaId&&Number.isFinite(p.valor)&&(permiteZero?cent(p.valor)>=0:cent(p.valor)>0)) &&
+      r.partes.reduce((s,p)=>s+cent(p.valor),0)===cent(total) && cent(r.valorTotal)===cent(total) &&
+      (!campoData || r[campoData]===data);
+  }
+  function recebimentoRateado(r) {return !r.apagadoEm&&!r.conferir&&rateioValido(r.rateioContratos,r.valor,r.data,'data',true);}
+  function recebimentosDaVenda(recs, vid) {
+    return (recs||[]).filter(r=>!r.apagadoEm).flatMap(r=>{
+      if(!r.rateioContratos)return r.vendaId===vid?[r]:[];
+      const p=r.rateioContratos.partes?.find(p=>p.vendaId===vid);
+      if(!p||!recebimentoRateado(r)||cent(p.valor)===0)return [];
+      // Projeção somente de leitura. O caixa conserva o único recibo original.
+      return [{...r,rateioOriginal:r.rateioContratos,rateioContratos:undefined,_projecaoRateio:true,
+        vendaId:vid,valor:p.valor,tipo:'parcela',alocacoes:[{tid:String(r.omie.titulo),valor:p.valor}]}];
+    });
+  }
+  function parcelaRateadaConfere(p,t) {
+    const r=p?.rateioContratos;
+    return !!r&&!!t&&tituloDisponivel(t)&&rateioValido(r,t.valor,t.venc,'venc')&&
+      JSON.stringify(r)===JSON.stringify(t.rateioContratos)&&p.venc===t.venc&&
+      r.partes.some(a=>a.vendaId===p.rateioVendaId&&cent(a.valor)===cent(p.valor));
+  }
   function classificarVinculos(vinculos = []) {
     const vivos = vinculos.filter(x => vendaAtiva(x?.venda) && x.parcela &&
       !x.parcela.apagadoEm && !x.parcela.cancelado && !x.parcela._remover);
+    const r=vivos[0]?.parcela?.rateioContratos;
+    const rateado=rateioValido(r,r?.valorTotal,r?.venc,'venc')&&vivos.length===r.partes.length&&
+      new Set(vivos.map(x=>x.venda.id)).size===vivos.length&&vivos.every(x=>
+        JSON.stringify(x.parcela.rateioContratos)===JSON.stringify(r)&&x.parcela.rateioVendaId===x.venda.id&&
+        x.parcela.venc===r.venc&&!x.parcela.conferir&&x.parcela.vinculoConfirmado===true&&
+        r.partes.some(p=>p.vendaId===x.venda.id&&cent(p.valor)===cent(x.parcela.valor)));
+    if(rateado)return {situacao:'rateado',confirmado:true,valoresPendentes:false,vinculo:null,vinculos:vivos};
     const vinculo = vivos.length === 1 ? vivos[0] : null;
     const valoresPendentes = !!(vinculo?.parcela.conferir && vinculo.parcela.vinculoConfirmado === true);
     const situacao = !vivos.length ? 'semvinculo' : vivos.length > 1 ? 'multiplo' :
@@ -90,6 +122,7 @@ const FINANCEIRO = (() => {
         String(rec.omie?.titulo || '') === tid && data && rec.data === data && valorOrigem > 0 && cent(rec.valor) === cent(valorOrigem) &&
         (rec.alocacoes == null || (Array.isArray(rec.alocacoes) && rec.alocacoes.length === 1 && String(rec.alocacoes[0].tid) === tid && cent(rec.alocacoes[0].valor) === cent(valorOrigem)));
       if (representado) continue;
+      if(p.rateioContratos&&parcelaRateadaConfere(p,t)&&relacionados.length&&relacionados.every(r=>recebimentoRateado(r)))continue;
       if (relacionados.length) { pendente('Recebimento existente, manual ou apagado: conferir o histórico sem duplicar o pagamento.'); continue; }
       if (!dataValida(corte) || !data) { pendente('Data do pagamento na origem ou corte de importação sem comprovação válida.'); continue; }
       if (dataValida(hoje) && data > hoje) { pendente('Data de pagamento futura na origem; conferir antes de reconhecer a liquidação.'); continue; }
@@ -125,7 +158,7 @@ const FINANCEIRO = (() => {
   }
   function resumo(v, recs, hoje) {
     const ps = (v.parcelas || []).map((p,indiceOriginal)=>p?{...p,indiceOriginal}:null).filter(p => p && !p._remover && !p.cancelado);
-    const pagamentos = recs.filter(r => !r.apagadoEm && r.vendaId === v.id);
+    const pagamentos = recebimentosDaVenda(recs,v.id);
     let naoAlocado = 0;
     const erros = [], porTitulo = new Map(), entradas = [];
     for (const r of pagamentos) {
@@ -210,6 +243,6 @@ const FINANCEIRO = (() => {
     return fichasDoGrupo(v,todas).flatMap(c=>(c.anexos||[]).filter(a=>a&&!a.apagadoEm)
       .map(a=>({...a,fichaOrigem:c.codigo||c.id,vendaOrigem:c.id})));
   }
-  return {condicoesComerciais,vendasComerciais,fichasDoGrupo,anexosDoGrupo,cent,rs,dataValida,chave,tituloDisponivel,vendaAtiva,lotesVenda,nomeLotes,entradaSemVenda,identidadeConta,classificarVinculos,indiceHistoricoAntesCorte,historicoAntesCorte,resumo,alocar};
+  return {rateioValido,recebimentoRateado,recebimentosDaVenda,parcelaRateadaConfere,condicoesComerciais,vendasComerciais,fichasDoGrupo,anexosDoGrupo,cent,rs,dataValida,chave,tituloDisponivel,vendaAtiva,lotesVenda,nomeLotes,entradaSemVenda,identidadeConta,classificarVinculos,indiceHistoricoAntesCorte,historicoAntesCorte,resumo,alocar};
 })();
 if (typeof module !== 'undefined') module.exports = FINANCEIRO;

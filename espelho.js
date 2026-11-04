@@ -8,7 +8,7 @@
 const lotes = () => lista('lote').sort((a, b) => (a.quadra - b.quadra) || (a.lote - b.lote));
 const nomeLote = (l) => l ? ('Q' + l.quadra + ' · L' + l.lote) : '—';
 const nomeLotesVenda = v => FINANCEIRO.lotesVenda(v).map(nomeLote).join(' + ') || '—';
-const recsDaVenda = (vid) => lista('rec').filter((r) => r.vendaId === vid);
+const recsDaVenda = (vid) => FINANCEIRO.recebimentosDaVenda(lista('rec'),vid);
 const cfgReajuste = () => (S.cfg && S.cfg.reajuste) || { pct: 6, aCada: 12 };
 const ehCorretorPerfil = () => S.perfil === 'corretor';
 
@@ -53,6 +53,7 @@ function resumoVenda(v) {
       'Título ausente na última leitura da origem; conferir antes de cobrar.'});
   }
   const historico=FINANCEIRO.historicoAntesCorte(v,{indice:indiceHistorico,corte:S.cfg?.omie?.corteEntradas||'',vinculos,hoje:hojeISO()});
+  for(const p of ps)if(p.rateioContratos&&!FINANCEIRO.parcelaRateadaConfere(p,(indiceHistorico.porTitulo.get(String(p.tid))||[])[0]))conferenciasOrigem.push({tid:String(p.tid),motivo:'Origem mudou após o rateio; confira a distribuição entre contratos.'});
   const conferir=new Set([...ambiguos,...historico.conferencias.map(x=>x.tid),...conferenciasOrigem.map(x=>x.tid)]);
   const conferida=conferir.size?{...v,parcelas:v.parcelas.map(p=>p&&conferir.has(String(p.tid))?{...p,conferir:true}:p)}:v;
   // Estes eventos só existem durante o cálculo. Não entram em S.reg, caixa,
@@ -136,10 +137,10 @@ function classificacoesVinculosTitulosOmie(titulos,vendaConsulta) {
   }));
 }
 function vinculosTitulosOmie() {
-  // Compatibilidade com as faixas de atraso: apenas um destino confirmado.
+  // Destinos confirmados, inclusive as partes de um rateio explícito.
   // Duas ocorrências na mesma ficha também exigem conferência, sem escolher uma.
   return new Map([...classificacoesVinculosTitulosOmie()]
-    .filter(([,r])=>r.confirmado).map(([tid,r])=>[tid,new Set([r.vinculo.venda.id])]));
+    .filter(([,r])=>r.confirmado).map(([tid,r])=>[tid,new Set((r.vinculos||[r.vinculo]).map(x=>x.venda.id))]));
 }
 function resumoInadimplenciaOmie(){
   const vinculos=classificacoesVinculosTitulosOmie();

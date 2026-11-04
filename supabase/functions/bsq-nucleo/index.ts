@@ -496,6 +496,15 @@ Deno.serve(async (req) => {
         if(!data.repetida)await registrarLog({acao:agrupando?"agrupou contrato e lotes":"classificou entrada",por,operacao:body.operacao,principal:body.principal,id:body.id});
         return json({...data,mensagem:agrupando?"Contrato e lotes associados por seleção, com histórico.":"Classificação registrada com histórico."});
       }
+      case "ratearContratos": {
+        if (!["direcao","escritorio"].includes(perfilDe(quem))) return json({error:"Sem permissão"},403);
+        const {data,error}=await db.rpc("bsq_ratear_contratos",{p_pedido:body,p_por:por});
+        if(error)return json({error:error.message,conflito:error.code==="40001"},error.code==="40001"?409:400);
+        if(data?.ok!==true)return json({error:"O banco não confirmou a distribuição."},502);
+        await marcarMudanca(["venda","rec","titulo"]);
+        if(!data.repetida)await registrarLog({acao:"dividiu título entre contratos",por,titulo:body.titulo,operacao:body.operacao});
+        return json(data);
+      }
       case "conciliarFinanceiro": {
         if (!["direcao", "escritorio"].includes(perfilDe(quem))) return json({ error: "Sem permissão" }, 403);
         const { data, error } = await db.rpc("bsq_conciliar_financeiro", {
